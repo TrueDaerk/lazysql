@@ -412,3 +412,18 @@ Chronological history of wiki changes, newest last.
   [design/query-editor-and-history](design/query-editor-and-history.md)
   and [design/tui-shell-architecture](design/tui-shell-architecture.md)
   for the renumbering and the pane.
+
+## 2026-08-09 — Row filtering via the filter modal (issue #37)
+
+- Updated [design/data-grid](design/data-grid.md): `/` (and still `f`)
+  opens `filterModal` — a `formModal` with column, operator and value
+  fields, starting on the cell cursor's column, hiding the value for
+  `IS [NOT] NULL` and offering to `AND` onto an active structured
+  filter; `ctrl+t` toggles the free-text `WHERE` mode the filter used to
+  be, and `F` clears the filter. New `db.BuildFilter`/`db.FilterCond`
+  quote the identifier per dialect and bind every value as a parameter;
+  what it binds *as* comes from the column's declared type
+  (`db.typeClass`, whole-name matching so `point`/`interval` are not
+  read as integers), with `LIKE` always text and an unparseable value
+  reported on the modal's error line. `dataView` gained `conds` so a
+  repeated `/` can add to the filter rather than replace it.

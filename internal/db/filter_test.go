@@ -161,3 +161,193 @@ func TestQueryPageOnLargeTableFetchesOnlyThePage(t *testing.T) {
 		t.Fatalf("last-page query took %s", el)
 	}
 }
+
+// ---------- structured filter (the `/` modal) ----------
+
+func TestBuildFilterQuotesAndBinds(t *testing.T) {
+	sqlite, _ := DialectFor(EngineSQLite)
+	pg, _ := DialectFor(EnginePostgres)
+	mysql, _ := DialectFor(EngineMySQL)
+
+	cases := []struct {
+		name     string
+		dialect  Dialect
+		conds    []FilterCond
+		wantExpr string
+		wantArgs []any
+		wantRaw  string
+	}{
+		{
+			name:     "string equality",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "name", Op: OpEq, Value: "bob", Type: "TEXT"}},
+			wantExpr: `"name" = ?`,
+			wantArgs: []any{"bob"},
+			wantRaw:  `name = 'bob'`,
+		},
+		{
+			// The value stays data: the quote is not escaped into the
+			// statement, it never reaches it.
+			name:     "quote and wildcard in the value",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "name", Op: OpLike, Value: `o'%brien`, Type: "TEXT"}},
+			wantExpr: `"name" LIKE ?`,
+			wantArgs: []any{`o'%brien`},
+			wantRaw:  `name LIKE 'o''%brien'`,
+		},
+		{
+			name:     "numeric column binds a number",
+			dialect:  pg,
+			conds:    []FilterCond{{Column: "id", Op: OpGe, Value: "42", Type: "integer"}},
+			wantExpr: `"id" >= $1`,
+			wantArgs: []any{int64(42)},
+			wantRaw:  `id >= 42`,
+		},
+		{
+			name:     "float column",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "price", Op: OpLt, Value: "9.5", Type: "DOUBLE PRECISION"}},
+			wantExpr: `"price" < ?`,
+			wantArgs: []any{9.5},
+		},
+		{
+			name:     "boolean column",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "active", Op: OpNe, Value: "true", Type: "BOOLEAN"}},
+			wantExpr: `"active" != ?`,
+			wantArgs: []any{true},
+		},
+		{
+			// A LIKE pattern is text even against a numeric column.
+			name:     "LIKE against an integer column stays text",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "id", Op: OpLike, Value: "1%", Type: "INTEGER"}},
+			wantExpr: `"id" LIKE ?`,
+			wantArgs: []any{"1%"},
+		},
+		{
+			name:     "unknown type sniffs a number",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "n", Op: OpEq, Value: "7"}},
+			wantExpr: `"n" = ?`,
+			wantArgs: []any{int64(7)},
+		},
+		{
+			name:     "NULL tests take no parameter",
+			dialect:  sqlite,
+			conds:    []FilterCond{{Column: "email", Op: OpIsNull, Value: "ignored"}},
+			wantExpr: `"email" IS NULL`,
+			wantArgs: nil,
+			wantRaw:  `email IS NULL`,
+		},
+		{
+			name:    "conditions are ANDed with numbered placeholders",
+			dialect: pg,
+			conds: []FilterCond{
+				{Column: "email", Op: OpIsNotNull},
+				{Column: "name", Op: OpEq, Value: "bob", Type: "text"},
+				{Column: "id", Op: OpGt, Value: "3", Type: "int8"},
+			},
+			wantExpr: `"email" IS NOT NULL AND "name" = $1 AND "id" > $2`,
+			wantArgs: []any{"bob", int64(3)},
+			wantRaw:  `email IS NOT NULL AND name = 'bob' AND id > 3`,
+		},
+		{
+			name:     "identifier quoting follows the dialect",
+			dialect:  mysql,
+			conds:    []FilterCond{{Column: "odd`col", Op: OpEq, Value: "x", Type: "varchar(20)"}},
+			wantExpr: "`odd``col` = ?",
+			wantArgs: []any{"x"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f, err := BuildFilter(c.dialect, c.conds)
+			if err != nil {
+				t.Fatalf("BuildFilter: %v", err)
+			}
+			if f.Verbatim {
+				t.Errorf("filter is verbatim, want parameterized")
+			}
+			if f.Expr != c.wantExpr {
+				t.Errorf("Expr = %q, want %q", f.Expr, c.wantExpr)
+			}
+			if !slices.Equal(f.Args, c.wantArgs) {
+				t.Errorf("Args = %#v, want %#v", f.Args, c.wantArgs)
+			}
+			if c.wantRaw != "" && f.Raw != c.wantRaw {
+				t.Errorf("Raw = %q, want %q", f.Raw, c.wantRaw)
+			}
+		})
+	}
+}
+
+func TestBuildFilterEmptyIsNoFilter(t *testing.T) {
+	d, _ := DialectFor(EngineSQLite)
+	f, err := BuildFilter(d, nil)
+	if err != nil || f != nil {
+		t.Fatalf("BuildFilter(nil) = %+v, %v; want nil, nil", f, err)
+	}
+}
+
+// A value the column's type cannot hold is reported instead of being sent
+// as a string the engine would reject with a less useful message.
+func TestBuildFilterRejectsBadValues(t *testing.T) {
+	d, _ := DialectFor(EngineSQLite)
+	cases := []FilterCond{
+		{Column: "id", Op: OpEq, Value: "abc", Type: "INTEGER"},
+		{Column: "price", Op: OpEq, Value: "cheap", Type: "NUMERIC"},
+		{Column: "active", Op: OpEq, Value: "maybe", Type: "BOOLEAN"},
+		{Column: "", Op: OpEq, Value: "x"},
+		{Column: "id", Op: FilterOp("DROP"), Value: "1"},
+	}
+	for _, c := range cases {
+		if _, err := BuildFilter(d, []FilterCond{c}); err == nil {
+			t.Errorf("BuildFilter(%+v) = nil error, want one", c)
+		}
+	}
+}
+
+// An integer typed against an integer column but written as a decimal is
+// still a number, so it binds rather than failing.
+func TestBuildFilterAcceptsFloatOnIntegerColumn(t *testing.T) {
+	d, _ := DialectFor(EngineSQLite)
+	f, err := BuildFilter(d, []FilterCond{{Column: "id", Op: OpLt, Value: "4.5", Type: "INTEGER"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.Args, []any{4.5}) {
+		t.Fatalf("Args = %#v, want [4.5]", f.Args)
+	}
+}
+
+// PostgreSQL's point and interval contain "int" but hold no number the
+// filter should coerce.
+func TestTypeClassMatchesWholeTypeNames(t *testing.T) {
+	for _, c := range []struct {
+		typ  string
+		want valueClass
+	}{
+		{"INTEGER", classInt}, {"int4", classInt}, {"BIGINT", classInt},
+		{"INT UNSIGNED", classInt}, {"tinyint(1)", classInt},
+		{"double precision", classFloat}, {"NUMERIC(10,2)", classFloat},
+		{"boolean", classBool},
+		{"VARCHAR(20)", classText}, {"text", classText},
+		{"point", classUnknown}, {"interval", classUnknown},
+		{"", classUnknown}, {"timestamp", classUnknown},
+	} {
+		if got := typeClass(c.typ); got != c.want {
+			t.Errorf("typeClass(%q) = %v, want %v", c.typ, got, c.want)
+		}
+	}
+}
+
+func TestFilterOpNeedsValue(t *testing.T) {
+	for _, op := range FilterOps() {
+		want := op != OpIsNull && op != OpIsNotNull
+		if got := op.NeedsValue(); got != want {
+			t.Errorf("%s.NeedsValue() = %v, want %v", op, got, want)
+		}
+	}
+}

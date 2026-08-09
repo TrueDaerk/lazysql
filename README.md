@@ -64,8 +64,20 @@ In the data grid (`enter` on a table, `esc` back):
 | `h`/`l`, `←`/`→` | Move the cell cursor between columns |
 | `ctrl+f` / `ctrl+b`, `pgdn`/`pgup` | Next / previous page |
 | `s` | Sort the cursor column (ASC → DESC → off) |
-| `f` | Quick `WHERE` filter |
+| `/` (or `f`) | Filter rows (modal) |
+| `F` | Clear the filter |
 | `v` | Show the full cell value (JSON pretty-printed) |
+
+`/` opens the filter modal on the column under the cursor: pick a column,
+an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,
+`IS NOT NULL`) and a value. The value is always bound as a query
+parameter and the column name is quoted per dialect, so quotes and `%` in
+it are data, never SQL. With a filter already active the modal offers to
+`AND` the new condition onto it instead of replacing it. `ctrl+t` inside
+the modal switches to advanced mode: a free-form `WHERE` fragment, which
+is parameterized where it can be and flagged `where (verbatim)` in the
+status line where it cannot. The active filter is shown in the grid's
+status line, paging and the row count both respect it, and `F` clears it.
 
 The query editor is panel `[4]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two

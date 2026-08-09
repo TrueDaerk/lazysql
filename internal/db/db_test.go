@@ -276,6 +276,98 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		}
 	})
 
+	// The structured filter modal builds its Filter through BuildFilter,
+	// so what it produces has to run — and bind — on every engine.
+	t.Run("BuiltFilterRuns", func(t *testing.T) {
+		f, err := BuildFilter(drv.Dialect(), []FilterCond{
+			{Column: "name", Op: OpLike, Value: "car%", Type: "TEXT"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs, err := drv.QueryPage(ctx, "", "users", f, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Rows) != 1 || rs.Rows[0][1] != "carol" {
+			t.Fatalf("rows = %v, want just carol", rs.Rows)
+		}
+		n, err := drv.CountRows(ctx, "", "users", f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("CountRows = %d, want 1", n)
+		}
+	})
+
+	// A value carrying a quote and a wildcard is data: it matches
+	// literally, closes no literal and injects nothing.
+	t.Run("BuiltFilterBindsValue", func(t *testing.T) {
+		if _, err := drv.Exec(ctx,
+			"INSERT INTO users (id, name, email) VALUES ("+
+				drv.Dialect().Placeholder(1)+", "+drv.Dialect().Placeholder(2)+", NULL)",
+			99, `o'%brien`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { drv.Exec(ctx, "DELETE FROM users WHERE id = 99") })
+
+		f, err := BuildFilter(drv.Dialect(), []FilterCond{
+			{Column: "name", Op: OpEq, Value: `o'%brien`, Type: "TEXT"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(f.Args) != 1 || f.Verbatim {
+			t.Fatalf("filter = %+v, want one bound argument", f)
+		}
+		rs, err := drv.QueryPage(ctx, "", "users", f, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// `%` is a wildcard only for LIKE; under `=` it is a character,
+		// so exactly the one row with that literal name comes back.
+		if len(rs.Rows) != 1 || rs.Rows[0][0] != int64(99) {
+			t.Fatalf("rows = %v, want the row with the quoted name", rs.Rows)
+		}
+
+		injection, err := BuildFilter(drv.Dialect(), []FilterCond{
+			{Column: "name", Op: OpEq, Value: `x' OR 1=1 --`, Type: "TEXT"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs, err = drv.QueryPage(ctx, "", "users", injection, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Rows) != 0 {
+			t.Fatalf("rows = %v, want none", rs.Rows)
+		}
+	})
+
+	// IS NULL takes no parameter, and the two conditions of an ANDed
+	// filter have to number their placeholders apart.
+	t.Run("BuiltFilterNullAndAnd", func(t *testing.T) {
+		f, err := BuildFilter(drv.Dialect(), []FilterCond{
+			{Column: "email", Op: OpIsNull},
+			{Column: "id", Op: OpGe, Value: "2", Type: "INTEGER"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(f.Args) != 1 {
+			t.Fatalf("args = %v, want just the id bound", f.Args)
+		}
+		rs, err := drv.QueryPage(ctx, "", "users", f, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Rows) != 1 || rs.Rows[0][1] != "bob" {
+			t.Fatalf("rows = %v, want just bob", rs.Rows)
+		}
+	})
+
 	t.Run("QueryWithParams", func(t *testing.T) {
 		d := drv.Dialect()
 		rs, err := drv.Query(ctx, "SELECT name FROM users WHERE id = "+d.Placeholder(1), 2)

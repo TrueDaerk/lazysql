@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"lazysql/internal/db"
 )
 
 // copyBrowsing is metaBrowsing with a second order row that has a NULL
@@ -184,9 +186,7 @@ func TestCopyTableCSV(t *testing.T) {
 // the grid is showing.
 func TestCopyTableRespectsFilter(t *testing.T) {
 	got := fakeClipboard(t)
-	m := send(t, copyBrowsing(t), press('f'))
-	m = send(t, m, press('i'), press('d'), press(' '), press('='), press(' '), press('2'),
-		special(tea.KeyEnter, 0))
+	m := applyColumnFilter(t, copyBrowsing(t), "id", db.OpEq, "2")
 	send(t, m, press('y'), press('C'))
 
 	lines := strings.Split(strings.TrimRight(*got, "\n"), "\n")

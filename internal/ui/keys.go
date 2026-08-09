@@ -94,6 +94,7 @@ type keyMap struct {
 	PrevPage    key.Binding
 	SortColumn  key.Binding
 	WhereFilter key.Binding
+	ClearFilter key.Binding
 	ViewCell    key.Binding
 
 	// Staged editing (Data tab).
@@ -186,8 +187,12 @@ func newKeyMap() keyMap {
 		ColRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
 		NextPage:    key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "next page")),
 		PrevPage:    key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "prev page")),
-		SortColumn:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort column")),
-		WhereFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "where filter")),
+		SortColumn: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort column")),
+		// `/` is the filter key everywhere else in the shell, so the grid
+		// answers to it too; `f` stays bound for the muscle memory the
+		// prompt-only filter built up.
+		WhereFilter: key.NewBinding(key.WithKeys("/", "f"), key.WithHelp("/", "filter rows")),
+		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 
 		EditCell:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
@@ -290,6 +295,7 @@ const (
 	actPrevPage
 	actSortColumn
 	actWhereFilter
+	actClearFilter
 	actViewCell
 	actEditCell
 	actDeleteRow
@@ -364,6 +370,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actPrevPage, k.PrevPage},
 			{actSortColumn, k.SortColumn},
 			{actWhereFilter, k.WhereFilter},
+			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
 			{actEditCell, k.EditCell},
 			{actDeleteRow, k.DeleteRow},
@@ -458,7 +465,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
-		{"view-cell", &k.ViewCell},
+		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 
 		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
 		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},

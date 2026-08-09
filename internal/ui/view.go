@@ -273,6 +273,11 @@ func (m Model) mainContent(w, h int) string {
 	// Panel [4] edits here: the side column has room for a preview of the
 	// buffer, not for typing in it.
 	if m.focus == panelQuery {
+		// An open EXPLAIN result replaces the editor until esc dismisses
+		// it; the buffer is untouched underneath.
+		if m.plan != nil {
+			return m.planContent(w, h)
+		}
 		return m.queryContent(w, h)
 	}
 	if m.data.open() {

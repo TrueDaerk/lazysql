@@ -143,6 +143,14 @@ func (c *conn) TableDDL(ctx context.Context, database, table string) (string, er
 	return c.dialect.tableDDL(ctx, q, database, table)
 }
 
+func (c *conn) Explain(ctx context.Context, sql string) (*Plan, error) {
+	q, err := c.q()
+	if err != nil {
+		return nil, err
+	}
+	return c.dialect.explain(ctx, q, sql)
+}
+
 // qualifiedTable renders database.table with per-dialect quoting,
 // omitting the database part when empty.
 func qualifiedTable(d Dialect, database, table string) string {

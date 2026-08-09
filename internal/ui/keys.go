@@ -57,11 +57,15 @@ type keyMap struct {
 	// SaveSnippet keeps the buffer as a named snippet. It is bound in both
 	// editor modes — ctrl+s is not a character, so insert mode can spare
 	// it — and reaches the same store the pane's Snippets section browses.
-	EditQuery   key.Binding
-	RunEditor   key.Binding
-	ClearQuery  key.Binding
-	History     key.Binding
-	SaveSnippet key.Binding
+	EditQuery key.Binding
+	RunEditor key.Binding
+	// ExplainQuery asks the server for the plan of the statement under
+	// the caret. Like RunEditor it is bound in both editor modes —
+	// ctrl+e is not a character — and it never executes the statement.
+	ExplainQuery key.Binding
+	ClearQuery   key.Binding
+	History      key.Binding
+	SaveSnippet  key.Binding
 
 	// Vim normal mode in the query editor. j/k/↑/↓ reuse Up and Down.
 	// The two-key commands (dd, yy, gg) are bound to their first key and
@@ -167,8 +171,10 @@ func newKeyMap() keyMap {
 		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
 		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
 
-		EditQuery:  key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
-		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
+		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
+		RunEditor: key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
+		ExplainQuery: key.NewBinding(
+			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain the statement")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
 		History:    key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "query history")),
 		SaveSnippet: key.NewBinding(
@@ -266,7 +272,8 @@ func (k keyMap) navigationFor(id panelID) []key.Binding {
 // slice — and not the panel's action list — is what the options bar and
 // `?` show there.
 func (k keyMap) editorInsert() []key.Binding {
-	return []key.Binding{k.Complete, k.RunEditor, k.SaveSnippet, k.CancelQuery, k.LeaveInsert}
+	return []key.Binding{
+		k.Complete, k.RunEditor, k.ExplainQuery, k.SaveSnippet, k.CancelQuery, k.LeaveInsert}
 }
 
 // editorNormal are the vim keys of the query editor's normal mode. They
@@ -318,6 +325,7 @@ const (
 	actToggleTab
 	actEditQuery
 	actRunEditor
+	actExplainQuery
 	actClearQuery
 	actHistory
 	actSaveSnippet
@@ -397,6 +405,7 @@ func (k keyMap) panelActions(id panelID) []action {
 		return []action{
 			{actEditQuery, k.EditQuery},
 			{actRunEditor, k.RunEditor},
+			{actExplainQuery, k.ExplainQuery},
 			{actClearQuery, k.ClearQuery},
 			{actHistory, k.History},
 			{actSaveSnippet, k.SaveSnippet},
@@ -493,7 +502,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"toggle-tab", &k.ToggleTab},
 
-		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
+		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},
+		{"explain-query", &k.ExplainQuery}, {"clear-query", &k.ClearQuery},
 		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
 
 		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},

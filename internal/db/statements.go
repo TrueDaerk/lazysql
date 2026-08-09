@@ -18,15 +18,44 @@ import "strings"
 //
 // The final statement does not need a trailing semicolon.
 func SplitStatements(engine Engine, script string) []string {
+	spans := SplitStatementSpans(engine, script)
+	if len(spans) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(spans))
+	for _, s := range spans {
+		out = append(out, s.SQL)
+	}
+	return out
+}
+
+// StatementSpan is one statement of a script together with where it sits
+// in it. Start and End are rune offsets of the trimmed statement text, so
+// a caret anywhere between them is inside that statement — which is how
+// `ctrl+e` decides what to explain in a multi-statement buffer.
+type StatementSpan struct {
+	SQL        string
+	Start, End int
+}
+
+// SplitStatementSpans is SplitStatements with the offsets kept.
+func SplitStatementSpans(engine Engine, script string) []StatementSpan {
 	r := []rune(script)
 	mysqlish := engine == EngineMySQL || engine == EngineMariaDB
 	dollar := engine == EnginePostgres
 
-	var out []string
+	var out []StatementSpan
 	start, i := 0, 0
 	push := func(end int) {
-		if s := strings.TrimSpace(string(r[start:end])); s != "" {
-			out = append(out, s)
+		lo, hi := start, end
+		for lo < hi && isSpaceRune(r[lo]) {
+			lo++
+		}
+		for hi > lo && isSpaceRune(r[hi-1]) {
+			hi--
+		}
+		if lo < hi {
+			out = append(out, StatementSpan{SQL: string(r[lo:hi]), Start: lo, End: hi})
 		}
 	}
 	for i < len(r) {
@@ -58,6 +87,32 @@ func SplitStatements(engine Engine, script string) []string {
 	}
 	push(len(r))
 	return out
+}
+
+func isSpaceRune(c rune) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
+}
+
+// StatementAt returns the statement the caret sits in, as a rune offset
+// into the script. A caret inside a statement picks that one; a caret in
+// the whitespace or on the `;` after one picks the statement it just
+// left, which is where it is after typing a statement out. ok is false
+// only for a script with no statements at all.
+func StatementAt(engine Engine, script string, offset int) (StatementSpan, bool) {
+	spans := SplitStatementSpans(engine, script)
+	if len(spans) == 0 {
+		return StatementSpan{}, false
+	}
+	pick := spans[0]
+	for _, s := range spans {
+		if offset >= s.Start {
+			pick = s
+		}
+		if offset >= s.Start && offset <= s.End {
+			return s, true
+		}
+	}
+	return pick, true
 }
 
 func skipToEOL(r []rune, i int) int {

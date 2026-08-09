@@ -139,3 +139,47 @@ func TestFirstKeyword(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitStatementSpans(t *testing.T) {
+	script := "SELECT 1;\n\nSELECT 2 FROM t;\n"
+	spans := SplitStatementSpans(EngineSQLite, script)
+	if len(spans) != 2 {
+		t.Fatalf("got %d spans, want 2", len(spans))
+	}
+	r := []rune(script)
+	for _, s := range spans {
+		if string(r[s.Start:s.End]) != s.SQL {
+			t.Errorf("span %+v does not match the script text %q", s, string(r[s.Start:s.End]))
+		}
+	}
+}
+
+func TestStatementAt(t *testing.T) {
+	script := "SELECT 1;\nSELECT 2 FROM t;\nSELECT 3;"
+	cases := []struct {
+		name   string
+		offset int
+		want   string
+	}{
+		{"inside the first", 3, "SELECT 1"},
+		{"on the first semicolon", 8, "SELECT 1"},
+		{"in the gap after the first", 9, "SELECT 1"},
+		{"at the start of the second", 10, "SELECT 2 FROM t"},
+		{"inside the second", 14, "SELECT 2 FROM t"},
+		{"inside the last", 30, "SELECT 3"},
+		{"past the end", 999, "SELECT 3"},
+		{"before everything", 0, "SELECT 1"},
+	}
+	for _, c := range cases {
+		got, ok := StatementAt(EngineSQLite, script, c.offset)
+		if !ok {
+			t.Fatalf("%s: no statement found", c.name)
+		}
+		if got.SQL != c.want {
+			t.Errorf("%s: StatementAt(%d) = %q, want %q", c.name, c.offset, got.SQL, c.want)
+		}
+	}
+	if _, ok := StatementAt(EngineSQLite, "  \n ;", 0); ok {
+		t.Error("an empty script should have no statement")
+	}
+}

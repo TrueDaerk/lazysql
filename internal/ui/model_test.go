@@ -614,12 +614,14 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			}
 		}
 		actions[k.Actions.Keys()[0]] = true
-		// The query editor's two mode groups — insert mode and the
-		// completion popup — are dispatched by updateEditor rather than
-		// through the action table, since they only mean anything inside
-		// the buffer. They are bound; they are just not actions.
+		// The query editor's mode groups — vim normal mode, insert mode
+		// and the completion popup — are dispatched by updateQuery and
+		// updateEditor rather than through the action table, since they
+		// only mean anything inside the buffer. They are bound; they are
+		// just not actions.
 		if id == panelQuery {
-			for _, b := range append(k.editorInsert(), k.editorCompletion()...) {
+			groups := append(k.editorNormal(), k.editorInsert()...)
+			for _, b := range append(groups, k.editorCompletion()...) {
 				for _, ks := range b.Keys() {
 					actions[ks] = true
 				}

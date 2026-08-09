@@ -116,6 +116,11 @@ which is the modal problem again in a different costume. So
 `updateQuery` ends with: if the main view is showing a query result,
 hand the key to `updateData`.
 
+Since issue #33 normal mode is a vim layer, which claims `h`/`l`, `y`,
+`d`, `x`, `p` and friends before the fall-through — see
+[design/vim-mode-query-editor](vim-mode-query-editor.md) for the key
+set and what it displaced.
+
 The panel's own actions are matched first, so `D` is "clear the buffer"
 here and not the grid's "duplicate row". That shadowing is deliberate
 and is why `D` confirms before it discards anything.

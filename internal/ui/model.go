@@ -1025,6 +1025,10 @@ func (m *Model) setFocus(id panelID) {
 		m.prev = m.prev[len(m.prev)-16:]
 	}
 	m.focus = id
+	// A half-typed dd/yy/gg does not survive leaving the editor: coming
+	// back and pressing `d` must not complete a chord started before the
+	// detour.
+	m.editor.pending = 0
 }
 
 // actionsMenu is the `a` popup: one scrollable entry per binding of the

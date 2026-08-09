@@ -159,15 +159,25 @@ func (j queryJob) run() {
 
 // ---------- the editor panel ----------
 
-// queryEditor is panel [5]. It has two modes, the shape the vim-mode
-// work will extend: in normal mode the panel's keys are lazysql's own —
-// `i` starts editing, ctrl+r runs the buffer, digits still jump — and in
-// insert mode every key that is not ctrl+r, ctrl+c or esc types into the
-// buffer. Without that split a persistent editor would swallow `q`, `?`
-// and the panel numbers for as long as it had focus.
+// queryEditor is panel [5]. It has two modes: normal mode speaks the vim
+// dialect implemented in vim.go — motions, x/dd/yy/p, i/a/o/O into
+// insert — plus lazysql's own keys (ctrl+r runs, D clears, digits still
+// jump), and in insert mode every key that is not ctrl+r, ctrl+c or esc
+// types into the buffer. Without that split a persistent editor would
+// swallow `q`, `?` and the panel numbers for as long as it had focus.
 type queryEditor struct {
 	area    textarea.Model
 	editing bool
+	// pending is the first key of an unfinished dd/yy/gg chord, 0 when
+	// none. Any other key cancels it and acts as itself; leaving the
+	// panel clears it (see setFocus).
+	pending rune
+	// register is the single yank register x/dd/yy fill and p empties.
+	register vimRegister
+	// want is the column vertical motions aim for, kept across
+	// keypresses so j over a short line and back restores the column.
+	// -1 means "wherever the cursor is".
+	want int
 }
 
 func newQueryEditor() queryEditor {
@@ -181,7 +191,7 @@ func newQueryEditor() queryEditor {
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.SetWidth(editorWrapWidth)
-	return queryEditor{area: ta}
+	return queryEditor{area: ta, want: -1}
 }
 
 // script is the buffer's text. It is the only copy of the draft the
@@ -200,6 +210,11 @@ func (m *Model) setScript(sql string) {
 // even if one reached it.
 func (m *Model) setEditing(on bool) {
 	m.editor.editing = on
+	m.editor.pending = 0
+	// Whatever column insert mode ends on is where normal mode starts
+	// aiming; a want kept across an editing session would jump the
+	// first j/k to a column the user left minutes ago.
+	m.editor.want = -1
 	if on {
 		m.editor.area.Focus()
 		return
@@ -208,6 +223,9 @@ func (m *Model) setEditing(on bool) {
 	// caret that is no longer taking input.
 	m.completion = completion{}
 	m.editor.area.Blur()
+	// Insert mode may leave the caret one past the last character; vim's
+	// normal mode sits on it, not after it.
+	m.applyVim(m.vimBuffer(), false)
 }
 
 // openQueryEditor is `:`: focus panel [5] and start typing. The buffer
@@ -319,24 +337,147 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmd, m.refreshCompletion(false))
 }
 
-// updateQuery is normal mode on panel [5]. Unclaimed keys fall through
-// to the data grid whenever the main view is showing this editor's
-// result, so paging or inspecting a result never costs the editor its
-// focus.
+// vimBuffer reads the textarea into the pure vim engine: its text, its
+// cursor, and the remembered vertical-motion column.
+func (m Model) vimBuffer() vimBuffer {
+	b := newVimBuffer(m.script(), m.editor.area.Line(), m.editor.area.Column())
+	if m.editor.want > b.want {
+		b.want = m.editor.want
+	}
+	return b
+}
+
+// applyVim writes a vimBuffer back: the text if an edit changed it, and
+// the cursor always. The textarea has no "set line" call, so the row is
+// walked from the top — buffers here are a few hundred lines at most.
+func (m *Model) applyVim(b vimBuffer, changed bool) {
+	if changed {
+		m.editor.area.SetValue(b.text())
+	}
+	m.editor.area.MoveToBegin()
+	for i := 0; i < b.row; i++ {
+		m.editor.area.CursorDown()
+	}
+	m.editor.area.SetCursorColumn(b.col)
+	m.editor.want = b.want
+}
+
+// vimMotion applies one cursor-only command.
+func (m *Model) vimMotion(move func(*vimBuffer)) {
+	b := m.vimBuffer()
+	move(&b)
+	m.applyVim(b, false)
+}
+
+// vimInsertAt lands the cursor and enters insert mode — the shared tail
+// of a/o/O.
+func (m *Model) vimInsertAt(b vimBuffer, col int, changed bool) {
+	b.col = col
+	m.applyVim(b, changed)
+	// applyVim's SetCursorColumn clamps to the line, which for `a` at
+	// line end is one short; re-set once focused, when the textarea
+	// allows the past-the-end column.
+	m.setEditing(true)
+	m.editor.area.SetCursorColumn(col)
+}
+
+// updateQuery is normal mode on panel [5]: the vim layer first, then the
+// panel's own actions. Unclaimed keys fall through to the data grid
+// whenever the main view is showing this editor's result, so paging or
+// inspecting a result never costs the editor its focus.
 func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+	// A started dd/yy/gg chord claims this key: its double completes the
+	// command, anything else cancels the chord and acts as itself.
+	if p := m.editor.pending; p != 0 {
+		m.editor.pending = 0
+		if s := msg.String(); len(s) == 1 && rune(s[0]) == p {
+			switch p {
+			case 'd':
+				b := m.vimBuffer()
+				m.editor.register = b.deleteLine()
+				m.applyVim(b, true)
+			case 'y':
+				m.editor.register = m.vimBuffer().yankLine()
+			case 'g':
+				m.vimMotion((*vimBuffer).top)
+			}
+			return m, nil
+		}
+	}
+
 	switch {
+	// Chord openers. Matching literal first keys — a rebind of the full
+	// chord rebinds its opener.
+	case key.Matches(msg, k.VimDeleteLine), key.Matches(msg, k.VimYankLine), key.Matches(msg, k.VimTop):
+		if s := msg.String(); len(s) == 1 {
+			m.editor.pending = rune(s[0])
+		}
+		return m, nil
+
+	// Motions.
 	case key.Matches(msg, k.Down):
-		m.editor.area.CursorDown()
+		m.vimMotion((*vimBuffer).down)
 		return m, nil
 	case key.Matches(msg, k.Up):
-		m.editor.area.CursorUp()
+		m.vimMotion((*vimBuffer).up)
 		return m, nil
+	case key.Matches(msg, k.VimLeft):
+		m.vimMotion((*vimBuffer).left)
+		return m, nil
+	case key.Matches(msg, k.VimRight):
+		m.vimMotion((*vimBuffer).right)
+		return m, nil
+	case key.Matches(msg, k.VimWordFwd):
+		m.vimMotion((*vimBuffer).wordForward)
+		return m, nil
+	case key.Matches(msg, k.VimWordBack):
+		m.vimMotion((*vimBuffer).wordBack)
+		return m, nil
+	case key.Matches(msg, k.VimLineStart):
+		m.vimMotion((*vimBuffer).lineStart)
+		return m, nil
+	case key.Matches(msg, k.VimLineEnd):
+		m.vimMotion((*vimBuffer).lineEnd)
+		return m, nil
+	case key.Matches(msg, k.VimBottom):
+		m.vimMotion((*vimBuffer).bottom)
+		return m, nil
+
+	// Insert entry points. `i` (and enter) arrive through the panel's
+	// actEditQuery below and keep the cursor where it is.
+	case key.Matches(msg, k.VimAppend):
+		b := m.vimBuffer()
+		m.vimInsertAt(b, b.appendCol(), false)
+		return m, nil
+	case key.Matches(msg, k.VimOpenBelow):
+		b := m.vimBuffer()
+		b.openBelow()
+		m.vimInsertAt(b, 0, true)
+		return m, nil
+	case key.Matches(msg, k.VimOpenAbove):
+		b := m.vimBuffer()
+		b.openAbove()
+		m.vimInsertAt(b, 0, true)
+		return m, nil
+
+	// Edits.
+	case key.Matches(msg, k.VimDeleteChar):
+		b := m.vimBuffer()
+		if reg, ok := b.deleteChar(); ok {
+			m.editor.register = reg
+			m.applyVim(b, true)
+		}
+		return m, nil
+	case key.Matches(msg, k.VimPaste):
+		b := m.vimBuffer()
+		if b.paste(m.editor.register) {
+			m.applyVim(b, true)
+		}
+		return m, nil
+
 	case key.Matches(msg, k.Back):
 		m.focusBack()
-		return m, nil
-	case key.Matches(msg, k.Actions):
-		m.modal = m.actionsMenu()
 		return m, nil
 	}
 	for _, a := range k.panelActions(panelQuery) {
@@ -748,5 +889,5 @@ func (m Model) editorHint() string {
 	case m.editor.editing:
 		return "ctrl+r run · ctrl+space complete · esc normal mode"
 	}
-	return "i edit · ctrl+r run · D clear · esc back"
+	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · D clear · esc back"
 }

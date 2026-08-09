@@ -86,3 +86,11 @@ Chronological history of wiki changes, newest last.
   `conkey`/`confkey` unnested *together* and its action codes cast
   `::text` for pgx, and MySQL splits foreign keys across
   `key_column_usage` and `referential_constraints`.
+- Added [design/staged-changeset](design/staged-changeset.md) with the
+  staged editing feature (issue #7): `e` records a `db.CellChange`
+  instead of executing, `db.Changeset` keys pending changes by
+  `(database, table, column, typed pk values)` so re-edits replace and
+  restoring the original unstages, `UpdateSQL` renders per-dialect
+  parameterized UPDATEs, and `Driver.ExecTx` commits everything in one
+  transaction — failure rolls back and keeps the changeset. Tables
+  without a declared primary key are not editable at all.

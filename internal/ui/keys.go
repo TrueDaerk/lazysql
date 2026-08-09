@@ -45,6 +45,12 @@ type keyMap struct {
 	WhereFilter key.Binding
 	ViewCell    key.Binding
 
+	// Staged editing (Data tab).
+	EditCell       key.Binding
+	CommitChanges  key.Binding
+	UnstageCell    key.Binding
+	DiscardChanges key.Binding
+
 	// Main-view tabs (Data | Structure | Indexes | DDL).
 	PrevMainTab key.Binding
 	NextMainTab key.Binding
@@ -87,6 +93,11 @@ func newKeyMap() keyMap {
 		WhereFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "where filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 
+		EditCell:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
+		CommitChanges:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit staged changes")),
+		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage cell")),
+		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
+
 		PrevMainTab: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
 		NextMainTab: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
 		CopyDDL:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy DDL")),
@@ -125,6 +136,10 @@ const (
 	actSortColumn
 	actWhereFilter
 	actViewCell
+	actEditCell
+	actCommitChanges
+	actUnstageCell
+	actDiscardChanges
 	actPrevMainTab
 	actNextMainTab
 	actCopyDDL
@@ -175,6 +190,10 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actSortColumn, k.SortColumn},
 			{actWhereFilter, k.WhereFilter},
 			{actViewCell, k.ViewCell},
+			{actEditCell, k.EditCell},
+			{actCommitChanges, k.CommitChanges},
+			{actUnstageCell, k.UnstageCell},
+			{actDiscardChanges, k.DiscardChanges},
 			{actCopyDDL, k.CopyDDL},
 			{actRefresh, k.Refresh},
 		}

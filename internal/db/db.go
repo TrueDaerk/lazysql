@@ -183,6 +183,9 @@ type Driver interface {
 
 	// Exec runs a statement with parameters (dialect placeholder style).
 	Exec(ctx context.Context, query string, args ...any) (ExecResult, error)
+	// ExecTx runs the statements in one transaction: the first error
+	// rolls everything back, so either all of them applied or none did.
+	ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, error)
 	// Query runs an arbitrary SQL query with parameters.
 	Query(ctx context.Context, query string, args ...any) (*ResultSet, error)
 }

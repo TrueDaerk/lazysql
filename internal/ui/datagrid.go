@@ -30,12 +30,14 @@ type gridColumn struct {
 	width  int
 	cells  []string
 	nulls  []bool
+	staged []bool
 }
 
 // buildGrid formats the whole page once so column widths, the header
 // and every row agree on the same strings.
 func (m Model) buildGrid() []gridColumn {
 	d := m.data
+	rowKeys := m.stagedRowKeys()
 	cols := make([]gridColumn, len(d.cols))
 	for i, c := range d.cols {
 		header := c.Name
@@ -51,12 +53,21 @@ func (m Model) buildGrid() []gridColumn {
 			typ:    strings.ToLower(c.DataType),
 			cells:  make([]string, len(d.rows)),
 			nulls:  make([]bool, len(d.rows)),
+			staged: make([]bool, len(d.rows)),
 			width:  maxInt(lipgloss.Width(header), lipgloss.Width(c.DataType)),
 		}
 		for r, row := range d.rows {
 			var v any
 			if i < len(row) {
 				v = row[i]
+			}
+			// A staged cell shows its staged value — seeing the pending
+			// edit in place is the point of staging.
+			if rowKeys != nil && rowKeys[r] != nil {
+				if ch, ok := m.changes.Lookup(d.database, d.table, rowKeys[r], c.Name); ok {
+					v = ch.NewValue
+					g.staged[r] = true
+				}
 			}
 			g.nulls[r] = v == nil
 			g.cells[r] = flatten(db.FormatValue(v, nullText))
@@ -73,6 +84,23 @@ func (m Model) buildGrid() []gridColumn {
 		cols[i] = g
 	}
 	return cols
+}
+
+// stagedRowKeys returns each page row's primary key values, or nil when
+// nothing is staged for the open table. The key columns come from the
+// changeset itself, so highlighting works without a metadata fetch.
+func (m Model) stagedRowKeys() [][]any {
+	pkCols := m.changes.PKColsFor(m.data.database, m.data.table)
+	if pkCols == nil {
+		return nil
+	}
+	keys := make([][]any, len(m.data.rows))
+	for r := range m.data.rows {
+		if vals, ok := m.rowKeyVals(pkCols, r); ok {
+			keys[r] = vals
+		}
+	}
+	return keys
 }
 
 // flatten collapses whitespace that would otherwise break the row into
@@ -212,19 +240,20 @@ func (m Model) gridRow(cols []gridColumn, first, r, w int) string {
 			b.WriteString(gap)
 		}
 		text := ""
-		isNull := false
+		isNull, isStaged := false, false
 		if r < len(c.cells) {
-			text, isNull = c.cells[r], c.nulls[r]
+			text, isNull, isStaged = c.cells[r], c.nulls[r], c.staged[r]
 		}
-		b.WriteString(m.cellStyle(onRow, first+i == m.data.col, isNull).
+		b.WriteString(m.cellStyle(onRow, first+i == m.data.col, isNull, isStaged).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
 	return truncate(b.String(), w)
 }
 
-// cellStyle picks the tint of one cell from the cursor position and
-// whether the value is NULL.
-func (m Model) cellStyle(onRow, onCol, isNull bool) lipgloss.Style {
+// cellStyle picks the tint of one cell from the cursor position, whether
+// the value is NULL and whether an edit of it is staged. Staged wins
+// over NULL: yellow is the "pending" color throughout the app.
+func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	switch {
 	case onRow && onCol && m.focus == panelMain:
@@ -232,7 +261,10 @@ func (m Model) cellStyle(onRow, onCol, isNull bool) lipgloss.Style {
 	case onRow:
 		style = m.style.rowCursor
 	}
-	if isNull {
+	switch {
+	case isStaged:
+		style = style.Foreground(colorYellow).Bold(true)
+	case isNull:
 		style = style.Foreground(colorMuted)
 	}
 	return style
@@ -263,6 +295,9 @@ func (m Model) dataStatus() string {
 	parts = append(parts, page+")")
 
 	line := m.style.muted.Render(strings.Join(parts, " "))
+	if n := m.changes.Len(); n > 0 {
+		line += m.style.pending.Render("  " + countChanges(n))
+	}
 	if d.sort != nil {
 		dir := "asc"
 		if d.sort.Desc {

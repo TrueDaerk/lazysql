@@ -262,11 +262,12 @@ func (m *Model) cancelQuery() tea.Cmd {
 
 // ---------- reducing the worker's messages ----------
 
-// applyQueryStmt reduces one finished statement: it logs the statement,
-// records it in the history and routes its outcome into the Data tab.
+// applyQueryStmt reduces one finished statement: the statement itself is
+// already in the command log — the worker ran it through the Driver,
+// whose Logger caught it — so this only records it in the history and
+// routes its outcome into the Data tab.
 func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 	cmds := []tea.Cmd{
-		logCmd("%s;", flattenSQL(msg.sql)),
 		m.recordHistory(msg.sql),
 	}
 	where := ""
@@ -415,10 +416,6 @@ func countAffected(n int64) string {
 	}
 	return fmt.Sprintf("%d rows affected", n)
 }
-
-// flattenSQL collapses a multi-line statement onto the single line the
-// command log has room for.
-func flattenSQL(sql string) string { return flatten(sql) }
 
 // ---------- the editor modal ----------
 

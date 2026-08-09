@@ -158,6 +158,10 @@ type Driver interface {
 	Engine() Engine
 	Dialect() Dialect
 
+	// Logger is the ring buffer every statement this Driver runs lands
+	// in, for the command log panel. Never nil.
+	Logger() *Logger
+
 	// ListDatabases returns the browsable namespaces: databases for
 	// MySQL/MariaDB, schemas of the connected database for PostgreSQL,
 	// attached databases for SQLite and DuckDB.
@@ -268,7 +272,7 @@ func Open(engine Engine) (Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &conn{dialect: d}, nil
+	return &conn{dialect: d, logger: NewLogger()}, nil
 }
 
 // FormatValue renders a normalized cell value for display. NULL renders

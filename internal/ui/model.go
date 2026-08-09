@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/help"
@@ -46,6 +48,58 @@ func logCmd(format string, a ...any) tea.Cmd {
 	return func() tea.Msg { return commandLogMsg{line: line} }
 }
 
+// logLine is one line the command log panel renders: either a UI note
+// (skip reasons, connect status, export progress — logCmd's own text) or
+// an executed statement pulled from the Driver's Logger. at orders the
+// two streams into one timeline; err colors the line red.
+type logLine struct {
+	text string
+	at   time.Time
+	err  bool
+}
+
+func (l logLine) render() string {
+	return l.at.Format("15:04:05") + "  " + l.text
+}
+
+// commandLogEntries merges the UI's own notes with the connected
+// Driver's Logger — the single choke point every Exec/Query runs
+// through — into one chronological feed for the slim panel and its `@`
+// expanded view. The Logger, not this slice, is what guarantees a
+// statement from browsing, editing or the query editor shows up exactly
+// once: nothing here re-formats SQL by hand.
+func (m Model) commandLogEntries() []logLine {
+	out := append([]logLine(nil), m.commandLog...)
+	if m.driver != nil {
+		for _, e := range m.driver.Logger().Entries() {
+			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].at.Before(out[j].at) })
+	if n := len(out); n > db.LogCapacity {
+		out = out[n-db.LogCapacity:]
+	}
+	return out
+}
+
+// sqlEntryText spells one Logger entry the way the log already renders a
+// statement: the SQL, its bound args if any, how long it took, and the
+// error if it failed.
+func sqlEntryText(e db.LogEntry) string {
+	text := e.SQL
+	if !strings.HasSuffix(text, ";") {
+		text += ";"
+	}
+	if len(e.Args) > 0 {
+		text += fmt.Sprintf("  -- args %v", e.Args)
+	}
+	text += "  (" + formatTook(e.Duration) + ")"
+	if e.Err != nil {
+		text += fmt.Sprintf("  -- FAILED: %v", e.Err)
+	}
+	return text
+}
+
 // focusPanelMsg moves focus to a panel.
 type focusPanelMsg struct{ id panelID }
 
@@ -80,7 +134,7 @@ type Model struct {
 	modal  modal
 	screen screenMode
 
-	commandLog []string
+	commandLog []logLine
 
 	// Connection manager state. cfg is the on-disk connection list; connState
 	// is the transient per-connection status the panel colors itself by.
@@ -323,9 +377,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case commandLogMsg:
-		m.commandLog = append(m.commandLog, msg.line)
-		if n := len(m.commandLog); n > 200 {
-			m.commandLog = m.commandLog[n-200:]
+		m.commandLog = append(m.commandLog, logLine{
+			text: msg.line,
+			at:   time.Now(),
+			err:  strings.Contains(msg.line, "FAILED"),
+		})
+		if n := len(m.commandLog); n > db.LogCapacity {
+			m.commandLog = m.commandLog[n-db.LogCapacity:]
 		}
 		return m, nil
 
@@ -500,17 +558,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// changeset survives so the user can fix and retry.
 			return m, logCmd("-- COMMIT FAILED — nothing applied, changeset kept: %v", msg.err)
 		}
-		cmds := []tea.Cmd{logCmd("BEGIN;")}
+		// The transaction itself — BEGIN, each statement, COMMIT — is
+		// already in the command log: ExecTx logged it through the
+		// Driver's Logger as it ran. This only feeds the query-recall
+		// history, a separate concern from the audit trail.
+		var cmds []tea.Cmd
 		for _, s := range msg.stmts {
-			stmt := s
-			cmds = append(cmds,
-				logCmd("%s;  -- args %v", stmt.SQL, stmt.Args),
-				historyCmd(stmt.SQL),
-			)
+			cmds = append(cmds, historyCmd(s.SQL))
 		}
 		m.changes.Clear()
 		cmds = append(cmds,
-			logCmd("COMMIT;  -- %s applied", countChanges(len(msg.stmts))),
+			logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))),
 			m.reloadPage(),
 		)
 		return m, tea.Batch(cmds...)
@@ -587,6 +645,10 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.OpenEditor):
 		cmd := m.openQueryEditor()
 		return true, m, cmd
+
+	case key.Matches(msg, k.CommandLog):
+		m.modal = newCommandLogModal(m.commandLogEntries())
+		return true, m, nil
 
 	case key.Matches(msg, k.Quit):
 		return true, m, tea.Quit

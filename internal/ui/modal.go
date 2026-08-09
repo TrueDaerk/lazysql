@@ -332,3 +332,78 @@ func (hm *helpModal) view(s styles, maxW, maxH int) string {
 		s.muted.Render("esc close"),
 	))
 }
+
+// ---------- command log ----------
+
+// commandLogModal is `@`'s expanded, scrollable view of the command log:
+// a snapshot of every entry taken when it opened, full untruncated SQL
+// text and all — the slim strip under the main view truncates to fit,
+// this does not. Like every other modal it renders from its own state,
+// so a statement that lands while it is open shows up the next time `@`
+// reopens it, not live.
+type commandLogModal struct {
+	lines  []logLine
+	offset int
+}
+
+func newCommandLogModal(lines []logLine) *commandLogModal {
+	return &commandLogModal{lines: lines, offset: max(len(lines)-1, 0)}
+}
+
+func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "@":
+		return true, nil
+	case "down", "j":
+		c.offset++
+	case "up", "k":
+		c.offset--
+	case "pgdown", "ctrl+f":
+		c.offset += 10
+	case "pgup", "ctrl+b":
+		c.offset -= 10
+	case "g", "home":
+		c.offset = 0
+	case "G", "end":
+		c.offset = len(c.lines)
+	}
+	return false, nil
+}
+
+func (c *commandLogModal) view(s styles, maxW, maxH int) string {
+	width := min(maxW-8, 160)
+	if width < 20 {
+		width = 20
+	}
+	rows := maxH - 6
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > len(c.lines) {
+		rows = len(c.lines)
+	}
+	if maxOff := len(c.lines) - rows; c.offset > maxOff {
+		c.offset = maxOff
+	}
+	if c.offset < 0 {
+		c.offset = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(s.modalTitle.Render("Command log") + "\n\n")
+	for _, line := range c.lines[c.offset : c.offset+rows] {
+		text := truncate(line.render(), width)
+		if line.err {
+			b.WriteString(s.danger.Render(text) + "\n")
+		} else {
+			b.WriteString(text + "\n")
+		}
+	}
+	footer := "esc close"
+	if len(c.lines) > rows {
+		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · esc close",
+			c.offset+1, c.offset+rows, len(c.lines))
+	}
+	b.WriteString("\n" + s.muted.Render(footer))
+	return s.modal.Render(b.String())
+}

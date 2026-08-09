@@ -24,6 +24,7 @@ type keyMap struct {
 	// CancelQuery is only meaningful while a query runs and is enabled
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
+	CommandLog  key.Binding
 	Help        key.Binding
 	Quit        key.Binding
 
@@ -86,7 +87,8 @@ func newKeyMap() keyMap {
 		OpenEditor: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "query editor")),
 		CancelQuery: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel query"), key.WithDisabled()),
-		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		CommandLog: key.NewBinding(key.WithKeys("@"), key.WithHelp("@", "expand command log")),
+		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
@@ -140,7 +142,7 @@ func (k keyMap) navigation() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.Help, k.Quit,
 	}
 }
 

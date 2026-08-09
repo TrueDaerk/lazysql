@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // conn is the one Driver implementation; all engine differences are
@@ -14,7 +15,10 @@ import (
 type conn struct {
 	dialect Dialect
 	db      *sql.DB
+	logger  *Logger
 }
+
+func (c *conn) Logger() *Logger { return c.logger }
 
 var errNotConnected = errors.New("db: not connected")
 
@@ -47,17 +51,26 @@ func (c *conn) Engine() Engine   { return c.dialect.Engine() }
 func (c *conn) Dialect() Dialect { return c.dialect }
 
 // querierAdapter narrows *sql.DB to the querier interface the dialects use.
-type querierAdapter struct{ db *sql.DB }
+// It logs through the same Logger as every other call the conn makes, so
+// introspection (columns, indexes, foreign keys, DDL) shows up in the
+// command log exactly like a browsed page or an edited row does.
+type querierAdapter struct {
+	db     *sql.DB
+	logger *Logger
+}
 
 func (q querierAdapter) QueryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
-	return q.db.QueryContext(ctx, query, args...)
+	start := time.Now()
+	rows, err := q.db.QueryContext(ctx, query, args...)
+	q.logger.record(query, args, start, err)
+	return rows, err
 }
 
 func (c *conn) q() (querier, error) {
 	if c.db == nil {
 		return nil, errNotConnected
 	}
-	return querierAdapter{c.db}, nil
+	return querierAdapter{c.db, c.logger}, nil
 }
 
 func (c *conn) ListDatabases(ctx context.Context) ([]string, error) {
@@ -203,7 +216,9 @@ func (c *conn) Exec(ctx context.Context, query string, args ...any) (ExecResult,
 	if c.db == nil {
 		return ExecResult{}, errNotConnected
 	}
+	start := time.Now()
 	res, err := c.db.ExecContext(ctx, query, args...)
+	c.logger.record(query, args, start, err)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -222,13 +237,17 @@ func (c *conn) ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, err
 	if c.db == nil {
 		return nil, errNotConnected
 	}
+	beginStart := time.Now()
 	tx, err := c.db.BeginTx(ctx, nil)
+	c.logger.record("BEGIN", nil, beginStart, err)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ExecResult, 0, len(stmts))
 	for i, s := range stmts {
+		start := time.Now()
 		res, err := tx.ExecContext(ctx, s.SQL, s.Args...)
+		c.logger.record(s.SQL, s.Args, start, err)
 		if err != nil {
 			tx.Rollback()
 			return nil, fmt.Errorf("statement %d of %d: %w", i+1, len(stmts), err)
@@ -242,7 +261,10 @@ func (c *conn) ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, err
 		}
 		out = append(out, r)
 	}
-	if err := tx.Commit(); err != nil {
+	commitStart := time.Now()
+	err = tx.Commit()
+	c.logger.record("COMMIT", nil, commitStart, err)
+	if err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -257,10 +279,14 @@ func (c *conn) QueryLimit(ctx context.Context, query string, max int, args ...an
 	if c.db == nil {
 		return nil, false, errNotConnected
 	}
+	start := time.Now()
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		c.logger.record(query, args, start, err)
 		return nil, false, err
 	}
 	defer rows.Close()
-	return scanResultSetLimit(ctx, rows, max)
+	rs, capped, err := scanResultSetLimit(ctx, rows, max)
+	c.logger.record(query, args, start, err)
+	return rs, capped, err
 }

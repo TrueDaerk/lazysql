@@ -57,7 +57,11 @@ type keyMap struct {
 	// Main-view tabs (Data | Structure | Indexes | DDL).
 	PrevMainTab key.Binding
 	NextMainTab key.Binding
-	CopyDDL     key.Binding
+
+	// Copy and export.
+	CopyMenu     key.Binding
+	ExportTable  key.Binding
+	CancelExport key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -106,7 +110,13 @@ func newKeyMap() keyMap {
 
 		PrevMainTab: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
 		NextMainTab: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
-		CopyDDL:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy DDL")),
+
+		CopyMenu:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy…")),
+		ExportTable: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "export to file")),
+		// Only meaningful while an export is running, and shown only
+		// then: the options bar and `?` both skip disabled bindings.
+		CancelExport: key.NewBinding(
+			key.WithKeys("X"), key.WithHelp("X", "cancel export"), key.WithDisabled()),
 	}
 }
 
@@ -155,6 +165,21 @@ const (
 	actPrevMainTab
 	actNextMainTab
 	actCopyDDL
+
+	// Copy and export. Only actCopyMenu, actExportTable and
+	// actCancelExport are bound to keys; the rest are the entries of the
+	// `y` menu, dispatched through runAction like everything else.
+	actCopyMenu
+	actCopyCell
+	actCopyRowCSV
+	actCopyRowJSON
+	actCopyRowInsert
+	actCopyTableCSV
+	actCopyTableJSON
+	actCopyTableInsert
+	actCopyTableSchema
+	actExportTable
+	actCancelExport
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -209,7 +234,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actCommitChanges, k.CommitChanges},
 			{actUnstageCell, k.UnstageCell},
 			{actDiscardChanges, k.DiscardChanges},
-			{actCopyDDL, k.CopyDDL},
+			{actCopyMenu, k.CopyMenu},
+			{actExportTable, k.ExportTable},
+			{actCancelExport, k.CancelExport},
 			{actRefresh, k.Refresh},
 		}
 	}

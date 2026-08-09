@@ -207,7 +207,7 @@ func (m Model) ddlLines(w, h int) []string {
 		lines = append(lines, strings.ReplaceAll(l, "\t", "    "))
 	}
 	out := scrollLines(lines, m.meta.row[mainTabDDL], w, maxInt(h-1, 0))
-	hint := fmt.Sprintf("%d lines — y copies the statement", len(lines))
+	hint := fmt.Sprintf("%d lines — y opens the copy menu", len(lines))
 	return append(out, m.style.keyHint.Render(truncate(hint, w)))
 }
 

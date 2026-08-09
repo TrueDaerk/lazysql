@@ -100,6 +100,10 @@ type Model struct {
 	tab  mainTab
 	meta metaView
 
+	// export is the file export in flight, if any. At most one runs at
+	// a time; `X` cancels it.
+	export exportState
+
 	startupErr string
 
 	keys  keyMap
@@ -189,6 +193,10 @@ func (m *Model) resetBrowse() {
 	// Staged changes reference the connection's tables; they cannot
 	// survive it. They are discarded, not committed.
 	m.changes.Clear()
+	// An export reads through the driver that is about to be closed.
+	if m.export.running && m.export.cancel != nil {
+		m.export.cancel()
+	}
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
@@ -451,6 +459,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		return m, tea.Batch(cmds...)
 
+	case copiedMsg:
+		// A copy already rendered its own outcome — clipboard, temp-file
+		// fallback or failure — so the log line is taken as it is.
+		return m, logCmd("%s", msg.line)
+
+	case exportProgressMsg:
+		if msg.id != m.export.id || !m.export.running {
+			return m, nil
+		}
+		return m, tea.Batch(
+			logCmd("-- export %s: %d rows…", m.export.table, msg.rows),
+			waitExportCmd(m.export.ch),
+		)
+
+	case exportDoneMsg:
+		if msg.id != m.export.id {
+			return m, nil
+		}
+		// Bind the command first: finishExport clears the in-flight
+		// state on m, and Go may otherwise copy the pre-call model into
+		// the return value.
+		cmd := m.finishExport(msg)
+		return m, cmd
+
 	case connPersistedMsg:
 		if msg.err != nil {
 			return m, logCmd("-- %s %s FAILED: %v", msg.verb, msg.name, msg.err)
@@ -610,6 +642,9 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	// The main view's tab actions run first: they mean the same thing
 	// on every tab. The data grid's own actions live with the grid.
 	if mm, cmd, handled := m.metaActions(id); handled {
+		return mm, cmd
+	}
+	if mm, cmd, handled := m.copyActions(id); handled {
 		return mm, cmd
 	}
 	if mm, cmd, handled := m.dataActions(id); handled {

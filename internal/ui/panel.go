@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+
+	"charm.land/lipgloss/v2"
 )
 
 // panelID enumerates the numbered side panels of the left column.
@@ -23,13 +25,33 @@ var panelTitles = [panelCount]string{
 	"Query history",
 }
 
+// itemStatus tints a row. The [1] Connections panel uses it to show which
+// profile is live (green), which one last failed (red) and which are idle.
+type itemStatus int
+
+const (
+	statusIdle itemStatus = iota
+	statusOK
+	statusError
+	statusPending
+)
+
 // sidePanel is a plain cursor-over-slice list. Bubbles' list component carries
 // filtering and pagination chrome we don't want in a lazygit-style column.
 type sidePanel struct {
 	id     panelID
 	items  []string
+	status []itemStatus // parallel to items; shorter means "idle" for the rest
 	cursor int
 	offset int // index of the first visible row, for scrolling
+}
+
+// statusAt reports the status of row i, defaulting to idle.
+func (p *sidePanel) statusAt(i int) itemStatus {
+	if i >= 0 && i < len(p.status) {
+		return p.status[i]
+	}
+	return statusIdle
 }
 
 func (p *sidePanel) move(delta int) {
@@ -55,6 +77,26 @@ func (p *sidePanel) selected() string {
 
 func (p *sidePanel) setItems(items []string) {
 	p.items = items
+	p.status = nil
+	p.move(0)
+}
+
+// setItemsWithStatus replaces the rows together with their tint.
+func (p *sidePanel) setItemsWithStatus(items []string, status []itemStatus) {
+	p.items = items
+	p.status = status
+	p.move(0)
+}
+
+// selectByName moves the cursor onto the named row when it exists.
+func (p *sidePanel) selectByName(name string) {
+	for i, it := range p.items {
+		if it == name {
+			p.cursor = i
+			p.move(0)
+			return
+		}
+	}
 	p.move(0)
 }
 
@@ -97,11 +139,18 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 		return b.String()
 	}
 	for i, item := range p.visible(rows) {
+		idx := p.offset + i
 		line := truncate(item, w)
-		if focused && p.offset+i == p.cursor {
-			line = s.selected.Width(w).Render(line)
+		style := lipgloss.NewStyle()
+		if focused && idx == p.cursor {
+			style = s.selected.Width(w)
 		}
-		b.WriteString("\n" + line)
+		// Status color survives selection: the selected row keeps its
+		// highlight background and only swaps foreground.
+		if fg, ok := statusColor(p.statusAt(idx)); ok {
+			style = style.Foreground(fg)
+		}
+		b.WriteString("\n" + style.Render(line))
 	}
 	return b.String()
 }

@@ -1,6 +1,10 @@
 package ui
 
-import "charm.land/lipgloss/v2"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // ANSI palette colors respect the user's terminal theme, which keeps the
 // lazygit look consistent across color schemes.
@@ -50,4 +54,18 @@ func newStyles() styles {
 		danger:     lipgloss.NewStyle().Foreground(colorRed),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
 	}
+}
+
+// statusColor maps a row status to its tint. The idle status has no color of
+// its own so it inherits the terminal's default foreground.
+func statusColor(st itemStatus) (color.Color, bool) {
+	switch st {
+	case statusOK:
+		return colorGreen, true
+	case statusError:
+		return colorRed, true
+	case statusPending:
+		return colorYellow, true
+	}
+	return nil, false
 }

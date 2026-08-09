@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"lazysql/internal/db"
 )
 
 const appName = "lazysql"
@@ -135,6 +137,9 @@ func (m Model) renderMainColumn(w, h int) string {
 // mainContent is the placeholder detail view for the focused selection. The
 // result grid replaces it once the driver layer lands.
 func (m Model) mainContent(w, h int) string {
+	if m.focus == panelConnections {
+		return m.connectionDetail(w, h)
+	}
 	sel := m.panels[m.focus].selected()
 	if sel == "" {
 		sel = "(nothing selected)"
@@ -146,6 +151,73 @@ func (m Model) mainContent(w, h int) string {
 		"",
 		m.style.muted.Render("no result set yet — connect and drill in with enter"),
 	}
+	return joinTruncated(lines, w, h)
+}
+
+// connectionDetail is the main view for panel [1]: the selected profile's
+// settings, its live status, and the last error it produced. It never shows a
+// password — passwords live only in the keyring.
+func (m Model) connectionDetail(w, h int) string {
+	lines := []string{
+		m.style.titleFocused.Render(panelTitles[panelConnections]) + m.style.muted.Render(" — main view"),
+		"",
+	}
+	c, ok := m.selectedConnection()
+	if !ok {
+		lines = append(lines, m.style.muted.Render("no connections yet — press n to add one"))
+		return joinTruncated(lines, w, h)
+	}
+
+	state := m.connState[c.Name]
+	status := "idle"
+	statusStyle := m.style.muted
+	switch state.status {
+	case statusOK:
+		status, statusStyle = "connected", m.style.titleFocused
+	case statusError:
+		status, statusStyle = "error", m.style.danger
+	case statusPending:
+		status, statusStyle = "connecting…", m.style.pending
+	}
+
+	engine := string(c.Engine)
+	if d, err := db.DialectFor(c.Engine); err == nil {
+		engine = d.DisplayName()
+	}
+	lines = append(lines,
+		"name    "+c.Name,
+		"engine  "+engine,
+		"status  "+statusStyle.Render(status),
+	)
+	if db.FileBased(c.Engine) {
+		file := c.File
+		if file == "" {
+			file = "(in-memory)"
+		}
+		lines = append(lines, "file    "+file)
+	} else {
+		lines = append(lines,
+			fmt.Sprintf("address %s:%d", c.Host, c.Port),
+			"user    "+c.User,
+			"db      "+c.Database,
+		)
+		secret := "OS keyring"
+		if c.AskPassword {
+			secret = "prompt on connect"
+		}
+		lines = append(lines, "secret  "+m.style.muted.Render(secret))
+	}
+	if len(c.Options) > 0 {
+		lines = append(lines, "options "+formatOptions(c.Options))
+	}
+	if state.lastErr != "" {
+		lines = append(lines, "", m.style.danger.Render("last error: "+state.lastErr))
+	}
+	return joinTruncated(lines, w, h)
+}
+
+// joinTruncated clips a block of lines to a w x h content box.
+func joinTruncated(lines []string, w, h int) string {
 	out := make([]string, 0, h)
 	for i, l := range lines {
 		if i >= h {

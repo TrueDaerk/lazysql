@@ -2,10 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+
+	"lazysql/internal/config"
+	"lazysql/internal/db"
 )
 
 // Minimum usable terminal. Below this the layout math produces negative
@@ -68,34 +72,103 @@ type Model struct {
 
 	commandLog []string
 
+	// Connection manager state. cfg is the on-disk connection list; connState
+	// is the transient per-connection status the panel colors itself by.
+	cfg       *config.Config
+	connState map[string]connState
+	driver    db.Driver
+	active    string // name of the connected profile, "" when none
+
+	startupErr string
+
 	keys  keyMap
 	help  help.Model
 	style styles
 }
 
-// New builds the shell with placeholder content; real data arrives later via
-// the driver layer.
+// New builds the shell and loads the saved connections. A broken or missing
+// config never blocks startup: the error is surfaced in the command log and
+// the app starts with an empty connection list.
 func New() Model {
 	m := Model{
-		focus: panelConnections,
-		keys:  newKeyMap(),
-		help:  help.New(),
-		style: newStyles(),
+		focus:     panelConnections,
+		keys:      newKeyMap(),
+		help:      help.New(),
+		style:     newStyles(),
+		connState: map[string]connState{},
 	}
-	m.panels[panelConnections] = &sidePanel{id: panelConnections, items: []string{
-		"local-postgres", "local-mysql", "analytics.duckdb", "notes.sqlite",
-	}}
-	m.panels[panelDatabases] = &sidePanel{id: panelDatabases, items: []string{
-		"postgres", "app_dev", "app_test",
-	}}
-	m.panels[panelTables] = &sidePanel{id: panelTables, items: []string{
-		"users", "accounts", "sessions", "audit_log",
-	}}
-	m.panels[panelHistory] = &sidePanel{id: panelHistory}
+	for id := panelID(0); id < panelCount; id++ {
+		m.panels[id] = &sidePanel{id: id}
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = &config.Config{}
+		m.startupErr = err.Error()
+	}
+	m.cfg = cfg
+	m.refreshConnections("")
 	return m
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd {
+	if m.startupErr != "" {
+		return logCmd("-- config error: %s", m.startupErr)
+	}
+	return nil
+}
+
+// refreshConnections rebuilds the [1] Connections panel from the config plus
+// the live status map, keeping (or moving to) the named selection.
+func (m *Model) refreshConnections(selectName string) {
+	names := m.cfg.Names()
+	status := make([]itemStatus, len(names))
+	for i, n := range names {
+		status[i] = m.connState[n].status
+	}
+	p := m.panels[panelConnections]
+	prev := p.selected()
+	p.setItemsWithStatus(names, status)
+	if selectName == "" {
+		selectName = prev
+	}
+	if selectName != "" {
+		p.selectByName(selectName)
+	}
+}
+
+// setConnStatus records a status transition and repaints the panel.
+func (m *Model) setConnStatus(name string, st itemStatus, lastErr string) {
+	if name == "" {
+		return
+	}
+	m.connState[name] = connState{status: st, lastErr: lastErr}
+	m.refreshConnections("")
+}
+
+// renameConnState follows a profile rename so its status does not stick to a
+// name that no longer exists.
+func (m *Model) renameConnState(oldName, newName string) {
+	if oldName == "" || oldName == newName {
+		return
+	}
+	if st, ok := m.connState[oldName]; ok {
+		m.connState[newName] = st
+		delete(m.connState, oldName)
+	}
+	if m.active == oldName {
+		m.active = newName
+	}
+}
+
+// selectedConnection returns the profile under the cursor of panel [1].
+func (m Model) selectedConnection() (config.Connection, bool) {
+	name := m.panels[panelConnections].selected()
+	if name == "" {
+		return config.Connection{}, false
+	}
+	return m.cfg.Find(name)
+}
 
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
 // keys) → global keys → focused panel.
@@ -119,6 +192,49 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case focusPanelMsg:
 		m.setFocus(msg.id)
+		return m, nil
+
+	case connTestedMsg:
+		if msg.err != nil {
+			m.setConnStatus(msg.name, statusError, msg.err.Error())
+			return m, logCmd("-- test %s FAILED: %v", msg.name, msg.err)
+		}
+		// A successful test does not make the profile the active connection:
+		// it only clears a stale error on anything that is not connected.
+		if m.active != msg.name {
+			m.setConnStatus(msg.name, statusIdle, "")
+		}
+		return m, logCmd("-- test %s ok in %s (%s)", msg.name, msg.took.Round(time.Millisecond), msg.dsn)
+
+	case connectedMsg:
+		if msg.err != nil {
+			m.setConnStatus(msg.name, statusError, msg.err.Error())
+			m.modal = &confirmModal{
+				title:  "Connection failed",
+				body:   fmt.Sprintf("%s: %v", msg.name, msg.err),
+				danger: true,
+			}
+			return m, logCmd("-- connect %s FAILED: %v", msg.name, msg.err)
+		}
+		prev := m.driver
+		if m.active != "" && m.active != msg.name {
+			m.setConnStatus(m.active, statusIdle, "")
+		}
+		m.driver = msg.driver
+		m.active = msg.name
+		m.setConnStatus(msg.name, statusOK, "")
+		m.panels[panelDatabases].setItems(msg.databases)
+		m.panels[panelTables].setItems(nil)
+		return m, tea.Batch(
+			closeDriverCmd(prev),
+			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
+			focusCmd(panelDatabases),
+		)
+
+	case connPersistedMsg:
+		if msg.err != nil {
+			return m, logCmd("-- %s %s FAILED: %v", msg.verb, msg.name, msg.err)
+		}
 		return m, nil
 
 	case tea.KeyPressMsg:
@@ -193,6 +309,11 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, k.Enter):
+		// Connecting can open a password prompt, which drillIn (a plain
+		// tea.Cmd) cannot do — route panel [1] through the action instead.
+		if m.focus == panelConnections {
+			return m.runAction(actConnect)
+		}
 		return m, m.drillIn()
 
 	case key.Matches(msg, k.Back):
@@ -225,45 +346,45 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	switch id {
 	case actConnect:
-		if sel := m.panels[panelConnections].selected(); sel != "" {
-			return m, tea.Batch(logCmd("-- connect %s", sel), focusCmd(panelDatabases))
-		}
+		return m.dialSelected(false)
+
+	case actTestConnection:
+		return m.dialSelected(true)
 
 	case actNewConnection:
-		m.modal = newPromptModal("New connection", "postgres://user@host/db", "",
-			func(m *Model, v string) tea.Cmd {
-				if v == "" {
-					return nil
-				}
-				p := m.panels[panelConnections]
-				p.setItems(append(p.items, v))
-				return logCmd("-- add connection %s", v)
-			})
+		m.modal = newConnectionForm("New connection", config.Connection{}, "")
 
 	case actEditConnection:
-		if sel := m.panels[panelConnections].selected(); sel != "" {
-			m.modal = newPromptModal("Edit connection", "", sel,
-				func(m *Model, v string) tea.Cmd {
-					if v == "" {
-						return nil
-					}
-					p := m.panels[panelConnections]
-					p.items[p.cursor] = v
-					return logCmd("-- rename connection %s -> %s", sel, v)
-				})
+		if c, ok := m.selectedConnection(); ok {
+			m.modal = newConnectionForm("Edit connection — "+c.Name, c, c.Name)
 		}
 
 	case actDropConnection:
-		if sel := m.panels[panelConnections].selected(); sel != "" {
+		if c, ok := m.selectedConnection(); ok {
+			name := c.Name
 			m.modal = &confirmModal{
-				title:  "Remove connection",
-				body:   fmt.Sprintf("Remove %q from the connection list?", sel),
+				title: "Remove connection",
+				body: fmt.Sprintf(
+					"Remove %q from config.toml and delete its keyring entry?", name),
 				danger: true,
 				onConfirm: func(m *Model) tea.Cmd {
-					p := m.panels[panelConnections]
-					kept := append([]string{}, p.items[:p.cursor]...)
-					p.setItems(append(kept, p.items[p.cursor+1:]...))
-					return logCmd("-- remove connection %s", sel)
+					if !m.cfg.Remove(name) {
+						return nil
+					}
+					var closeCmd tea.Cmd
+					if m.active == name {
+						closeCmd = closeDriverCmd(m.driver)
+						m.driver, m.active = nil, ""
+						m.panels[panelDatabases].setItems(nil)
+						m.panels[panelTables].setItems(nil)
+					}
+					delete(m.connState, name)
+					m.refreshConnections("")
+					return tea.Batch(
+						closeCmd,
+						forgetCmd(m.cfg.Clone(), name),
+						logCmd("-- remove connection %s", name),
+					)
 				},
 			}
 		}
@@ -297,6 +418,31 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// dialSelected connects to (or, when test is set, only probes) the profile
+// under the cursor. Every dial runs in a tea.Cmd; when the profile asks for
+// its password on connect a prompt modal is opened first and the dial is
+// deferred until the prompt is submitted.
+func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
+	c, ok := m.selectedConnection()
+	if !ok {
+		return m, nil
+	}
+	run := func(pw string, hasPW bool) tea.Cmd {
+		if test {
+			return tea.Batch(logCmd("-- test %s …", c.Name), testConnCmd(c, pw, hasPW))
+		}
+		return tea.Batch(logCmd("-- connecting %s …", c.Name), connectCmd(c, pw, hasPW))
+	}
+	if c.NeedsPassword() && c.AskPassword {
+		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd { return run(pw, true) })
+		return m, nil
+	}
+	if !test {
+		m.setConnStatus(c.Name, statusPending, "")
+	}
+	return m, run("", false)
+}
+
 // drillIn is `enter`: move one step deeper in the connection → database →
 // table chain, and record the resulting statement in the history panel.
 func (m Model) drillIn() tea.Cmd {
@@ -305,8 +451,6 @@ func (m Model) drillIn() tea.Cmd {
 		return nil
 	}
 	switch m.focus {
-	case panelConnections:
-		return tea.Batch(logCmd("-- connect %s", sel), focusCmd(panelDatabases))
 	case panelDatabases:
 		return tea.Batch(logCmd("USE %s;", sel), focusCmd(panelTables))
 	case panelTables:

@@ -137,6 +137,7 @@ vim-style modes; the panel gains focus in normal mode:
 | `dd` / `yy` | Delete / yank the line |
 | `p` | Paste (a yanked line below, characters after the cursor) |
 | `ctrl+r` | Run the buffer |
+| `ctrl+s` | Save the buffer as a named snippet |
 | `D` | Clear the buffer (confirms first) |
 | `esc` | Back to the previous panel, buffer kept |
 
@@ -145,6 +146,7 @@ In insert mode every key types into the buffer except:
 | Key | Action |
 |-----|--------|
 | `ctrl+r` | Run the buffer (returns to normal mode) |
+| `ctrl+s` | Save the buffer as a named snippet (insert mode is kept) |
 | `ctrl+space` / `tab` | Complete the word under the cursor |
 | `esc` | Back to normal mode, buffer kept |
 | `ctrl+c` | Cancel the running query |
@@ -177,7 +179,21 @@ engine it ran on and when. `backspace` in the editor's normal mode opens
 it as a floating pane: `enter` runs the selected entry — a statement with
 `?` or `:name` placeholders first prompts for their values and executes
 as a prepared statement, with the values bound as parameters — `e` loads
-it into the editor and `d` deletes it.
+it into the editor, `d` deletes it and `s` keeps it as a named snippet.
+
+### Snippets
+
+A statement worth reusing gets a name instead of aging out of the
+history. `ctrl+s` in the editor (either mode) asks for one and stores the
+buffer in `${XDG_STATE_HOME:-~/.local/state}/lazysql/snippets`; an
+existing name asks before it is replaced. Only the SQL text is stored —
+never a connection or a password.
+
+`tab` in the floating pane switches between its History and Snippets
+sections. Snippets are listed by name with their statement previewed and
+highlighted; `enter` runs the selected one (through the same placeholder
+prompt), `e` loads it into the editor without running it, and `d` deletes
+it after a confirmation.
 
 ## Configuration
 

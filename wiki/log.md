@@ -533,3 +533,34 @@ Chronological history of wiki changes, newest last.
   rather than reusing `actExportTable`, so leaving the DDL tab while its
   metadata fetch is still in flight cannot make the deferred replay open
   the plain CSV/JSON/SQL export prompt instead.
+
+## 2026-08-09 — Named query snippets (issue #45)
+
+- New [design/named-query-snippets](design/named-query-snippets.md) with
+  `internal/snippets`: named statements (`{Name, SQL, Engine,
+  CreatedAt}`) as JSON Lines at
+  `${XDG_STATE_HOME:-~/.local/state}/lazysql/snippets`, mode 600, next to
+  the history file. The two stores share their format but not their write
+  strategy — the history appends, the snippet file is always rewritten
+  whole (atomic temp + rename), because a save may replace a name and the
+  list is held sorted by name, neither of which an append can express. A
+  duplicate name in the file is tolerated on load, last line winning.
+- The name is the identity: `SameName` folds case and trims, an existing
+  name opens an overwrite confirm before anything is written, and the
+  overwrite keeps the original `CreatedAt`. `Put`/`Delete` return new
+  slices rather than mutating, since the model holds the list while the
+  save command runs.
+- The floating pane (`historyModal`) gained a `section` field with a
+  per-section cursor and offset instead of a second modal: `tab` toggles
+  History ↔ Snippets, both halves reusing one list/detail/footer frame
+  and the same three verbs. `enter` runs through `submitQuery`, so a
+  snippet with `?`/`:name` placeholders goes through the existing
+  `paramsModal` and runs prepared. `d` on a snippet confirms (it is the
+  only copy of that statement) while `d` on a history entry still does
+  not.
+- `ctrl+s` saves the buffer — bound in both editor modes, since it is not
+  a character insert mode needs: `actSaveSnippet` (overridable as
+  `save-snippet`) for normal mode and an explicit `updateEditor` case plus
+  a `keyMap.editorInsert()` entry for insert mode, so the options bar and
+  `?` document it in both. Saving does not end insert mode. `s` on a
+  history entry saves it under a prompted name.

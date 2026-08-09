@@ -11,7 +11,18 @@ import (
 
 	"lazysql/internal/db"
 	"lazysql/internal/history"
+	"lazysql/internal/snippets"
 	"lazysql/internal/sqlhl"
+)
+
+// paneSection is which half of the floating pane has the keyboard:
+// the chronological history or the named snippets. `tab` toggles it.
+type paneSection int
+
+const (
+	sectionHistory paneSection = iota
+	sectionSnippets
+	sectionCount
 )
 
 // historyModal is the floating query-history pane, opened with
@@ -22,34 +33,66 @@ import (
 // `enter` executes the selected entry through the same path as ctrl+r in
 // the editor — including the placeholder prompt and the unguarded-write
 // confirm — and `e` loads it into the editor instead. `d` deletes the
-// entry, on disk too.
+// entry, on disk too, and `s` saves it as a named snippet.
+//
+// `tab` switches to the Snippets section, which offers the same three
+// verbs over the named statements in internal/snippets.
 type historyModal struct {
 	entries []history.Entry
+	snips   []snippets.Snippet
 	dialect sqlhl.Dialect
-	cursor  int
-	offset  int
+	section paneSection
+	// cursor and offset are per section, so switching back and forth
+	// does not lose either list's position.
+	cursor [sectionCount]int
+	offset [sectionCount]int
 }
 
-func newHistoryModal(entries []history.Entry, d sqlhl.Dialect) *historyModal {
-	return &historyModal{entries: append([]history.Entry(nil), entries...), dialect: d}
+func newHistoryModal(entries []history.Entry, snips []snippets.Snippet, d sqlhl.Dialect) *historyModal {
+	return &historyModal{
+		entries: append([]history.Entry(nil), entries...),
+		snips:   append([]snippets.Snippet(nil), snips...),
+		dialect: d,
+	}
+}
+
+// rows is how many items the active section holds.
+func (hm *historyModal) rowCount() int {
+	if hm.section == sectionSnippets {
+		return len(hm.snips)
+	}
+	return len(hm.entries)
 }
 
 func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	cur := &hm.cursor[hm.section]
 	switch msg.String() {
 	case "esc", "q", "backspace":
 		return true, nil
+	case "tab", "shift+tab":
+		hm.section = (hm.section + 1) % sectionCount
+		return false, nil
 	case "down", "j":
-		if hm.cursor < len(hm.entries)-1 {
-			hm.cursor++
+		if *cur < hm.rowCount()-1 {
+			*cur++
 		}
+		return false, nil
 	case "up", "k":
-		if hm.cursor > 0 {
-			hm.cursor--
+		if *cur > 0 {
+			*cur--
 		}
+		return false, nil
 	case "g", "home":
-		hm.cursor = 0
+		*cur = 0
+		return false, nil
 	case "G", "end":
-		hm.cursor = max(len(hm.entries)-1, 0)
+		*cur = max(hm.rowCount()-1, 0)
+		return false, nil
+	}
+	if hm.section == sectionSnippets {
+		return hm.updateSnippets(msg, m)
+	}
+	switch msg.String() {
 	case "enter":
 		if e, ok := hm.selected(); ok {
 			return true, m.submitQuery(e.SQL)
@@ -60,14 +103,22 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 			return true, m.loadIntoEditor(e.SQL)
 		}
 		return true, nil
+	case "s":
+		e, ok := hm.selected()
+		if !ok {
+			return false, nil
+		}
+		// The prompt replaces the pane: promptSaveSnippet sets the modal
+		// itself, and the replacement rule keeps it there.
+		return true, m.promptSaveSnippet(e.SQL)
 	case "d":
 		e, ok := hm.selected()
 		if !ok {
 			return false, nil
 		}
-		hm.entries = append(hm.entries[:hm.cursor:hm.cursor], hm.entries[hm.cursor+1:]...)
-		if hm.cursor >= len(hm.entries) && hm.cursor > 0 {
-			hm.cursor--
+		hm.entries = append(hm.entries[:*cur:*cur], hm.entries[*cur+1:]...)
+		if *cur >= len(hm.entries) && *cur > 0 {
+			*cur--
 		}
 		// The model's history is the source of truth the pane was
 		// snapshotted from; the entry is matched by value because the
@@ -87,11 +138,55 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 }
 
 func (hm *historyModal) selected() (history.Entry, bool) {
-	if hm.cursor < 0 || hm.cursor >= len(hm.entries) {
+	c := hm.cursor[sectionHistory]
+	if c < 0 || c >= len(hm.entries) {
 		return history.Entry{}, false
 	}
-	return hm.entries[hm.cursor], true
+	return hm.entries[c], true
 }
+
+// ---------- the snippets section ----------
+
+// updateSnippets is the same three verbs as the history section over the
+// named statements: run, load, delete — plus the confirm a delete of kept
+// work deserves and a history entry's does not.
+func (hm *historyModal) updateSnippets(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	sn, ok := hm.selectedSnippet()
+	if !ok {
+		return false, nil
+	}
+	switch msg.String() {
+	case "enter":
+		// The same path as ctrl+r, so a snippet with `?`/`:name`
+		// placeholders prompts for its values and runs prepared.
+		return true, m.submitQuery(sn.SQL)
+	case "e":
+		return true, m.loadIntoEditor(sn.SQL)
+	case "d":
+		// The confirm replaces the pane; reopening it after the answer
+		// would cost the snapshot, so the pane closes either way.
+		m.modal = &confirmModal{
+			title:  "Delete snippet",
+			body:   fmt.Sprintf("Delete the snippet %q? Its statement is not kept anywhere else.", sn.Name),
+			danger: true,
+			onConfirm: func(mm *Model) tea.Cmd {
+				return mm.deleteSnippet(sn.Name)
+			},
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (hm *historyModal) selectedSnippet() (snippets.Snippet, bool) {
+	c := hm.cursor[sectionSnippets]
+	if c < 0 || c >= len(hm.snips) {
+		return snippets.Snippet{}, false
+	}
+	return hm.snips[c], true
+}
+
+// ---------- rendering ----------
 
 func (hm *historyModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 100)
@@ -100,11 +195,15 @@ func (hm *historyModal) view(s styles, maxW, maxH int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(s.modalTitle.Render("Query history") + "\n\n")
+	b.WriteString(hm.tabs(s) + "\n\n")
 
-	if len(hm.entries) == 0 {
-		b.WriteString(s.muted.Render("no history yet — run a query first") + "\n")
-		b.WriteString("\n" + s.muted.Render("esc close"))
+	if hm.rowCount() == 0 {
+		empty := "no history yet — run a query first"
+		if hm.section == sectionSnippets {
+			empty = "no snippets yet — save one with ctrl+s in the editor"
+		}
+		b.WriteString(s.muted.Render(empty) + "\n")
+		b.WriteString("\n" + s.muted.Render("tab switch section · esc close"))
 		return s.modal.Render(b.String())
 	}
 
@@ -117,57 +216,119 @@ func (hm *historyModal) view(s styles, maxW, maxH int) string {
 	if rows < 1 {
 		rows = 1
 	}
-	if rows > len(hm.entries) {
-		rows = len(hm.entries)
+	if rows > hm.rowCount() {
+		rows = hm.rowCount()
 	}
-	if hm.cursor < hm.offset {
-		hm.offset = hm.cursor
+	cursor, offset := hm.cursor[hm.section], hm.offset[hm.section]
+	if cursor < offset {
+		offset = cursor
 	}
-	if hm.cursor >= hm.offset+rows {
-		hm.offset = hm.cursor - rows + 1
+	if cursor >= offset+rows {
+		offset = cursor - rows + 1
 	}
-	if maxOff := len(hm.entries) - rows; hm.offset > maxOff {
-		hm.offset = maxOff
+	if maxOff := hm.rowCount() - rows; offset > maxOff {
+		offset = maxOff
 	}
-	if hm.offset < 0 {
-		hm.offset = 0
+	if offset < 0 {
+		offset = 0
 	}
+	hm.offset[hm.section] = offset
 
-	for i := hm.offset; i < hm.offset+rows; i++ {
-		e := hm.entries[i]
-		stamp := e.At.Local().Format("15:04") + "  "
-		line := truncate(flatten(e.SQL), width-lipgloss.Width(stamp))
-		if i == hm.cursor {
-			b.WriteString(s.selected.Width(width).Render(stamp+line) + "\n")
+	for i := offset; i < offset+rows; i++ {
+		prefix, sql := hm.row(i)
+		line := truncate(flatten(sql), width-lipgloss.Width(prefix))
+		if i == cursor {
+			b.WriteString(s.selected.Width(width).Render(prefix+line) + "\n")
 			continue
 		}
 		// Truncate first, then highlight: styling then cutting would
 		// slice an escape sequence in half.
-		b.WriteString(s.muted.Render(stamp) + highlightSQL(s, hm.dialect, line) + "\n")
+		b.WriteString(s.muted.Render(prefix) + highlightSQL(s, hm.dialect, line) + "\n")
 	}
-	if len(hm.entries) > rows {
-		b.WriteString(s.muted.Render(fmt.Sprintf("… %d more", len(hm.entries)-rows)) + "\n")
+	if hm.rowCount() > rows {
+		b.WriteString(s.muted.Render(fmt.Sprintf("… %d more", hm.rowCount()-rows)) + "\n")
 	}
 
-	if e, ok := hm.selected(); ok && detail > 2 {
+	if detail > 2 {
+		b.WriteString(hm.detail(s, width, detail))
+	}
+
+	b.WriteString("\n" + s.muted.Render(hm.footer()))
+	return s.modal.Render(b.String())
+}
+
+// tabs is the pane's header: both section names, the active one titled.
+func (hm *historyModal) tabs(s styles) string {
+	names := [sectionCount]string{"Query history", "Snippets"}
+	out := make([]string, 0, sectionCount)
+	for i, n := range names {
+		if paneSection(i) == hm.section {
+			out = append(out, s.modalTitle.Render(n))
+			continue
+		}
+		out = append(out, s.muted.Render(n))
+	}
+	return strings.Join(out, s.muted.Render("  ·  "))
+}
+
+// row is one list line of the active section: its fixed-width prefix
+// (the time, or the snippet name) and the statement to render after it.
+func (hm *historyModal) row(i int) (prefix, sql string) {
+	if hm.section == sectionSnippets {
+		sn := hm.snips[i]
+		// The name column is fixed so the statements line up; padding is
+		// by display width, not bytes, for a name with wide runes in it.
+		name := truncate(sn.Name, 24)
+		return name + strings.Repeat(" ", max(26-lipgloss.Width(name), 1)), sn.SQL
+	}
+	e := hm.entries[i]
+	return e.At.Local().Format("15:04") + "  ", e.SQL
+}
+
+// detail renders the selected item below the list: where it came from and
+// when, then its statement clipped to the remaining rows.
+func (hm *historyModal) detail(s styles, width, height int) string {
+	var meta, sql string
+	if hm.section == sectionSnippets {
+		sn, ok := hm.selectedSnippet()
+		if !ok {
+			return ""
+		}
+		engine := sn.Engine
+		if engine == "" {
+			engine = "(any engine)"
+		}
+		meta, sql = sn.Name+" · "+engine+" · saved "+sn.CreatedAt.Local().Format(time.RFC1123), sn.SQL
+	} else {
+		e, ok := hm.selected()
+		if !ok {
+			return ""
+		}
 		engine := e.Engine
 		if engine == "" {
 			engine = "(unknown)"
 		}
-		b.WriteString("\n" + s.muted.Render(truncate(
-			engine+" · "+e.At.Local().Format(time.RFC1123), width)) + "\n")
-		lines := strings.Split(e.SQL, "\n")
-		shown := min(len(lines), detail-2)
-		for _, l := range lines[:shown] {
-			b.WriteString(highlightSQL(s, hm.dialect, truncate(l, width)) + "\n")
-		}
-		if shown < len(lines) {
-			b.WriteString(s.muted.Render(fmt.Sprintf("… %d more lines", len(lines)-shown)) + "\n")
-		}
+		meta, sql = engine+" · "+e.At.Local().Format(time.RFC1123), e.SQL
 	}
 
-	b.WriteString("\n" + s.muted.Render("enter run · e load into editor · d delete · esc close"))
-	return s.modal.Render(b.String())
+	var b strings.Builder
+	b.WriteString("\n" + s.muted.Render(truncate(meta, width)) + "\n")
+	lines := strings.Split(sql, "\n")
+	shown := min(len(lines), height-2)
+	for _, l := range lines[:shown] {
+		b.WriteString(highlightSQL(s, hm.dialect, truncate(l, width)) + "\n")
+	}
+	if shown < len(lines) {
+		b.WriteString(s.muted.Render(fmt.Sprintf("… %d more lines", len(lines)-shown)) + "\n")
+	}
+	return b.String()
+}
+
+func (hm *historyModal) footer() string {
+	if hm.section == sectionSnippets {
+		return "enter run · e load into editor · d delete · tab history · esc close"
+	}
+	return "enter run · e load into editor · s save as snippet · d delete · tab snippets · esc close"
 }
 
 // ---------- placeholder prompt ----------

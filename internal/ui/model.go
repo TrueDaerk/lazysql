@@ -13,6 +13,7 @@ import (
 	"lazysql/internal/config"
 	"lazysql/internal/db"
 	"lazysql/internal/history"
+	"lazysql/internal/snippets"
 	"lazysql/internal/sshtunnel"
 )
 
@@ -204,6 +205,11 @@ type Model struct {
 	editor  queryEditor
 	run     queryRun
 
+	// snippets are the named statements behind the pane's Snippets
+	// section, sorted by name. They are the deliberate half of the recall
+	// story the history is the automatic half of.
+	snippets []snippets.Snippet
+
 	// completion is the editor's autocomplete popup, and schema the
 	// column cache behind it. The cache keys itself on connection +
 	// database and drops itself when either changes.
@@ -265,7 +271,7 @@ func New() (Model, error) {
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{loadHistoryCmd()}
+	cmds := []tea.Cmd{loadHistoryCmd(), loadSnippetsCmd()}
 	if m.startupErr != "" {
 		cmds = append(cmds, logCmd("-- config error: %s", m.startupErr))
 	}
@@ -476,6 +482,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case historyWrittenMsg:
 		if msg.err != nil {
 			return m, logCmd("-- write query history FAILED: %v", msg.err)
+		}
+		return m, nil
+
+	case snippetsLoadedMsg:
+		if msg.err != nil {
+			// A broken snippet file costs the pane its Snippets section
+			// and nothing else; a save rewrites the file from scratch.
+			return m, logCmd("-- read query snippets FAILED: %v", msg.err)
+		}
+		m.snippets = msg.list
+		return m, nil
+
+	case snippetsWrittenMsg:
+		if msg.err != nil {
+			return m, logCmd("-- write query snippets FAILED: %v", msg.err)
 		}
 		return m, nil
 
@@ -1031,7 +1052,11 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actHistory:
-		m.modal = newHistoryModal(m.history, m.sqlDialect())
+		m.modal = newHistoryModal(m.history, m.snippets, m.sqlDialect())
+
+	case actSaveSnippet:
+		cmd := m.promptSaveSnippet(m.script())
+		return m, cmd
 
 	case actEditQuery:
 		m.setEditing(true)

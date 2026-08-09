@@ -54,10 +54,14 @@ type keyMap struct {
 	// key that is not RunEditor, CancelQuery or Back types into the
 	// buffer; RunEditor executes it from either mode. History opens the
 	// floating query-history pane from the editor's normal mode.
-	EditQuery  key.Binding
-	RunEditor  key.Binding
-	ClearQuery key.Binding
-	History    key.Binding
+	// SaveSnippet keeps the buffer as a named snippet. It is bound in both
+	// editor modes — ctrl+s is not a character, so insert mode can spare
+	// it — and reaches the same store the pane's Snippets section browses.
+	EditQuery   key.Binding
+	RunEditor   key.Binding
+	ClearQuery  key.Binding
+	History     key.Binding
+	SaveSnippet key.Binding
 
 	// Vim normal mode in the query editor. j/k/↑/↓ reuse Up and Down.
 	// The two-key commands (dd, yy, gg) are bound to their first key and
@@ -167,6 +171,8 @@ func newKeyMap() keyMap {
 		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
 		History:    key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "query history")),
+		SaveSnippet: key.NewBinding(
+			key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save as snippet")),
 
 		VimLeft:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
 		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
@@ -260,7 +266,7 @@ func (k keyMap) navigationFor(id panelID) []key.Binding {
 // slice — and not the panel's action list — is what the options bar and
 // `?` show there.
 func (k keyMap) editorInsert() []key.Binding {
-	return []key.Binding{k.Complete, k.RunEditor, k.CancelQuery, k.LeaveInsert}
+	return []key.Binding{k.Complete, k.RunEditor, k.SaveSnippet, k.CancelQuery, k.LeaveInsert}
 }
 
 // editorNormal are the vim keys of the query editor's normal mode. They
@@ -314,6 +320,7 @@ const (
 	actRunEditor
 	actClearQuery
 	actHistory
+	actSaveSnippet
 	actColLeft
 	actColRight
 	actNextPage
@@ -392,6 +399,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actRunEditor, k.RunEditor},
 			{actClearQuery, k.ClearQuery},
 			{actHistory, k.History},
+			{actSaveSnippet, k.SaveSnippet},
 		}
 	case panelMain:
 		return []action{
@@ -486,7 +494,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"toggle-tab", &k.ToggleTab},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
-		{"history", &k.History},
+		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
 
 		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},
 		{"vim-word-fwd", &k.VimWordFwd}, {"vim-word-back", &k.VimWordBack},

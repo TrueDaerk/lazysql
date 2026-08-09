@@ -67,6 +67,9 @@ In the data grid (`enter` on a table, `esc` back):
 | `/` (or `f`) | Filter rows (modal) |
 | `F` | Clear the filter |
 | `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
+| `g` | Follow the foreign key of the cursor column to the referenced row |
+| `G` | List the rows referencing this one and jump to them |
+| `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
 
 `/` opens the filter modal on the column under the cursor: pick a column,
 an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,
@@ -78,6 +81,17 @@ the modal switches to advanced mode: a free-form `WHERE` fragment, which
 is parameterized where it can be and flagged `where (verbatim)` in the
 status line where it cannot. The active filter is shown in the grid's
 status line, paging and the row count both respect it, and `F` clears it.
+
+Columns that take part in a foreign key are marked `⇒` in the grid
+header. `g` on one of them opens the referenced table filtered to the
+referenced row; a composite key contributes one condition per column
+pair, and every value is bound as a query parameter. A NULL cell has no
+target, so the key does nothing and says why in the command log. `G`
+goes the other way: it scans the namespace's foreign keys once and lists
+the tables that reference the row under the cursor. Both directions push
+the page they came from onto a jump history that `ctrl+o` — or `esc`,
+before it leaves the grid — walks back, restoring the table, its filter,
+its sort and the cell cursor.
 
 The query editor is panel `[4]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two

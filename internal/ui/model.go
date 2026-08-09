@@ -169,6 +169,18 @@ type Model struct {
 	tab  mainTab
 	meta metaView
 
+	// Foreign-key navigation. fkCache holds one relation's constraints,
+	// refsCache the whole namespace's (keyed by an fkKey with an empty
+	// table) for the reverse direction, and fkLoading marks the fetches
+	// in flight so a repeated key press does not stack round trips.
+	// browseStack is the jump history `ctrl+o`/`esc` walk back, and
+	// fkAfter is the action waiting for a fetch that has not landed yet.
+	fkCache     map[fkKey][]db.ForeignKey
+	refsCache   map[fkKey][]namespaceFK
+	fkLoading   map[fkKey]bool
+	browseStack []browseState
+	fkAfter     actionID
+
 	// export is the file export in flight, if any. At most one runs at
 	// a time; `X` cancels it.
 	export exportState
@@ -222,6 +234,9 @@ func New() (Model, error) {
 		help:      help.New(),
 		style:     newStyles(),
 		connState: map[string]connState{},
+		fkCache:   map[fkKey][]db.ForeignKey{},
+		refsCache: map[fkKey][]namespaceFK{},
+		fkLoading: map[fkKey]bool{},
 		changes:   db.NewChangeset(),
 		cfg:       cfg,
 		editor:    newQueryEditor(),
@@ -309,6 +324,13 @@ func (m *Model) resetBrowse() {
 	m.resetMeta()
 	m.relations = nil
 	m.tableTab = tabTables
+	// The foreign-key caches and the jump history describe relations of
+	// the connection being left behind.
+	m.fkCache = map[fkKey][]db.ForeignKey{}
+	m.refsCache = map[fkKey][]namespaceFK{}
+	m.fkLoading = map[fkKey]bool{}
+	m.browseStack = nil
+	m.fkAfter = actNone
 	if m.focus == panelMain {
 		m.focus = panelTables
 	}
@@ -325,9 +347,12 @@ func (m *Model) resetBrowse() {
 // The panel keeps its old rows until the reply lands.
 func (m *Model) openDatabase(name string) tea.Cmd {
 	m.database = databaseArg(name)
-	// The open page belongs to the namespace we are leaving.
+	// The open page belongs to the namespace we are leaving, and so does
+	// every state the jump history could go back to.
 	m.table = ""
 	m.data = dataView{}
+	m.browseStack = nil
+	m.fkAfter = actNone
 	m.resetMeta()
 	if m.focus == panelMain {
 		m.focus = panelTables
@@ -375,7 +400,10 @@ func (m *Model) reloadFocused() tea.Cmd {
 		if m.data.isQuery() {
 			return m.rerunQuery()
 		}
-		return m.reloadPage()
+		// `R` means "read it again from the server", so the cached
+		// constraints behind the `⇒` marks go too.
+		delete(m.fkCache, m.tableFKKey())
+		return tea.Batch(m.reloadPage(), m.ensureFKs())
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
 }
@@ -571,6 +599,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, logCmd("-- introspect %s FAILED: %v", msg.table, msg.err)
 		}
 		m.meta.cols, m.meta.indexes, m.meta.fks = msg.cols, msg.indexes, msg.fks
+		// The introspection fetch already read the foreign keys, so the
+		// grid's own cache is filled from it rather than re-reading them.
+		m.cacheFKs(fkKey{conn: msg.conn, database: msg.database, table: msg.table}, msg.fks)
 		m.meta.ddl, m.meta.ddlErr = msg.ddl, ""
 		if msg.ddlErr != nil {
 			m.meta.ddlErr = msg.ddlErr.Error()
@@ -579,6 +610,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// takes the same path it would have taken with a warm cache.
 		if id := m.meta.afterLoad; id != actNone {
 			m.meta.afterLoad = actNone
+			mm, cmd := m.runAction(id)
+			return mm, cmd
+		}
+		return m, nil
+
+	case fksLoadedMsg:
+		// A reply for a connection that is no longer live is stale.
+		if msg.key.conn != m.active {
+			return m, nil
+		}
+		delete(m.fkLoading, msg.key)
+		if msg.err != nil {
+			// Without the metadata the grid loses the `⇒` marks and the
+			// follow key; browsing itself is unaffected.
+			return m, logCmd("-- foreign keys of %s FAILED: %v", msg.key.table, msg.err)
+		}
+		m.cacheFKs(msg.key, msg.fks)
+		if id := m.fkAfter; id != actNone && msg.key == m.tableFKKey() {
+			m.fkAfter = actNone
+			mm, cmd := m.runAction(id)
+			return mm, cmd
+		}
+		return m, nil
+
+	case namespaceFKsLoadedMsg:
+		if msg.key.conn != m.active {
+			return m, nil
+		}
+		delete(m.fkLoading, msg.key)
+		if msg.err != nil {
+			m.fkAfter = actNone
+			return m, logCmd("-- scan foreign keys of %s FAILED: %v",
+				displayDatabase(msg.key.database), msg.err)
+		}
+		if m.refsCache == nil {
+			m.refsCache = map[fkKey][]namespaceFK{}
+		}
+		m.refsCache[msg.key] = msg.refs
+		// The scan read every table's constraints, so the per-table
+		// cache is filled from the same round trips.
+		for _, t := range msg.tables {
+			k := fkKey{conn: msg.key.conn, database: msg.key.database, table: t}
+			var fks []db.ForeignKey
+			for _, r := range msg.refs {
+				if r.table == t {
+					fks = append(fks, r.fk)
+				}
+			}
+			m.cacheFKs(k, fks)
+		}
+		if id := m.fkAfter; id != actNone && msg.key == m.namespaceFKKey() {
+			m.fkAfter = actNone
 			mm, cmd := m.runAction(id)
 			return mm, cmd
 		}

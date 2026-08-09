@@ -201,6 +201,8 @@ the statement it is about, so it cannot scroll out of sight above it.
 
 - [cell-detail-popup](cell-detail-popup.md) — what `v` renders and how
   it decides.
+- [foreign-key-navigation](foreign-key-navigation.md) — `g`/`G`/`ctrl+o`,
+  the `⇒` header mark and the jump history layered on this grid.
 - [catalog-browsing](catalog-browsing.md) — how the relation reaches the
   grid in the first place.
 - [db-driver-abstraction](db-driver-abstraction.md) — the `Driver` and

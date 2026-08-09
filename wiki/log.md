@@ -442,3 +442,22 @@ Chronological history of wiki changes, newest last.
   [copy-and-export](copy-and-export.md) uses, without closing the
   modal. Updated [design/data-grid](design/data-grid.md) to point at
   the new concept instead of duplicating it.
+
+## 2026-08-09 — Follow foreign keys from the data grid (issue #40)
+
+- New [design/foreign-key-navigation](design/foreign-key-navigation.md):
+  `g` follows the constraint the cursor column takes part in, `G` lists
+  the tables referencing the row under the cursor, and `ctrl+o` (or
+  `esc`, before it leaves the grid) walks the jumps back. New
+  `db.FKFilter`/`db.SplitQualified`/`db.FKAt`
+  (`internal/db/foreignkey.go`) build the jump's WHERE clause with
+  dialect-quoted identifiers and every value bound as a parameter — one
+  term per column pair for a composite key — and refuse a NULL value,
+  which is why a NULL cell logs `customer_id is NULL` instead of showing
+  an empty grid. `internal/ui/foreignkey.go` adds the per-relation FK
+  cache (filled by `openTable`, by the Structure/Indexes/DDL metadata
+  fetch, and by the namespace scan behind `G`), the `⇒` header mark, and
+  a `browseState` stack that stores the whole `dataView` so the previous
+  table, filter, sort, page and cell cursor all come back together.
+  Updated [design/data-grid](design/data-grid.md) to point at the new
+  concept.

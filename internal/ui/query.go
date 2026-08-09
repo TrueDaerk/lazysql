@@ -314,6 +314,13 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.submitQuery(m.script())
 		return m, cmd
 
+	case key.Matches(msg, k.SaveSnippet):
+		// Saving does not end insert mode: the name prompt takes the keys
+		// while it is open and the buffer is waiting where it was left.
+		m.closeCompletion()
+		cmd := m.promptSaveSnippet(m.script())
+		return m, cmd
+
 	case msg.String() == "ctrl+c":
 		// In the editor ctrl+c is the run's abort key, never the app's
 		// quit key. With nothing running it leaves insert mode, the

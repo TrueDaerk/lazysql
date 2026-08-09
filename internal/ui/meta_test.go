@@ -60,6 +60,20 @@ func fakeClipboard(t *testing.T) *string {
 	return &got
 }
 
+// fakeSpill replaces the temp-file fallback, so a test that exercises a
+// missing clipboard leaves nothing behind on disk.
+func fakeSpill(t *testing.T) *string {
+	t.Helper()
+	var got string
+	prev := spillFile
+	spillFile = func(name, text string) (string, error) {
+		got = text
+		return "/tmp/fake-spill-" + name, nil
+	}
+	t.Cleanup(func() { spillFile = prev })
+	return &got
+}
+
 // `]` walks Data → Structure → Indexes → DDL and wraps; `[` walks back.
 func TestMainTabCycling(t *testing.T) {
 	m := metaBrowsing(t)
@@ -142,7 +156,7 @@ func TestDDLTabRendersStatement(t *testing.T) {
 		t.Fatalf("DDL = %q", m.meta.ddl)
 	}
 	out := m.View().Content
-	for _, want := range []string{"CREATE TABLE", "person_id", "y copies the statement"} {
+	for _, want := range []string{"CREATE TABLE", "person_id", "y opens the copy menu"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("DDL tab is missing %q", want)
 		}
@@ -168,12 +182,13 @@ func TestDDLTabScrolls(t *testing.T) {
 	}
 }
 
-// `y` copies the DDL, from the DDL tab and from the Data tab alike —
-// on the Data tab it fetches the metadata first.
+// `y` opens the copy menu; its DDL entry copies the CREATE statement,
+// from the DDL tab and from the Data tab alike — on the Data tab it
+// fetches the metadata first.
 func TestCopyDDLToClipboard(t *testing.T) {
 	got := fakeClipboard(t)
 
-	m := send(t, metaBrowsing(t), press(']'), press(']'), press(']'), press('y'))
+	m := send(t, metaBrowsing(t), press(']'), press(']'), press(']'), press('y'), press('d'))
 	if !strings.Contains(*got, "CREATE TABLE") {
 		t.Fatalf("clipboard = %q", *got)
 	}
@@ -182,7 +197,7 @@ func TestCopyDDLToClipboard(t *testing.T) {
 	}
 
 	*got = ""
-	m = send(t, metaBrowsing(t), press('y'))
+	m = send(t, metaBrowsing(t), press('y'), press('d'))
 	if m.tab != mainTabData {
 		t.Fatalf("y changed the tab to %v", m.tab)
 	}
@@ -191,14 +206,34 @@ func TestCopyDDLToClipboard(t *testing.T) {
 	}
 }
 
-// A clipboard the environment does not support fails loudly in the log
-// rather than silently doing nothing.
+// With no clipboard in the environment a copy degrades to a temp file
+// and the log names the path instead of just failing.
+func TestCopyDDLFallsBackToFile(t *testing.T) {
+	prev := clipboardWrite
+	clipboardWrite = func(string) error { return context.Canceled }
+	t.Cleanup(func() { clipboardWrite = prev })
+	spilled := fakeSpill(t)
+
+	m := send(t, metaBrowsing(t), press(']'), press(']'), press(']'), press('y'), press('d'))
+	if !strings.Contains(*spilled, "CREATE TABLE") {
+		t.Fatalf("spill file = %q", *spilled)
+	}
+	if !logContains(m, "no clipboard") || !logContains(m, "/tmp/fake-spill") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// When even the temp file cannot be written the copy fails loudly in
+// the log rather than silently doing nothing.
 func TestCopyDDLFailureIsLogged(t *testing.T) {
 	prev := clipboardWrite
 	clipboardWrite = func(string) error { return context.Canceled }
 	t.Cleanup(func() { clipboardWrite = prev })
+	prevSpill := spillFile
+	spillFile = func(string, string) (string, error) { return "", context.Canceled }
+	t.Cleanup(func() { spillFile = prevSpill })
 
-	m := send(t, metaBrowsing(t), press(']'), press(']'), press(']'), press('y'))
+	m := send(t, metaBrowsing(t), press(']'), press(']'), press(']'), press('y'), press('d'))
 	if !logContains(m, "-- copy DDL of orders FAILED") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}

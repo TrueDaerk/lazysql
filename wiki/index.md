@@ -16,6 +16,7 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 - [design/data-grid](design/data-grid.md) — Design Decision — one-page-at-a-time main view, derived scroll windows, the `panelMain` focus target, and the parse-first quick filter.
 - [design/main-view-tabs](design/main-view-tabs.md) — Design Decision — Data/Structure/Indexes/DDL tabs behind one metadata fetch, `[`/`]` cycling instead of digits, and what survives a relation change.
 - [design/staged-changeset](design/staged-changeset.md) — Design Decision — cell edits, row deletes and row inserts stage into one engine-agnostic changeset, rows are identified only by their primary key, and the commit runs every statement in one transaction.
+- [design/copy-and-export](design/copy-and-export.md) — Design Decision — one incremental serializer package behind both the `y` copy menu and the `E` file export, why a clipboard copy is capped while a file export streams, how NULL is spelled per format, and how the export reports progress and cancels.
 
 ## reference
 
@@ -24,3 +25,4 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 - [reference/dialect-introspection-quirks](reference/dialect-introspection-quirks.md) — Dialect Note — engine-specific introspection gotchas (PRAGMA placeholders, duckdb_* functions, pg_index, SHOW CREATE TABLE).
 - [reference/sqlite-double-quoted-strings](reference/sqlite-double-quoted-strings.md) — Dialect Note — SQLite reads an unresolvable double-quoted identifier as a string literal, so a filter on a misspelled column matches nothing instead of erroring.
 - [reference/insert-default-values](reference/insert-default-values.md) — Dialect Note — `DEFAULT VALUES` vs. MySQL's empty column list for an INSERT that names no columns.
+- [reference/sql-literal-escaping](reference/sql-literal-escaping.md) — Dialect Note — backslash escapes in MySQL string literals but not in PostgreSQL/SQLite/DuckDB, plus per-engine boolean and timestamp literal spellings.

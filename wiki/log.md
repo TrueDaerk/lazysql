@@ -119,3 +119,38 @@ Chronological history of wiki changes, newest last.
   an INSERT that names no columns is `DEFAULT VALUES` in PostgreSQL,
   SQLite and DuckDB and `() VALUES ()` in MySQL/MariaDB, and each form is
   a syntax error in the other family.
+- Added [design/copy-and-export](design/copy-and-export.md) with the copy
+  menu and the file export (issue #9): a new `internal/export` package
+  holds a three-method incremental `Writer` (`Begin`/`Row`/`End`) per
+  format and a `Stream` that walks `Driver.QueryPage` a page at a time,
+  so a 100k-row export costs one page of memory and inherits the grid's
+  filter and sort for free. `y` opens a context-aware menu (cell, row as
+  CSV/JSON/INSERT, table as CSV/JSON/INSERTs/CREATE+INSERTs, DDL); `E`
+  prompts for a path and infers the format from `.csv`/`.json`/`.sql`.
+- Recorded the decisions that were not obvious while implementing it:
+  NULL is an empty CSV field (not MySQL's unportable `\N`), JSON `null`
+  and SQL `NULL`; a whole-table *clipboard* copy is capped at 5000 rows
+  because the clipboard cannot be streamed, and reaching the cap is
+  logged rather than silent; `.sql` exports INSERTs only, with
+  `CREATE TABLE + INSERTs` left as a copy-menu entry so one extension
+  never means two things; and the copy menu's JSON entry is `o`, not
+  `j`, because `menuModal` moves its own cursor with `j`/`k`.
+- Added [reference/sql-literal-escaping](reference/sql-literal-escaping.md):
+  generated INSERTs inline their values, so MySQL/MariaDB need the
+  backslash doubled (`NO_BACKSLASH_ESCAPES` off by default) while
+  PostgreSQL/SQLite/DuckDB must not have it touched; booleans are `1`/`0`
+  on MySQL and `TRUE`/`FALSE` elsewhere; and a `DATETIME` literal rejects
+  the RFC 3339 `T` and zone suffix. Everything lazysql *executes* stays
+  parameterized — `db.QuoteLiteral` exists only for text handed to the
+  user.
+- A copy now degrades instead of failing: with no clipboard (SSH, a bare
+  tty, a container) `copyOut` spills the text to a temp file and the log
+  names the path. The export worker streams progress through an
+  unbuffered channel with `X` cancelling its context between pages and
+  between rows, and a cancelled or failed export removes its partial
+  file. `X` is bound with `key.WithDisabled()` and enabled only while an
+  export runs, so the options bar and `?` never advertise a dead key.
+- Deepened the `send` test driver from three hard-coded rounds to a
+  queue that runs a key press's message cascade to a standstill: the
+  export flow is four rounds deep (prompt → worker start → progress →
+  done) and the old driver silently dropped the last one.

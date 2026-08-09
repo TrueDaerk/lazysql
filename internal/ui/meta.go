@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -115,17 +114,10 @@ func loadMetaCmd(drv db.Driver, v metaView, req int) tea.Cmd {
 	}
 }
 
-// copyDDLCmd puts a DDL statement on the system clipboard and reports
-// the outcome in the command log.
+// copyDDLCmd puts a DDL statement on the system clipboard, or in a temp
+// file when there is no clipboard, and reports which in the log.
 func copyDDLCmd(table, ddl string) tea.Cmd {
-	return func() tea.Msg {
-		if err := clipboardWrite(ddl); err != nil {
-			return commandLogMsg{line: fmt.Sprintf("-- copy DDL of %s FAILED: %v", table, err)}
-		}
-		return commandLogMsg{
-			line: fmt.Sprintf("-- copy DDL of %s to clipboard (%d bytes)", table, len(ddl)),
-		}
-	}
+	return copyTextCmd("DDL of "+table, table+"-ddl.sql", ddl)
 }
 
 // ---------- model wiring ----------

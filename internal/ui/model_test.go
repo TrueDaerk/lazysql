@@ -60,15 +60,19 @@ func special(code rune, mod tea.KeyMod) tea.KeyPressMsg {
 func send(t *testing.T, m Model, msgs ...tea.Msg) Model {
 	t.Helper()
 	for _, msg := range msgs {
-		next, cmd := m.Update(msg)
-		m = next.(Model)
-		for _, out := range drain(cmd) {
-			next, cmd2 := m.Update(out)
-			m = next.(Model)
-			for _, out2 := range drain(cmd2) {
-				next, _ := m.Update(out2)
-				m = next.(Model)
+		// Each key press is driven to a standstill before the next one:
+		// a message may produce commands whose messages produce more,
+		// and a flow like the file export is several rounds deep.
+		queue := []tea.Msg{msg}
+		for round := 0; len(queue) > 0; round++ {
+			if round > 10_000 {
+				t.Fatalf("message cascade did not settle after %T", msg)
 			}
+			head := queue[0]
+			queue = queue[1:]
+			next, cmd := m.Update(head)
+			m = next.(Model)
+			queue = append(queue, drain(cmd)...)
 		}
 	}
 	return m

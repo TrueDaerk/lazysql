@@ -1,0 +1,4 @@
+lazysql
+*.db
+*.sqlite
+.DS_Store

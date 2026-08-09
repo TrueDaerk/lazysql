@@ -74,6 +74,13 @@ func (m *Model) startExport() tea.Cmd {
 	if m.driver == nil {
 		return logCmd("-- export skipped: not connected")
 	}
+	// The DDL tab exports the CREATE statement instead of streaming the
+	// table's data — a different enough shape (one small write, no
+	// pager, no progress) that it does not share exportState with the
+	// data formats.
+	if m.tab == mainTabDDL {
+		return m.startDDLExport()
+	}
 	if m.export.running {
 		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.export.table)
 	}
@@ -86,16 +93,26 @@ func (m *Model) startExport() tea.Cmd {
 	return nil
 }
 
-// defaultExportPath is the prompt's initial value: the relation's name
-// as a CSV in the working directory.
-func defaultExportPath(table string) string {
-	name := strings.Map(func(r rune) rune {
+// sanitizePathComponent replaces path separators in a relation name with
+// `-`, so a prompt's default value is always one path component.
+func sanitizePathComponent(name string) string {
+	return strings.Map(func(r rune) rune {
 		if r == os.PathSeparator || r == '/' {
 			return '-'
 		}
 		return r
-	}, table)
-	return name + ".csv"
+	}, name)
+}
+
+// defaultExportPath is the prompt's initial value: the relation's name
+// as a CSV in the working directory.
+func defaultExportPath(table string) string {
+	return sanitizePathComponent(table) + ".csv"
+}
+
+// defaultDDLExportPath is startDDLExport's prompt's initial value.
+func defaultDDLExportPath(table string) string {
+	return sanitizePathComponent(table) + "-ddl.sql"
 }
 
 // runExport validates the path, opens the file and starts the worker.
@@ -280,5 +297,60 @@ func (m *Model) finishExport(msg exportDoneMsg) tea.Cmd {
 	default:
 		return logCmd("-- export wrote %d rows (%s) to %s",
 			msg.rows, byteCount(int(msg.bytes)), msg.path)
+	}
+}
+
+// ---------- DDL-only export ----------
+
+// startDDLExport is `E` on the DDL tab: prompt for a `.sql` path and
+// write the relation's CREATE statement to it verbatim. It fetches the
+// metadata first when nothing has needed it yet, the same way `y` does
+// on a cold DDL tab.
+func (m *Model) startDDLExport() tea.Cmd {
+	if !m.meta.loaded {
+		// A dedicated action, not actExportTable: if the metadata fetch
+		// is still in flight when the user leaves the DDL tab, the
+		// deferred replay must still open the DDL prompt rather than
+		// falling into startExport's now-not-DDL-tab branch and offering
+		// the plain CSV/JSON/SQL export instead.
+		return m.deferUntilMeta(actExportDDL)
+	}
+	if m.meta.ddl == "" {
+		return logCmd("-- export DDL of %s skipped: %s", m.data.table, m.ddlProblem())
+	}
+	m.modal = newPromptModal(
+		"Export "+m.data.table+" DDL — file path",
+		"~/"+defaultDDLExportPath(m.data.table),
+		defaultDDLExportPath(m.data.table),
+		func(mm *Model, value string) tea.Cmd { return mm.runDDLExport(value) },
+	)
+	return nil
+}
+
+// runDDLExport writes the DDL already cached on the meta view to a file.
+// A DDL statement is a handful of kilobytes at most, so this skips the
+// streaming worker the data formats use and writes synchronously off the
+// update loop instead.
+func (m *Model) runDDLExport(path string) tea.Cmd {
+	if path == "" {
+		return logCmd("-- export cancelled: no path given")
+	}
+	full, err := expandPath(path)
+	if err != nil {
+		return logCmd("-- export FAILED: %v", err)
+	}
+	if !strings.EqualFold(filepath.Ext(full), ".sql") {
+		return logCmd("-- export %s FAILED: DDL export needs a .sql path", full)
+	}
+	if !m.data.browsing() || m.meta.ddl == "" {
+		return logCmd("-- export skipped: nothing to export")
+	}
+
+	table, ddl := m.data.table, m.meta.ddl
+	return func() tea.Msg {
+		if err := os.WriteFile(full, []byte(ddl), 0o644); err != nil {
+			return commandLogMsg{line: fmt.Sprintf("-- export DDL of %s FAILED: %v", table, err)}
+		}
+		return commandLogMsg{line: fmt.Sprintf("-- export DDL of %s wrote %s", table, full)}
 	}
 }

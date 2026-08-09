@@ -393,3 +393,22 @@ Chronological history of wiki changes, newest last.
   [design/query-editor-panel](design/query-editor-panel.md): the vim
   layer claims h/l, y, d, x, p ahead of the grid fall-through, and `a`
   is append rather than the actions menu in this one panel.
+
+## 2026-08-09 — Floating history pane and placeholder execution (issue #34)
+
+- Added [design/history-pane-and-placeholders](design/history-pane-and-placeholders.md):
+  panel `[4] Query history` is removed — the history opens as a floating
+  pane (`historyModal`) from the editor's normal mode with `backspace`;
+  `enter` executes the selected entry, `e` loads it, `d` deletes it. The
+  editor renumbered `[5]` → `[4]`, `jump` shrank to `1`–`4`, and the
+  `[keys]` actions `load-query`/`run-query`/`delete-history`/`clear-history`
+  were replaced by `history`. New `internal/db/placeholders.go` extracts
+  `?`/`:name` placeholders via the `sqlhl` tokenizer (strings, comments,
+  `::` casts and `$1`/`@var` excluded) and rewrites them to the dialect's
+  marker, binding entered values only as parameters. `submitQuery` owns
+  the prompt for single-statement scripts, so history runs, `ctrl+r` and
+  grid re-runs all share it. Storage format unchanged.
+- Updated [design/query-editor-panel](design/query-editor-panel.md),
+  [design/query-editor-and-history](design/query-editor-and-history.md)
+  and [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  for the renumbering and the pane.

@@ -11,10 +11,12 @@ import (
 	"lazysql/internal/history"
 )
 
-// withHistory returns a model whose panel [4] holds three entries and is
-// focused, with its own history file so the assertions are not disturbed
-// by what other tests recorded.
-func withHistory(t *testing.T) Model {
+// withHistoryPane returns a model with three history entries and the
+// floating history pane open, reached the way a user reaches it: focus
+// the editor panel and press backspace in normal mode. The history file
+// is its own temp dir so the assertions are not disturbed by what other
+// tests recorded.
+func withHistoryPane(t *testing.T) Model {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
@@ -25,44 +27,76 @@ func withHistory(t *testing.T) Model {
 		{SQL: "UPDATE t SET a = 1", Engine: "postgres", At: at.Add(time.Minute)},
 		{SQL: "SELECT 1", Engine: "sqlite", At: at},
 	}
-	m.refreshHistory()
-	return send(t, m, press('4'))
+	m = send(t, m, press('4'), special(tea.KeyBackspace, 0))
+	if _, ok := m.modal.(*historyModal); !ok {
+		t.Fatalf("backspace opened %T, want the history pane", m.modal)
+	}
+	return m
 }
 
-func TestHistoryPanelListsNewestFirst(t *testing.T) {
-	m := withHistory(t)
-	items := m.panels[panelHistory].items
-	if len(items) != 3 {
-		t.Fatalf("panel has %d rows, want 3", len(items))
+func TestHistoryPaneListsNewestFirst(t *testing.T) {
+	m := withHistoryPane(t)
+	hm := m.modal.(*historyModal)
+	if len(hm.entries) != 3 {
+		t.Fatalf("pane has %d rows, want 3", len(hm.entries))
 	}
-	if !strings.Contains(items[0], "SELECT 3") || !strings.Contains(items[2], "SELECT 1") {
-		t.Fatalf("rows = %q, want newest first", items)
+	if hm.entries[0].SQL != "SELECT 3" || hm.entries[2].SQL != "SELECT 1" {
+		t.Fatalf("rows = %#v, want newest first", hm.entries)
+	}
+	// The highlighted rows carry escape codes between tokens, so the view
+	// is checked token-wise: the selected row (one style, contiguous) in
+	// full, the others by their leading keyword.
+	out := m.View().Content
+	if !strings.Contains(out, "SELECT 3") || !strings.Contains(out, "UPDATE") {
+		t.Fatalf("pane view is missing entries:\n%s", out)
 	}
 }
 
-func TestHistoryEnterLoadsIntoTheEditor(t *testing.T) {
-	m := withHistory(t)
-	m = send(t, m, press('j'), special(tea.KeyEnter, 0))
+func TestHistoryPaneEscCloses(t *testing.T) {
+	m := withHistoryPane(t)
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.modal != nil {
+		t.Fatalf("esc left %T open", m.modal)
+	}
 	if m.focus != panelQuery {
-		t.Fatalf("enter left focus on %v, want the query panel", m.focus)
+		t.Fatalf("focus = %v, want the editor the pane was opened from", m.focus)
+	}
+}
+
+func TestHistoryPaneOnlyOpensFromNormalMode(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press(':'))
+	m = send(t, m, press('a'), special(tea.KeyBackspace, 0))
+	if m.modal != nil {
+		t.Fatalf("backspace in insert mode opened %T, want it to delete a character", m.modal)
+	}
+	if m.script() != "" {
+		t.Fatalf("buffer = %q, want backspace to have deleted the typed rune", m.script())
+	}
+}
+
+func TestHistoryPaneLoadIntoEditor(t *testing.T) {
+	m := withHistoryPane(t)
+	m = send(t, m, press('j'), press('e'))
+	if m.modal != nil {
+		t.Fatalf("e left %T open", m.modal)
 	}
 	if m.script() != "UPDATE t SET a = 1" {
 		t.Fatalf("editor holds %q, want the selected entry", m.script())
 	}
-	// A recalled statement is meant to be run, not typed over.
 	if m.editor.editing {
 		t.Fatal("loading a statement started insert mode")
 	}
-	// Loading is not running.
-	if logContains(m, "rows affected") {
-		t.Fatalf("enter executed the statement: %v", m.commandLog)
-	}
 }
 
-func TestHistoryDeleteRemovesOneEntryAndPersists(t *testing.T) {
-	m := withHistory(t)
+func TestHistoryPaneDeleteRemovesOneEntryAndPersists(t *testing.T) {
+	m := withHistoryPane(t)
 	m = send(t, m, press('j'), press('d'))
 
+	hm := m.modal.(*historyModal)
+	if len(hm.entries) != 2 {
+		t.Fatalf("pane rows = %#v, want the middle entry gone", hm.entries)
+	}
 	if len(m.history) != 2 {
 		t.Fatalf("history = %#v, want the middle entry gone", m.history)
 	}
@@ -70,11 +104,6 @@ func TestHistoryDeleteRemovesOneEntryAndPersists(t *testing.T) {
 		if e.SQL == "UPDATE t SET a = 1" {
 			t.Fatalf("the deleted entry is still there: %#v", m.history)
 		}
-	}
-	// The cursor walks down the list rather than snapping back to the top.
-	if m.panels[panelHistory].cursor != 1 {
-		t.Fatalf("cursor = %d, want to stay where the deleted row was",
-			m.panels[panelHistory].cursor)
 	}
 	path, err := history.Path()
 	if err != nil {
@@ -89,50 +118,15 @@ func TestHistoryDeleteRemovesOneEntryAndPersists(t *testing.T) {
 	}
 }
 
-func TestHistoryClearAsksAndEmptiesTheFile(t *testing.T) {
-	m := withHistory(t)
-	m = send(t, m, press('D'))
-	if _, ok := m.modal.(*confirmModal); !ok {
-		t.Fatalf("D opened %T, want a confirm modal", m.modal)
+func TestHistoryPaneShowsEngineAndTimestamp(t *testing.T) {
+	m := withHistoryPane(t)
+	m = send(t, m, press('j'))
+	out := m.modal.view(m.style, 120, 40)
+	if !strings.Contains(out, "postgres") {
+		t.Fatalf("detail is missing the engine:\n%s", out)
 	}
-	if len(m.history) != 3 {
-		t.Fatal("D cleared the history before it was confirmed")
-	}
-	m = send(t, m, special(tea.KeyEnter, 0))
-	if len(m.history) != 0 || len(m.panels[panelHistory].items) != 0 {
-		t.Fatalf("history = %#v, want it empty", m.history)
-	}
-	path, err := history.Path()
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved, err := history.LoadFrom(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved) != 0 {
-		t.Fatalf("the file still holds %d entries", len(saved))
-	}
-}
-
-func TestHistoryFuzzyFilterAndDeleteAgree(t *testing.T) {
-	m := withHistory(t)
-	m = send(t, m, press('/'), press('u'), press('p'), press('d'))
-	items := m.panels[panelHistory].items
-	if len(items) != 1 || !strings.Contains(items[0], "UPDATE") {
-		t.Fatalf("filtered rows = %q, want only the UPDATE", items)
-	}
-	// enter leaves `/` input mode and keeps the narrowing, so `d` acts on
-	// the filtered row and not on the one at that index in the full list.
-	m = send(t, m, special(tea.KeyEnter, 0))
-	m = send(t, m, press('d'))
-	if len(m.history) != 2 {
-		t.Fatalf("history = %#v, want one entry deleted", m.history)
-	}
-	for _, e := range m.history {
-		if strings.HasPrefix(e.SQL, "UPDATE") {
-			t.Fatalf("d deleted the wrong entry through the filter: %#v", m.history)
-		}
+	if !strings.Contains(out, "2026") {
+		t.Fatalf("detail is missing the timestamp:\n%s", out)
 	}
 }
 
@@ -163,18 +157,20 @@ func drainInit(t *testing.T, m Model) []tea.Msg {
 	return drain(m.Init())
 }
 
-func TestHistoryDetailShowsEngineAndTimestamp(t *testing.T) {
-	m := withHistory(t)
-	m = send(t, m, press('j'))
-	out := m.historyDetail(80, 20)
-	if !strings.Contains(out, "postgres") {
-		t.Fatalf("detail is missing the engine:\n%s", out)
+// The panel list has no history panel any more: digits stop at [4] and
+// tab cycles the four panels without a gap.
+func TestPanelNumberingHasNoHistoryPanel(t *testing.T) {
+	m := sized(120, 40)
+	out := m.View().Content
+	if strings.Contains(out, "Query history") {
+		t.Fatalf("the layout still has a history panel:\n%s", out)
 	}
-	if !strings.Contains(out, "UPDATE t SET a = 1") {
-		t.Fatalf("detail is missing the statement:\n%s", out)
+	if !strings.Contains(out, "[4] Query") {
+		t.Fatalf("the layout has no [4] Query panel:\n%s", out)
 	}
-	if !strings.Contains(out, "2026") {
-		t.Fatalf("detail is missing the timestamp:\n%s", out)
+	m = send(t, m, press('5'))
+	if m.focus != panelConnections {
+		t.Fatalf("`5` moved focus to %v, want it ignored", m.focus)
 	}
 }
 

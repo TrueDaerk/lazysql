@@ -14,11 +14,13 @@ generated:
 
 `ctrl+r` runs the script the editor holds, `ctrl+c` aborts a run, and
 results land in the existing main-view **Data** tab, next to the browsing
-pages. Every executed statement is appended to `[4] Query history`, which
-is backed by a file so it survives a restart.
+pages. Every executed statement is appended to the query history, which is
+backed by a file so it survives a restart and opens as a floating pane
+from the editor (`backspace` in normal mode) — see
+[history-pane-and-placeholders](history-pane-and-placeholders.md).
 
 > The editor itself was a centered modal when this was written. It is now
-> the permanent panel `[5] Query`, with a normal/insert mode split and no
+> the permanent panel `[4] Query`, with a normal/insert mode split and no
 > open/close plumbing at all — see
 > [query-editor-panel](query-editor-panel.md). Everything below is about
 > what a *run* does, which the move did not change.
@@ -201,20 +203,12 @@ editor script. Re-running the newest entry does not duplicate it; only
 the timestamp would differ, and `enter`-and-run would otherwise grow the
 list on every replay.
 
-### The panel row is not the entry
+### The pane row is not the entry
 
-The panel is a `[]string`, but `enter` needs the statement verbatim, so
-the model keeps `[]history.Entry` and derives the rows
-(`time  flattened SQL`). The engine goes in the main view's detail pane
-rather than the row: the side column is ~24–40 cells wide and the
-statement is what the eye scans for.
-
-Mapping a row back to an entry cannot go by text — two runs of the same
-statement render identically. `sidePanel.applyFilter` therefore records
-`idx`, mapping each visible row onto its position in the unfiltered list,
-and `sidePanel.sourceIndex` reads it. That is what makes `d` delete the
-entry under the cursor and not the one at that index in the full list
-while a `/` filter is active.
+The pane renders rows (`time  flattened SQL`), but `enter` needs the
+statement verbatim, so the model keeps `[]history.Entry` and the pane
+snapshots it. The engine goes in the pane's detail area rather than the
+row: the statement is what the eye scans for.
 
 ## Consequences
 
@@ -225,7 +219,7 @@ while a `/` filter is active.
   `INSERT` and table scopes need a table and are hidden.
 - A result takes focus to the main view when the run started outside the
   editor panel, and `esc` walks back through the focus stack. A run
-  started in `[5]` keeps its focus there —
+  started in `[4]` keeps its focus there —
   [query-editor-panel](query-editor-panel.md) §3.
 - Adding `QueryLimit` widened the `Driver` interface. There is one
   implementation (`db.conn`) and no fakes, so the cost was a single

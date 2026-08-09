@@ -428,7 +428,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, logCmd("-- read query history FAILED: %v", msg.err)
 		}
 		m.history = msg.entries
-		m.refreshHistory()
 		return m, nil
 
 	case historyWrittenMsg:
@@ -896,17 +895,8 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		m.panels[panelTables].clearFilter()
 		m.refreshRelations()
 
-	case actLoadQuery:
-		if e, ok := m.selectedHistory(); ok {
-			cmd := m.loadIntoEditor(e.SQL)
-			return m, cmd
-		}
-
-	case actRunQuery:
-		if e, ok := m.selectedHistory(); ok {
-			cmd := m.submitQuery(e.SQL)
-			return m, cmd
-		}
+	case actHistory:
+		m.modal = newHistoryModal(m.history, m.sqlDialect())
 
 	case actEditQuery:
 		m.setEditing(true)
@@ -918,22 +908,6 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actClearQuery:
 		cmd := m.clearQuery()
 		return m, cmd
-
-	case actDeleteHistory:
-		cmd := m.deleteHistoryEntry()
-		return m, cmd
-
-	case actClearHistory:
-		if len(m.history) == 0 {
-			return m, logCmd("-- query history is already empty")
-		}
-		m.modal = &confirmModal{
-			title: "Clear history",
-			body: fmt.Sprintf(
-				"Discard all %d entries of the query history, on disk too?", len(m.history)),
-			danger:    true,
-			onConfirm: func(m *Model) tea.Cmd { return m.clearHistory() },
-		}
 	}
 	return m, nil
 }
@@ -990,13 +964,6 @@ func (m *Model) drillIn() tea.Cmd {
 		// Opening a relation loads its first page and hands focus to the
 		// grid; `esc` there comes straight back here.
 		return tea.Batch(m.openTable(sel), focusCmd(panelMain))
-	case panelHistory:
-		// `enter` loads the statement into the editor rather than
-		// running it: history is full of statements that were fine once
-		// and would be a surprise now. `x` runs it.
-		if e, ok := m.selectedHistory(); ok {
-			return m.loadIntoEditor(e.SQL)
-		}
 	}
 	return nil
 }

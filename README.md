@@ -32,11 +32,11 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 ├─[3] Tables───────┤│                                           │
 │ ▸ users          ││                                           │
 │   orders         │├─Command log───────────────────────────────┤
-├─[4] Query history┤│ SELECT * FROM users LIMIT 100;            │
-├─[5] Query────────┤│                                           │
+├─[4] Query────────┤│ SELECT * FROM users LIMIT 100;            │
 │ SELECT * FROM u… ││                                           │
+│                  ││                                           │
 └──────────────────┘└───────────────────────────────────────────┘
- 1-5 jump  tab cycle  enter open  e edit  d delete  ? help  q quit
+ 1-4 jump  tab cycle  enter open  e edit  d delete  ? help  q quit
 ```
 
 ## Key bindings (core)
@@ -52,7 +52,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 | `d` | Delete row (confirm) |
 | `n` | New (connection/row, context-sensitive) |
 | `y` | Copy (cell/row/table submenu) |
-| `:` | Focus the SQL query editor, panel `[5]` |
+| `:` | Focus the SQL query editor, panel `[4]` |
 | `c` | Commit staged changes |
 | `?` | Help / all bindings |
 | `q` | Quit |
@@ -67,7 +67,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `f` | Quick `WHERE` filter |
 | `v` | Show the full cell value (JSON pretty-printed) |
 
-The query editor is panel `[5]`, not a popup: it stays in the layout, and
+The query editor is panel `[4]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two
 vim-style modes; the panel gains focus in normal mode:
 
@@ -118,10 +118,13 @@ focus.
 
 Several statements separated by `;` run in order; the result of the last
 `SELECT` is what the Data tab shows, and anything that changes data asks
-first. Every executed statement is appended to `[4] Query history`, which
+first. Every executed statement is appended to the query history, which
 persists in `${XDG_STATE_HOME:-~/.local/state}/lazysql/history` with the
-engine it ran on and when. There, `enter` loads an entry back into the
-editor, `x` runs it, `d` deletes it, `D` clears the history and `/` filters.
+engine it ran on and when. `backspace` in the editor's normal mode opens
+it as a floating pane: `enter` runs the selected entry — a statement with
+`?` or `:name` placeholders first prompts for their values and executes
+as a prepared statement, with the values bound as parameters — `e` loads
+it into the editor and `d` deletes it.
 
 ## Configuration
 

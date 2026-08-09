@@ -32,7 +32,6 @@ func queryable(t *testing.T) Model {
 	// Start from an empty history so the assertions below count only
 	// what the test itself ran.
 	m.history = nil
-	m.refreshHistory()
 	m.commandLog = nil
 	return m
 }
@@ -42,7 +41,7 @@ func runQuery(t *testing.T, m Model, script string) Model {
 	t.Helper()
 	m = send(t, m, press(':'))
 	if m.focus != panelQuery || !m.editor.editing {
-		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [5]",
+		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [4]",
 			m.focus, m.editor.editing)
 	}
 	m.setScript(script)
@@ -67,19 +66,19 @@ func TestColonFocusesTheEditorPanelWithTheBuffer(t *testing.T) {
 	}
 }
 
-func TestDigitFiveFocusesTheEditorPanel(t *testing.T) {
+func TestDigitFourFocusesTheEditorPanel(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('5'))
+	m = send(t, m, press('4'))
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
-	// `5` jumps to the panel, it does not start typing: the panel's own
+	// `4` jumps to the panel, it does not start typing: the panel's own
 	// keys have to stay reachable.
 	if m.editor.editing {
-		t.Fatal("`5` started insert mode")
+		t.Fatal("`4` started insert mode")
 	}
-	if out := m.View().Content; !strings.Contains(out, "[5] Query") {
-		t.Fatalf("the layout has no [5] Query panel:\n%s", out)
+	if out := m.View().Content; !strings.Contains(out, "[4] Query") {
+		t.Fatalf("the layout has no [4] Query panel:\n%s", out)
 	}
 }
 
@@ -161,18 +160,18 @@ func TestRunKeepsTheEditorOpenWithItsContent(t *testing.T) {
 	}
 }
 
-// Running from the history panel must not overwrite what is being
+// Running from the history pane must not overwrite what is being
 // written in the editor.
 func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {
 	m := queryable(t)
-	m.setScript("SELECT 1")
 	m = runQuery(t, m, "SELECT id FROM q")
-	m = send(t, m, press('4'), press('x'))
-	if m.script() != "SELECT id FROM q" {
+	m.setScript("SELECT 2 -- a draft")
+	m = send(t, m, special(tea.KeyBackspace, 0), special(tea.KeyEnter, 0))
+	if m.script() != "SELECT 2 -- a draft" {
 		t.Fatalf("buffer = %q, want the history run to leave it alone", m.script())
 	}
-	if m.focus != panelMain {
-		t.Fatalf("focus = %v, want the grid for a run started outside the editor", m.focus)
+	if !logContains(m, "-- 3 rows") {
+		t.Fatalf("the history entry did not run: %v", m.commandLog)
 	}
 }
 
@@ -180,7 +179,7 @@ func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {
 func TestClearBufferAsksFirst(t *testing.T) {
 	m := sized(120, 40)
 	m.setScript("SELECT 1")
-	m = send(t, m, press('5'), press('D'))
+	m = send(t, m, press('4'), press('D'))
 	if _, ok := m.modal.(*confirmModal); !ok {
 		t.Fatalf("D opened %T, want a confirm modal", m.modal)
 	}
@@ -450,7 +449,7 @@ func TestQueryRunIsCancellable(t *testing.T) {
 	// A long recursive scan the SQLite driver checks the context in.
 	script := "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 20000000) SELECT count(*) FROM n"
 	stmts := db.SplitStatements(m.driver.Engine(), script)
-	cmd := m.startQuery(stmts)
+	cmd := m.startQuery(stmts, nil, "")
 	if !m.run.running {
 		t.Fatal("startQuery did not mark the run as in flight")
 	}
@@ -512,5 +511,90 @@ func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	m = runQuery(t, m, "SELECT id FROM q")
 	if len(m.history) != 1 {
 		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.history)
+	}
+}
+
+// ---------- placeholder prompts ----------
+
+// A statement with placeholders prompts for values first and runs as a
+// prepared statement with them bound as parameters.
+func TestPlaceholdersPromptAndBind(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "SELECT * FROM q WHERE id = ? AND name = :n")
+	p, ok := m.modal.(*paramsModal)
+	if !ok {
+		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
+	}
+	if len(p.inputs) != 2 || p.labels[0] != "? (1)" || p.labels[1] != ":n" {
+		t.Fatalf("prompt fields = %v, want the ? and :n", p.labels)
+	}
+	// One value per placeholder: enter advances, the last enter runs.
+	m = send(t, m, press('2'), special(tea.KeyEnter, 0),
+		press('r'), press('o'), press('w'), special(tea.KeyEnter, 0))
+	if m.modal != nil {
+		t.Fatalf("the prompt left %T open", m.modal)
+	}
+	if !m.data.isQuery() || len(m.data.rows) != 1 {
+		t.Fatalf("data = %#v, want the one matching row", m.data)
+	}
+	// The history and the Data tab keep the statement as typed, with its
+	// placeholders — not the dialect-rewritten text.
+	if m.data.query != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("data.query = %q, want the original statement", m.data.query)
+	}
+	if len(m.history) == 0 || m.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("history = %#v, want the original statement recorded", m.history)
+	}
+}
+
+// esc in the parameter prompt cancels without executing.
+func TestPlaceholderPromptEscCancels(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "DELETE FROM q WHERE id = ?")
+	if _, ok := m.modal.(*paramsModal); !ok {
+		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.modal != nil {
+		t.Fatalf("esc left %T open", m.modal)
+	}
+	rs, err := m.driver.Query(context.Background(), "SELECT COUNT(*) FROM q")
+	if err != nil || rs.Rows[0][0].(int64) != 3 {
+		t.Fatalf("rows = %v err = %v, want the DELETE never to have run", rs, err)
+	}
+}
+
+// A hostile value is bound, not interpolated: it matches nothing and the
+// table survives.
+func TestPlaceholderValueIsBoundNotInterpolated(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "SELECT * FROM q WHERE name = :n")
+	p, ok := m.modal.(*paramsModal)
+	if !ok {
+		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
+	}
+	p.inputs[0].SetValue("'; DROP TABLE q;--")
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if logContains(m, "FAILED") {
+		t.Fatalf("the bound value broke the statement: %v", m.commandLog)
+	}
+	if len(m.data.rows) != 0 {
+		t.Fatalf("rows = %v, want none for an injection-string name", m.data.rows)
+	}
+	if _, err := m.driver.Query(context.Background(), "SELECT COUNT(*) FROM q"); err != nil {
+		t.Fatalf("table q is gone: %v", err)
+	}
+}
+
+// `?`/`:name` inside strings, comments or a `::type` cast are not
+// placeholders: the statement runs without a prompt.
+func TestNoPromptForQuotedOrCommentedPlaceholders(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "SELECT '?' FROM q -- :name")
+	if m.modal != nil {
+		t.Fatalf("a quoted ? opened %T, want an immediate run", m.modal)
+	}
+	if !m.data.isQuery() || len(m.data.rows) != 3 {
+		t.Fatalf("data = %#v, want the statement to have run", m.data)
 	}
 }

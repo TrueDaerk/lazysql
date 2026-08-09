@@ -1,6 +1,6 @@
 ---
 type: Design Decision
-title: The query editor as panel [5], and its normal/insert mode split
+title: The query editor as panel [4], and its normal/insert mode split
 description: Why the query editor became a permanent numbered panel instead of a modal, how a persistent textarea coexists with single-key global bindings through a normal/insert mode split, where the editor is drawn (side column preview vs. main view), who owns focus after a run, and why unclaimed normal-mode keys fall through to the data grid.
 tags: [tui, query, panel, focus, keybindings, textarea, modes]
 generated:
@@ -11,12 +11,18 @@ sources:
     title: "Issue #28 — Make query editor a persistent panel [5] instead of a modal"
 ---
 
-# The query editor as panel [5]
+# The query editor as panel [4]
+
+> Written when the editor was `[5]`: the `[4] Query history` panel has
+> since become a floating pane opened from this editor (issue #34, see
+> [history-pane-and-placeholders](history-pane-and-placeholders.md)),
+> and the editor renumbered to `[4]`. Panel numbers below are updated;
+> the mode split and focus rules are unchanged.
 
 ## Decision
 
-The SQL editor is a numbered side panel, `[5] Query`, not a centered
-modal. `5` focuses it, `:` focuses it and starts typing, `tab` cycles
+The SQL editor is a numbered side panel, `[4] Query`, not a centered
+modal. `4` focuses it, `:` focuses it and starts typing, `tab` cycles
 through it, and `ctrl+r` runs the buffer **without closing or clearing
 it**. There is no `queryModal` any more; the other modals (confirm,
 menu, prompt, help, command log) are untouched.
@@ -68,12 +74,11 @@ and behind the filter, which was already a per-keystroke capture.
 ## 2. Two surfaces: a preview in the column, the editor in the main view
 
 The side column is ~30 cells wide — too narrow to write SQL in. So panel
-`[5]` renders a *preview* (`queryPanelBody`): the buffer's first lines,
+`[4]` renders a *preview* (`queryPanelBody`): the buffer's first lines,
 a `… N more lines` marker when it does not fit, and a mode/`running…`
 marker in the title. The editing surface is the main view
 (`queryContent`), which is what the focused panel drives anyway —
-exactly how `[1]` drives the connection detail and `[4]` the statement
-detail.
+exactly how `[1]` drives the connection detail.
 
 `queryContent` stacks the textarea (its own line count, capped at half
 the box, minimum 3 rows), a one-line key hint for the current mode, and
@@ -98,11 +103,11 @@ column and the border moves with it.
 `focusResult` replaced the unconditional `setFocus(panelMain)` of the
 three `showQuery*` reducers:
 
-- Started in panel `[5]` → focus **stays** in the editor. Its main view
+- Started in panel `[4]` → focus **stays** in the editor. Its main view
   already shows the result under the buffer, and jumping away would undo
   the point of a persistent editor.
-- Started anywhere else (`x` on the history panel, `enter`/`R` re-run in
-  the grid) → the grid takes focus, exactly as before.
+- Started anywhere else (`enter` in the history pane, `enter`/`R` re-run
+  in the grid) → the grid takes focus, exactly as before.
 
 A run from insert mode also drops back to normal mode. The result is
 what the user just asked to see, and normal mode is what makes it
@@ -110,7 +115,7 @@ navigable without an extra `esc`.
 
 ## 4. Unclaimed normal-mode keys fall through to the grid
 
-With focus parked in `[5]`, `ctrl+f`, `v`, `[`/`]` and the rest of the
+With focus parked in `[4]`, `ctrl+f`, `v`, `[`/`]` and the rest of the
 grid's keys would otherwise be unreachable without leaving the editor —
 which is the modal problem again in a different costume. So
 `updateQuery` ends with: if the main view is showing a query result,
@@ -128,11 +133,11 @@ and is why `D` confirms before it discards anything.
 ## 5. `submitQuery` never writes to the buffer
 
 It used to set `m.draft = script`. With a persistent editor that would
-mean `x` on the history panel silently overwriting a half-written
-statement in `[5]`. The editor owns its text; only `:`-adjacent flows
-(`loadIntoEditor`, `D`) change it. `enter` on the history panel still
-loads an entry into the buffer — deliberately, and in normal mode: a
-recalled statement is meant to be run, not typed over.
+mean a run from the history pane silently overwriting a half-written
+statement in `[4]`. The editor owns its text; only `:`-adjacent flows
+(`loadIntoEditor`, `D`) change it. `e` in the history pane loads an
+entry into the buffer — deliberately, and in normal mode: a recalled
+statement is meant to be run, not typed over.
 
 ## Keybindings
 
@@ -157,11 +162,11 @@ so the mode's keys have to be visible from normal mode. `navigationFor`
 drops `enter` from the navigation group on this one panel: `enter` is
 not "drill in" here, and the panel's action list already names it.
 
-`jump` grew to `1`–`5`.
+`jump` is `1`–`4`.
 
 ## Consequences
 
-- The side column now holds five panels. The tiny-terminal guard
+- The side column holds four panels (five when this was written). The tiny-terminal guard
   (60×18) still fits: `panelHeights` gives every panel its 3-row minimum
   at `bodyH = 17`, and half-screen mode's `collapsed*panelCount+2`
   threshold is exactly met. Verified in a real PTY down to 50×12, where
@@ -170,8 +175,9 @@ not "drill in" here, and the panel's action list already names it.
   a `panelID` for focus, keys and titles, not a list. `renderPanel`
   special-cases it, and `updateQuery`/`updateEditor` intercept its keys
   before `updateFocused` would index the empty list.
-- The `[4]` history panel is untouched here; its own restructure is a
-  separate issue.
+- The `[4]` history panel this text originally kept next door became
+  the floating history pane of issue #34 —
+  [history-pane-and-placeholders](history-pane-and-placeholders.md).
 - `ctrl+enter` still runs, for terminals that send it, but only from
   insert mode — in normal mode it is an ordinary unbound key.
 

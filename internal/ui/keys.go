@@ -27,6 +27,7 @@ type keyMap struct {
 	NewConnection  key.Binding
 	EditConnection key.Binding
 	DropConnection key.Binding
+	TestConnection key.Binding
 	Connect        key.Binding
 	Refresh        key.Binding
 	Actions        key.Binding
@@ -54,7 +55,8 @@ func newKeyMap() keyMap {
 		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
 		DropConnection: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove connection")),
-		Connect:        key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "connect")),
+		TestConnection: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
+		Connect:        key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
 		Refresh:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
@@ -82,6 +84,7 @@ const (
 	actNewConnection
 	actEditConnection
 	actDropConnection
+	actTestConnection
 	actRefresh
 	actFilter
 	actRunQuery
@@ -104,6 +107,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actNewConnection, k.NewConnection},
 			{actEditConnection, k.EditConnection},
 			{actDropConnection, k.DropConnection},
+			{actTestConnection, k.TestConnection},
 		}
 	case panelDatabases, panelTables:
 		return []action{

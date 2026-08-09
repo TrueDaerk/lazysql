@@ -188,30 +188,46 @@ type Model struct {
 }
 
 // New builds the shell and loads the saved connections. A broken or missing
-// config never blocks startup: the error is surfaced in the command log and
-// the app starts with an empty connection list.
-func New() Model {
+// connections list never blocks startup: the error is surfaced in the
+// command log and the app starts with an empty connection list. An invalid
+// `[keys]` or `[theme]` section is different — those change what the app
+// does when a key is pressed, so New returns an error for the caller to
+// report and exit on, rather than silently running with a broken keymap.
+func New() (Model, error) {
+	cfg, cfgErr := config.Load()
+	if cfgErr != nil {
+		cfg = &config.Config{}
+	}
+
+	km := newKeyMap()
+	if err := applyKeyOverrides(&km, cfg.Keys); err != nil {
+		return Model{}, fmt.Errorf("config: %w", err)
+	}
+	pal, err := resolvePalette(cfg.Theme)
+	if err != nil {
+		return Model{}, fmt.Errorf("config: %w", err)
+	}
+	applyPalette(pal)
+
 	m := Model{
 		focus:     panelConnections,
-		keys:      newKeyMap(),
+		keys:      km,
 		help:      help.New(),
 		style:     newStyles(),
 		connState: map[string]connState{},
 		changes:   db.NewChangeset(),
+		cfg:       cfg,
+	}
+	if cfgErr != nil {
+		m.startupErr = cfgErr.Error()
 	}
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id}
 	}
 	m.panels[panelTables].tabs = relationTabNames[:]
 
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = &config.Config{}
-		m.startupErr = err.Error()
-	}
-	m.cfg = cfg
 	m.refreshConnections("")
-	return m
+	return m, nil
 }
 
 func (m Model) Init() tea.Cmd {

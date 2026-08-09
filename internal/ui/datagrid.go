@@ -316,7 +316,7 @@ func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool, kind rowKind) lipg
 	}
 	switch {
 	case kind == rowDeleted:
-		return style.Foreground(colorRed).Strikethrough(true)
+		return style.Foreground(colorDeleted).Strikethrough(true)
 	case kind == rowInserted:
 		return style.Foreground(colorGreen).Bold(true)
 	case isStaged:

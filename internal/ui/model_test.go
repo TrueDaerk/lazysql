@@ -102,7 +102,10 @@ func drain(cmd tea.Cmd) []tea.Msg {
 }
 
 func sized(w, h int) Model {
-	m := New()
+	m, err := New()
+	if err != nil {
+		panic(err)
+	}
 	m.cfg = &config.Config{Connections: testConnections()}
 	// Select the first fixture explicitly: New() may have loaded a config
 	// written by an earlier test, which would otherwise carry its selection

@@ -176,3 +176,76 @@ func TestRemoveAndClone(t *testing.T) {
 		t.Fatal("removing from the original mutated the clone")
 	}
 }
+
+// A clone that shares the Keys/Theme maps with the original would let a
+// connection save silently corrupt the user's hand-edited [keys]/[theme]
+// sections the next time SaveTo re-encodes a mutated clone.
+func TestCloneDeepCopiesKeysAndTheme(t *testing.T) {
+	cfg := &Config{
+		Keys:  map[string]string{"quit": "q"},
+		Theme: map[string]string{"theme": "light"},
+	}
+	clone := cfg.Clone()
+	clone.Keys["quit"] = "x"
+	clone.Theme["theme"] = "default"
+	if cfg.Keys["quit"] != "q" {
+		t.Fatal("Clone shares its Keys map with the original")
+	}
+	if cfg.Theme["theme"] != "light" {
+		t.Fatal("Clone shares its Theme map with the original")
+	}
+}
+
+func TestKeysAndThemeSurviveSaveLoadRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := &Config{
+		Connections: []Connection{{Name: "a", Engine: db.EngineSQLite, File: "a.db"}},
+		Keys:        map[string]string{"quit": "x", "edit-cell": "e"},
+		Theme:       map[string]string{"theme": "light", "border-focused": "#00ff00"},
+	}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatalf("SaveTo: %v", err)
+	}
+	got, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if got.Keys["quit"] != "x" || got.Keys["edit-cell"] != "e" {
+		t.Fatalf("Keys did not round-trip: %+v", got.Keys)
+	}
+	if got.Theme["theme"] != "light" || got.Theme["border-focused"] != "#00ff00" {
+		t.Fatalf("Theme did not round-trip: %+v", got.Theme)
+	}
+}
+
+// Saving connections (e.g. after adding one through the UI) must not drop a
+// [keys]/[theme] section the user hand-edited into the file.
+func TestSavingConnectionsPreservesKeysAndTheme(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := &Config{Keys: map[string]string{"quit": "x"}}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatalf("SaveTo: %v", err)
+	}
+	loaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	clone := loaded.Clone()
+	if err := clone.Upsert("", Connection{Name: "a", Engine: db.EngineSQLite, File: "a.db"}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := clone.SaveTo(path); err != nil {
+		t.Fatalf("SaveTo: %v", err)
+	}
+	reloaded, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if reloaded.Keys["quit"] != "x" {
+		t.Fatalf("saving a connection dropped the [keys] section: %+v", reloaded.Keys)
+	}
+}

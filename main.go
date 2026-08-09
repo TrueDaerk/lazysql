@@ -10,7 +10,12 @@ import (
 )
 
 func main() {
-	if _, err := tea.NewProgram(ui.New()).Run(); err != nil {
+	m, err := ui.New()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "lazysql:", err)
+		os.Exit(1)
+	}
+	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "lazysql:", err)
 		os.Exit(1)
 	}

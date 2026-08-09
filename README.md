@@ -81,6 +81,49 @@ persists in `${XDG_STATE_HOME:-~/.local/state}/lazysql/history` with the
 engine it ran on and when. There, `enter` loads an entry back into the
 editor, `x` runs it, `d` deletes it, `D` clears the history and `/` filters.
 
+## Configuration
+
+lazysql reads `${XDG_CONFIG_HOME:-~/.config}/lazysql/config.toml`. Besides
+`[[connections]]` (managed through the UI), it has two optional
+user-editable sections. Both fail startup with a message on stderr —
+listing every valid name — if they contain an unknown name; they never
+start the app with a half-applied override.
+
+### `[keys]`
+
+Override any default binding by action name. The value is one key, or
+several separated by commas:
+
+```toml
+[keys]
+quit = "ctrl+q"
+edit-cell = "e"
+down = "j, down, ctrl+n"
+```
+
+Run `?` in the app for the full current list of action names — every one
+of them is overridable, and an override changes the key's behavior, its
+entry in the options bar, and its entry in `?` together, since all three
+read the same table.
+
+### `[theme]`
+
+`theme` selects a built-in preset (`default`, which tracks your terminal's
+own ANSI colors, or `light`, tuned for a white background); any other key
+overrides one named color on top of it. Values accept an ANSI name
+(`black`…`white`, `bright-black`…`bright-white`, `gray`/`grey`), a
+256-color index (`0`-`255`), or hex (`#rgb`/`#rrggbb`):
+
+```toml
+[theme]
+theme = "light"
+border-focused = "#1a7f37"
+staged = "yellow"
+```
+
+Named colors: `border-focused`, `border-blurred`, `accent`, `staged`,
+`deleted`, `error`, `selection-bg`, `row-cursor-bg`, `cell-cursor-bg`.
+
 ## Install
 
 ```sh

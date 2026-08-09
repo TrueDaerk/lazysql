@@ -7,13 +7,21 @@ import (
 )
 
 // ANSI palette colors respect the user's terminal theme, which keeps the
-// lazygit look consistent across color schemes.
+// lazygit look consistent across color schemes. These are the defaults;
+// applyPalette overwrites them once at startup from the resolved `[theme]`
+// config (built-in preset plus any per-color overrides).
 var (
 	colorGreen  = lipgloss.Color("2")
 	colorYellow = lipgloss.Color("3")
-	colorRed    = lipgloss.Color("1")
 	colorCyan   = lipgloss.Color("6")
 	colorMuted  = lipgloss.Color("8")
+
+	colorDeleted = lipgloss.Color("1")
+	colorError   = lipgloss.Color("1")
+
+	colorSelectionBg  = lipgloss.Color("237")
+	colorRowCursorBg  = lipgloss.Color("236")
+	colorCellCursorBg = lipgloss.Color("240")
 )
 
 type styles struct {
@@ -48,7 +56,7 @@ func newStyles() styles {
 
 		title:        lipgloss.NewStyle().Foreground(colorMuted),
 		titleFocused: lipgloss.NewStyle().Foreground(colorGreen).Bold(true),
-		selected:     lipgloss.NewStyle().Background(lipgloss.Color("237")).Foreground(colorCyan),
+		selected:     lipgloss.NewStyle().Background(colorSelectionBg).Foreground(colorCyan),
 		muted:        lipgloss.NewStyle().Foreground(colorMuted),
 		keyHint:      lipgloss.NewStyle().Foreground(colorCyan),
 
@@ -58,13 +66,13 @@ func newStyles() styles {
 			BorderForeground(colorGreen).
 			Padding(0, 2),
 		modalTitle: lipgloss.NewStyle().Bold(true).Foreground(colorGreen),
-		danger:     lipgloss.NewStyle().Foreground(colorRed),
+		danger:     lipgloss.NewStyle().Foreground(colorError),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
 
 		gridHeader:       lipgloss.NewStyle().Bold(true),
 		gridHeaderCursor: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),
-		rowCursor:        lipgloss.NewStyle().Background(lipgloss.Color("236")),
-		cellCursor:       lipgloss.NewStyle().Background(lipgloss.Color("240")).Bold(true),
+		rowCursor:        lipgloss.NewStyle().Background(colorRowCursorBg),
+		cellCursor:       lipgloss.NewStyle().Background(colorCellCursorBg).Bold(true),
 	}
 }
 
@@ -75,7 +83,7 @@ func statusColor(st itemStatus) (color.Color, bool) {
 	case statusOK:
 		return colorGreen, true
 	case statusError:
-		return colorRed, true
+		return colorError, true
 	case statusPending:
 		return colorYellow, true
 	}

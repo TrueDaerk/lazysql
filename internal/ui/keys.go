@@ -1,6 +1,12 @@
 package ui
 
-import "charm.land/bubbles/v2/key"
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+)
 
 // keyMap holds every binding the shell knows about. The options bar and the
 // `?` help modal both render slices assembled from this struct — there is no
@@ -89,7 +95,7 @@ func newKeyMap() keyMap {
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel query"), key.WithDisabled()),
 		CommandLog: key.NewBinding(key.WithKeys("@"), key.WithHelp("@", "expand command log")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
@@ -293,4 +299,93 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 		k.navigation(),
 		k.global(),
 	}
+}
+
+// bindingSlot pairs a `[keys]` config action name with the keyMap field it
+// overrides.
+type bindingSlot struct {
+	name string
+	ptr  *key.Binding
+}
+
+// slots is the single source both applyKeyOverrides and its "unknown
+// action" error message read: every config-facing action name paired with
+// the binding it controls. The name is the field name in kebab-case.
+func (k *keyMap) slots() []bindingSlot {
+	return []bindingSlot{
+		{"up", &k.Up}, {"down", &k.Down}, {"enter", &k.Enter}, {"back", &k.Back},
+
+		{"jump", &k.Jump}, {"next-panel", &k.NextPanel}, {"prev-panel", &k.PrevPanel},
+
+		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
+		{"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog}, {"help", &k.Help}, {"quit", &k.Quit},
+
+		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
+		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
+		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
+		{"toggle-tab", &k.ToggleTab}, {"load-query", &k.LoadQuery}, {"run-query", &k.RunQuery},
+		{"delete-history", &k.DeleteHistory}, {"clear-history", &k.ClearHistory},
+
+		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
+		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
+		{"view-cell", &k.ViewCell},
+
+		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
+		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},
+		{"unstage-cell", &k.UnstageCell}, {"discard-changes", &k.DiscardChanges},
+
+		{"prev-main-tab", &k.PrevMainTab}, {"next-main-tab", &k.NextMainTab},
+
+		{"copy-menu", &k.CopyMenu}, {"export-table", &k.ExportTable}, {"cancel-export", &k.CancelExport},
+	}
+}
+
+// actionNames lists every valid `[keys]` action name, sorted, for use in
+// error messages.
+func actionNames() []string {
+	var k keyMap
+	names := make([]string, 0, len(k.slots()))
+	for _, s := range k.slots() {
+		names = append(names, s.name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// applyKeyOverrides applies the `[keys]` config section on top of km's
+// defaults: each entry rebinds one action to a new comma-separated list of
+// keys, keeping its existing help description. An unknown action name or an
+// empty key list is a config error, not a panic — the caller is expected to
+// fail startup with it.
+func applyKeyOverrides(km *keyMap, overrides map[string]string) error {
+	lookup := map[string]*key.Binding{}
+	for _, s := range km.slots() {
+		lookup[s.name] = s.ptr
+	}
+
+	names := make([]string, 0, len(overrides))
+	for name := range overrides {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		binding, ok := lookup[name]
+		if !ok {
+			return fmt.Errorf(
+				"unknown key action %q (valid actions: %s)", name, strings.Join(actionNames(), ", "))
+		}
+		var keys []string
+		for _, part := range strings.Split(overrides[name], ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				keys = append(keys, part)
+			}
+		}
+		if len(keys) == 0 {
+			return fmt.Errorf("key action %q: empty key value", name)
+		}
+		binding.SetKeys(keys...)
+		binding.SetHelp(strings.Join(keys, "/"), binding.Help().Desc)
+	}
+	return nil
 }

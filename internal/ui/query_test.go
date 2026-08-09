@@ -514,13 +514,6 @@ func TestRunningIndicatorShowsWhileQueryRunsAndClearsAfter(t *testing.T) {
 
 func TestQueryResultHasNoTableActions(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id FROM q")
-	m = send(t, m, press('E')) // export
-	if m.modal != nil {
-		t.Fatalf("export opened %T for a query result", m.modal)
-	}
-	if !logContains(m, "export skipped") {
-		t.Fatalf("export said nothing: %v", m.commandLog)
-	}
 	// The introspection tabs describe a relation, so they stay away.
 	m = send(t, m, press(']'))
 	if m.tab != mainTabData {

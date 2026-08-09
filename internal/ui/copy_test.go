@@ -234,6 +234,68 @@ func TestCopyTableJSON(t *testing.T) {
 	}
 }
 
+// A query result offers a page scope instead of a table scope: it has
+// no relation behind it to re-read from the server. `y` is vim's own
+// yank while focus stays on the editor panel, so the copy menu is
+// reached from the grid — `tab` moves focus there the same way it does
+// after any other run whose result the user wants to act on.
+func TestCopyMenuOffersPageScopeForQueryResults(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id, name FROM q")
+	m = send(t, m, special(tea.KeyTab, 0), press('y'))
+	labels := menuLabels(t, m)
+	for _, want := range []string{"cell", "row — CSV", "row — JSON", "page — CSV", "page — JSON array"} {
+		if !hasLabel(labels, want) {
+			t.Errorf("copy menu is missing %q: %v", want, labels)
+		}
+	}
+	for _, unwanted := range []string{"row — INSERT", "table —", "DDL"} {
+		if hasLabel(labels, unwanted) {
+			t.Errorf("copy menu offers %q for a query result: %v", unwanted, labels)
+		}
+	}
+}
+
+// The page-scope copy is limited to the rows already loaded — not the
+// whole result a big query might match — and the log line says so.
+func TestCopyQueryPageIsLimitedToTheLoadedPage(t *testing.T) {
+	got := fakeClipboard(t)
+	m := queryable(t)
+	if _, err := m.driver.Exec(t.Context(),
+		`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 150)
+		 INSERT INTO q (id, name) SELECT i + 100, 'bulk' FROM n`); err != nil {
+		t.Fatal(err)
+	}
+	m = runQuery(t, m, "SELECT id FROM q ORDER BY id")
+	if len(m.data.rows) != dataPageSize {
+		t.Fatalf("loaded page has %d rows, want the grid page size %d", len(m.data.rows), dataPageSize)
+	}
+
+	m = send(t, m, special(tea.KeyTab, 0), press('y'), press('C'))
+	lines := strings.Split(strings.TrimRight(*got, "\n"), "\n")
+	if len(lines) != dataPageSize+1 {
+		t.Fatalf("copied %d lines, want the page size plus a header", len(lines))
+	}
+	if !logContains(m, "loaded page only") || !logContains(m, "E exports the full result") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// The page-scope JSON copy is a valid array of typed objects, the same
+// as the table scope's.
+func TestCopyQueryPageJSON(t *testing.T) {
+	got := fakeClipboard(t)
+	m := runQuery(t, queryable(t), "SELECT id, name FROM q")
+	send(t, m, special(tea.KeyTab, 0), press('y'), press('O'))
+
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(*got), &decoded); err != nil {
+		t.Fatalf("page JSON does not parse: %v\n%s", err, *got)
+	}
+	if len(decoded) != 3 {
+		t.Fatalf("decoded %d rows, want 3", len(decoded))
+	}
+}
+
 // With no clipboard around, a copy still succeeds: the text lands in a
 // temp file and the log names the path.
 func TestCopyDegradesToTempFile(t *testing.T) {

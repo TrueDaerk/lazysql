@@ -39,6 +39,17 @@ type dataView struct {
 	// table-only action (edit, insert, export, introspection) that it
 	// has nothing to work on.
 	query string
+	// queryArgs are the bound parameters query ran with, when it came
+	// from a single-statement placeholder run. A file export re-runs
+	// queryExec to stream the full result rather than the capped,
+	// in-memory `all`, and it needs the same arguments the grid's own
+	// result did.
+	queryArgs []any
+	// queryExec is query exactly as it was executed — the driver's own
+	// placeholder markers rather than the `?`/`:name` spelling query
+	// keeps for display and for a re-run's own prompt. It is what a file
+	// export actually re-runs.
+	queryExec string
 	// all holds every row a query returned. A table page comes from the
 	// server one page at a time, but a free-form result cannot be
 	// re-queried by offset, so it is materialized once and paged here.
@@ -98,6 +109,12 @@ func (d dataView) browsing() bool { return d.table != "" }
 
 // isQuery reports whether the page is a materialized query result.
 func (d dataView) isQuery() bool { return d.query != "" }
+
+// hasResult reports whether the Data tab is showing an actual result
+// set — from a browsed relation or a query's SELECT — rather than a
+// rows-affected notice or an error. Only a result set has columns, so
+// only it has anything for `E`/`y` to export.
+func (d dataView) hasResult() bool { return d.open() && len(d.cols) > 0 }
 
 // setPage cuts page p out of a materialized query result. Table pages
 // come from the server instead and never go through here.

@@ -81,6 +81,16 @@ type queryStmtMsg struct {
 	affected  int64
 	took      time.Duration
 	err       error
+	// args are the bound parameters sql ran with, carried along so a
+	// result set that lands in the Data tab can be re-streamed for a
+	// file export with the same values — see queryJob.args.
+	args []any
+	// exec is the statement exactly as it was executed — the driver's own
+	// placeholder markers, not the `?`/`:name` spelling the user typed —
+	// which is what a file export needs to re-run it. sql keeps the typed
+	// form for display and history; the two only differ for a bound,
+	// single-statement placeholder run (see the override below).
+	exec string
 }
 
 // queryDoneMsg closes a run, successfully or not.
@@ -141,7 +151,9 @@ func (j queryJob) run() {
 			index: i + 1,
 			total: len(j.stmts),
 			sql:   sql,
+			exec:  sql,
 			read:  db.ClassifyStatement(sql) == db.StatementRead,
+			args:  j.args,
 		}
 		if j.display != "" && len(j.stmts) == 1 {
 			out.sql = j.display
@@ -716,7 +728,7 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 		cmds = append(cmds, logCmd("-- %d rows%s%s in %s",
 			rows, note, where, formatTook(msg.took)))
 		if msg.rs != nil {
-			m.showQueryResult(msg.sql, msg.rs, msg.truncated)
+			m.showQueryResult(msg.sql, msg.exec, msg.args, msg.rs, msg.truncated)
 			m.run.gotRows = true
 		}
 	default:
@@ -756,9 +768,16 @@ func (m *Model) finishQuery(msg queryDoneMsg) tea.Cmd {
 
 // showQueryResult puts a result set in the Data tab. It replaces the
 // browsed relation: the tab has one grid, and a query result is not a
-// relation, so nothing table-scoped (editing, export, introspection)
-// applies to it afterwards.
-func (m *Model) showQueryResult(sql string, rs *db.ResultSet, truncated bool) {
+// relation, so nothing table-scoped (editing, introspection) applies to
+// it afterwards — export and clipboard copy work from queryArgs/all
+// instead of the table-scoped path.
+//
+// args are the bound parameters exec ran with, if any: a file export
+// re-runs exec to stream the complete result rather than the capped,
+// in-memory copy in `all`, and needs the same values to do it. exec is
+// the statement's driver-executable form; sql is what the user typed,
+// kept for display, history and a re-run's own placeholder prompt.
+func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, truncated bool) {
 	m.table = ""
 	m.resetMeta()
 	m.tab = mainTabData
@@ -767,6 +786,8 @@ func (m *Model) showQueryResult(sql string, rs *db.ResultSet, truncated bool) {
 		conn:      m.active,
 		database:  m.database,
 		query:     sql,
+		queryArgs: args,
+		queryExec: exec,
 		all:       rs.Rows,
 		truncated: truncated,
 		cols:      rs.Columns,

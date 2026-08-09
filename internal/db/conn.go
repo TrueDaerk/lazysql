@@ -312,3 +312,17 @@ func (c *conn) QueryLimit(ctx context.Context, query string, max int, args ...an
 	c.logger.record(query, args, start, err)
 	return rs, capped, err
 }
+
+func (c *conn) QueryStream(ctx context.Context, query string, args []any, onRow func(cols []Column, row []any) error) error {
+	if c.db == nil {
+		return errNotConnected
+	}
+	start := time.Now()
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	c.logger.record(query, args, start, err)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return streamRows(ctx, rows, onRow)
+}

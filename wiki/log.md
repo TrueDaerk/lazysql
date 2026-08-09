@@ -624,3 +624,39 @@ Chronological history of wiki changes, newest last.
   at 30s, which is a bigger change than this issue's keybinding-and-feedback
   scope.
 
+## 2026-08-09 (issue #48)
+
+- Updated [design/copy-and-export](design/copy-and-export.md): `E` now
+  exports a query-editor result, not just a browsed table, and Markdown
+  joins CSV/JSON/SQL as a format (available for both scopes). Added
+  `Driver.QueryStream` (`internal/db/conn.go`, backed by a new
+  `streamRows` in `scan.go` shared with `scanResultSetLimit`) so a query
+  result can be re-run and streamed row-by-row without materializing a
+  `ResultSet` — reusing the grid's already-loaded, `maxQueryRows`-capped
+  copy was not enough to cover the *whole* result. `export.StreamQuery`
+  and `export.QueryRunner` are `Stream`/`Pager`'s one-shot counterparts on
+  the `internal/export` side; `internal/ui/export.go` picks between them
+  via a small `exportSource` closure (`tableSource`/`querySource`) so
+  `exportJob`/`exportState`/`X` stay shared between both scopes.
+- Added `db.SingleTableSelect` (`internal/db/singletable.go`): a
+  conservative hand-rolled tokenizer that decides whether a query's
+  columns map onto exactly one real table, gating whether `.sql` export
+  is offered for a query result. Rejects joins, comma-joined `FROM`
+  lists, subqueries in `FROM`, `UNION`/`INTERSECT`/`EXCEPT`, `GROUP BY`,
+  `DISTINCT`, and any computed or aliased select item — anything it
+  cannot prove safe is simply not offered as SQL.
+- `y` on a query result now offers a page-scoped `page — CSV`/`page —
+  JSON` copy (`copyQueryPage`, `internal/ui/copy.go`), serializing the
+  loaded page already in memory with no round trip; the log line notes
+  the limit and points at `E` for the full result. Discovered while
+  writing its test that `y`/`yy` belongs to the query editor's vim engine
+  while focus stays on panel `[5]` — pre-existing behaviour, not
+  introduced here, but easy to trip over when testing a query-result copy
+  without first moving focus to the grid with `tab`.
+- A placeholder-bound query result now carries both its display text
+  (`?`/`:name`, for the prompt/log) and its driver-executable form plus
+  bound values (`queryStmtMsg.exec`/`.args` → `dataView.queryExec`/
+  `.queryArgs`), so the export re-runs the *exact* statement that
+  produced the result on screen instead of erroring on an unbound
+  placeholder marker sent to the server.
+

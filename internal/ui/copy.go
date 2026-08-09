@@ -67,13 +67,19 @@ func (m *Model) copyMenu() tea.Cmd {
 		}
 	}
 	// The table scopes re-read the relation through the server; a query
-	// result has no relation behind it, only the rows already on screen.
-	if m.data.browsing() {
+	// result has no relation behind it, only the rows already on screen,
+	// so its scope is the loaded page rather than the whole result — `E`
+	// is the way to get the rest.
+	switch {
+	case m.data.browsing():
 		add("C", "table — CSV", actCopyTableCSV)
 		add("O", "table — JSON array", actCopyTableJSON)
 		add("I", "table — INSERT statements", actCopyTableInsert)
 		add("A", "table — CREATE TABLE + INSERTs", actCopyTableSchema)
 		add("d", "DDL statement", actCopyDDL)
+	case m.data.isQuery():
+		add("C", "page — CSV", actCopyPageCSV)
+		add("O", "page — JSON array", actCopyPageJSON)
 	}
 	entries = append(entries, menuEntry{key: "esc", label: "cancel"})
 
@@ -247,11 +253,45 @@ func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
 	)
 }
 
+// copyQueryPage copies a query result's loaded page — the rows already
+// materialized in memory, not the full result the statement might match.
+// A whole-table copy can stream past what is on screen because a table
+// can be re-read page by page; an arbitrary query result cannot be
+// re-paged the same way (see queryRunnerFor), and streaming into a
+// clipboard buffer makes no sense regardless — `E` exports the full
+// result to a file instead. The log line says so, the same way the
+// table-scope copy's truncation notice does.
+func (m Model) copyQueryPage(f export.Format) tea.Cmd {
+	if !m.data.isQuery() {
+		return logCmd("-- copy skipped: no query result open")
+	}
+	text, err := export.Rows(f, m.exportOptions(""), m.data.cols, m.data.rows)
+	if err != nil {
+		return logCmd("-- copy page FAILED: %v", err)
+	}
+	subject := fmt.Sprintf("query page as %s (%d rows, loaded page only — E exports the full result)",
+		strings.ToUpper(string(f)), len(m.data.rows))
+	return copyTextCmd(subject, fmt.Sprintf("query-page.%s", f), text)
+}
+
 // pagerFor closes over the driver and the grid's query shape, so an
 // export reads exactly the rows the grid would page through.
 func pagerFor(drv db.Driver, d dataView) export.Pager {
 	return func(ctx context.Context, limit, offset int) (*db.ResultSet, error) {
 		return drv.QueryPage(ctx, d.database, d.table, d.filter, d.sort, limit, offset)
+	}
+}
+
+// queryRunnerFor closes over the driver and a query result's own
+// statement — and, for a run against bound placeholders, the values it
+// ran with — so an export re-reads exactly what produced the result on
+// screen. Unlike pagerFor it cannot be re-issued a page at a time:
+// rewriting arbitrary user SQL to add a LIMIT/OFFSET would risk changing
+// what it selects, so the statement runs once and streams straight
+// through Driver.QueryStream.
+func queryRunnerFor(drv db.Driver, d dataView) export.QueryRunner {
+	return func(ctx context.Context, onRow func(cols []db.Column, row []any) error) error {
+		return drv.QueryStream(ctx, d.queryExec, d.queryArgs, onRow)
 	}
 }
 
@@ -285,6 +325,10 @@ func (m Model) copyActions(id actionID) (Model, tea.Cmd, bool) {
 	case actCopyTableSchema:
 		cmd := m.copyTable(export.FormatSQL, true)
 		return m, cmd, true
+	case actCopyPageCSV:
+		return m, m.copyQueryPage(export.FormatCSV), true
+	case actCopyPageJSON:
+		return m, m.copyQueryPage(export.FormatJSON), true
 
 	// The file export shares this dispatcher: it is the same feature
 	// seen from the other end, and `E` is offered next to `y`.

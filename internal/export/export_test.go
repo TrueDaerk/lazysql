@@ -358,3 +358,172 @@ func TestStreamPropagatesPageError(t *testing.T) {
 		t.Fatalf("err = %v, want boom", err)
 	}
 }
+
+// ---------- Markdown ----------
+
+// The header and separator rows are written even for an empty result,
+// matching CSV's "header survives zero rows" rule.
+func TestMarkdownHeaderAndNulls(t *testing.T) {
+	rows := [][]any{
+		{int64(1), "plain", true},
+		{int64(2), nil, false},
+	}
+	got, err := Rows(FormatMarkdown, Options{}, cols("id", "text", "flag"), rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "| id | text | flag |\n" +
+		"| --- | --- | --- |\n" +
+		"| 1 | plain | true |\n" +
+		"| 2 | NULL | false |\n"
+	if got != want {
+		t.Errorf("Markdown =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// A pipe, a backslash and a newline in a cell would otherwise break the
+// table's row/column structure, so all three are escaped.
+func TestMarkdownEscaping(t *testing.T) {
+	rows := [][]any{
+		{"a|b"},
+		{`a\b`},
+		{"a\nb"},
+	}
+	got, err := Rows(FormatMarkdown, Options{}, cols("text"), rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "| text |\n| --- |\n" +
+		"| a\\|b |\n" +
+		"| a\\\\b |\n" +
+		"| a<br>b |\n"
+	if got != want {
+		t.Errorf("Markdown =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestMarkdownEmptyResultKeepsHeader(t *testing.T) {
+	got, err := Rows(FormatMarkdown, Options{}, cols("id", "name"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "| id | name |\n| --- | --- |\n"
+	if got != want {
+		t.Errorf("Markdown =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// ---------- StreamQuery ----------
+
+// runnerOf is StreamQuery's fixture the way pagerOf is Stream's: it
+// streams n rows in one pass, recording the largest "batch" it was asked
+// to buffer — always 1, since StreamQuery holds one row at a time.
+func runnerOf(n int) QueryRunner {
+	return func(ctx context.Context, onRow func(cols []db.Column, row []any) error) error {
+		c := cols("id", "name")
+		for i := 0; i < n; i++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := onRow(c, []any{int64(i), fmt.Sprintf("row-%d", i)}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+func TestStreamQueryWritesEveryRow(t *testing.T) {
+	var b strings.Builder
+	w, _ := NewWriter(&b, FormatCSV, Options{})
+	var progress []int64
+	rows, truncated, err := StreamQuery(context.Background(), w, runnerOf(12_000), StreamOptions{
+		ProgressEvery: 5000,
+		Progress:      func(n int64) { progress = append(progress, n) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 12_000 || truncated {
+		t.Errorf("rows = %d truncated = %v, want 12000 false", rows, truncated)
+	}
+	if len(progress) == 0 || progress[len(progress)-1] != 12_000 {
+		t.Errorf("progress = %v, want it to end at 12000", progress)
+	}
+	if got := strings.Count(b.String(), "\n"); got != 12_001 {
+		t.Errorf("wrote %d lines, want header + 12000 rows", got)
+	}
+}
+
+func TestStreamQueryMaxRowsReportsTruncation(t *testing.T) {
+	var b strings.Builder
+	w, _ := NewWriter(&b, FormatCSV, Options{})
+	rows, truncated, err := StreamQuery(context.Background(), w, runnerOf(5000), StreamOptions{
+		MaxRows: 2500,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2500 || !truncated {
+		t.Errorf("rows = %d truncated = %v, want 2500 true", rows, truncated)
+	}
+}
+
+func TestStreamQueryCancels(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var b strings.Builder
+	w, _ := NewWriter(&b, FormatCSV, Options{})
+
+	run := func(c context.Context, onRow func(cols []db.Column, row []any) error) error {
+		col := cols("id")
+		for i := 0; ; i++ {
+			if i == 2000 {
+				cancel()
+			}
+			if err := c.Err(); err != nil {
+				return err
+			}
+			if err := onRow(col, []any{int64(i)}); err != nil {
+				return err
+			}
+		}
+	}
+	rows, _, err := StreamQuery(ctx, w, run, StreamOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if rows > 4000 {
+		t.Errorf("kept streaming past the cancellation: %d rows", rows)
+	}
+}
+
+// A failing runner aborts the stream and reports the driver's error.
+func TestStreamQueryPropagatesRunnerError(t *testing.T) {
+	boom := errors.New("boom")
+	var b strings.Builder
+	w, _ := NewWriter(&b, FormatCSV, Options{})
+	_, _, err := StreamQuery(context.Background(), w,
+		func(context.Context, func(cols []db.Column, row []any) error) error { return boom },
+		StreamOptions{})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want boom", err)
+	}
+}
+
+// An empty result never reaches onRow, so the columns are never known —
+// same as Stream's own empty-result case, which is why Begin(nil) is
+// still valid for every writer.
+func TestStreamQueryEmptyResultKeepsHeader(t *testing.T) {
+	var b strings.Builder
+	w, _ := NewWriter(&b, FormatCSV, Options{})
+	rows, _, err := StreamQuery(context.Background(), w, runnerOf(0), StreamOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Errorf("rows = %d, want 0", rows)
+	}
+	if b.String() != "\n" {
+		t.Errorf("wrote %q, want a bare newline from Begin(nil)", b.String())
+	}
+}

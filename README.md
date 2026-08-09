@@ -68,15 +68,23 @@ In the data grid (`enter` on a table, `esc` back):
 | `v` | Show the full cell value (JSON pretty-printed) |
 
 The query editor is panel `[5]`, not a popup: it stays in the layout, and
-running a script never closes it or clears the buffer. It has two modes.
-In normal mode the panel's own keys apply:
+running a script never closes it or clears the buffer. It has two
+vim-style modes; the panel gains focus in normal mode:
 
 | Key | Action |
 |-----|--------|
-| `i` / `enter` | Start editing (insert mode) |
+| `i` / `enter` | Insert mode at the cursor |
+| `a` | Insert mode after the cursor |
+| `o` / `O` | Open a line below / above and insert |
+| `h`/`j`/`k`/`l`, arrows | Move the cursor |
+| `w` / `b` | Next / previous word |
+| `0` / `$` | Line start / end |
+| `gg` / `G` | Buffer start / end |
+| `x` | Delete the character under the cursor |
+| `dd` / `yy` | Delete / yank the line |
+| `p` | Paste (a yanked line below, characters after the cursor) |
 | `ctrl+r` | Run the buffer |
 | `D` | Clear the buffer (confirms first) |
-| `j`/`k` | Move the cursor between lines |
 | `esc` | Back to the previous panel, buffer kept |
 
 In insert mode every key types into the buffer except:
@@ -103,9 +111,10 @@ lands. While it is open:
 | `enter` / `tab` | Accept, inserting at the cursor |
 | `esc` | Close the popup only — the buffer and insert mode are untouched |
 
-With a query result on screen the grid's own keys (paging, `v`, the tabs)
-work straight from the editor panel in normal mode, so iterating on a
-statement never costs the editor its focus.
+With a query result on screen the grid's keys the vim layer does not
+claim (paging, `v`, the tabs) work straight from the editor panel in
+normal mode, so iterating on a statement never costs the editor its
+focus.
 
 Several statements separated by `;` run in order; the result of the last
 `SELECT` is what the Data tab shows, and anything that changes data asks

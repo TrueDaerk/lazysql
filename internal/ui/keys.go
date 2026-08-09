@@ -60,6 +60,26 @@ type keyMap struct {
 	RunEditor  key.Binding
 	ClearQuery key.Binding
 
+	// Vim normal mode in the query editor. j/k/↑/↓ reuse Up and Down.
+	// The two-key commands (dd, yy, gg) are bound to their first key and
+	// completed by the editor's pending-key handler; their help text
+	// names the full chord.
+	VimLeft       key.Binding
+	VimRight      key.Binding
+	VimWordFwd    key.Binding
+	VimWordBack   key.Binding
+	VimLineStart  key.Binding
+	VimLineEnd    key.Binding
+	VimTop        key.Binding
+	VimBottom     key.Binding
+	VimAppend     key.Binding
+	VimOpenBelow  key.Binding
+	VimOpenAbove  key.Binding
+	VimDeleteChar key.Binding
+	VimDeleteLine key.Binding
+	VimYankLine   key.Binding
+	VimPaste      key.Binding
+
 	// The autocomplete popup. Complete opens it on demand; the other four
 	// only act while it is open, which is why CloseCompletion can be esc
 	// without costing insert mode its own esc.
@@ -137,6 +157,22 @@ func newKeyMap() keyMap {
 		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
 
+		VimLeft:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
+		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
+		VimWordFwd:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "next word")),
+		VimWordBack:   key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "prev word")),
+		VimLineStart:  key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "line start")),
+		VimLineEnd:    key.NewBinding(key.WithKeys("$"), key.WithHelp("$", "line end")),
+		VimTop:        key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "buffer start")),
+		VimBottom:     key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "buffer end")),
+		VimAppend:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append (insert)")),
+		VimOpenBelow:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open line below")),
+		VimOpenAbove:  key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open line above")),
+		VimDeleteChar: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete char")),
+		VimDeleteLine: key.NewBinding(key.WithKeys("d"), key.WithHelp("dd", "delete line")),
+		VimYankLine:   key.NewBinding(key.WithKeys("y"), key.WithHelp("yy", "yank line")),
+		VimPaste:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "paste")),
+
 		// `ctrl+@` is what a terminal sends for ctrl+space; both spellings
 		// are bound so the key works wherever it is reported either way.
 		Complete: key.NewBinding(
@@ -201,6 +237,18 @@ func (k keyMap) navigationFor(id panelID) []key.Binding {
 // `?` show there.
 func (k keyMap) editorInsert() []key.Binding {
 	return []key.Binding{k.Complete, k.RunEditor, k.CancelQuery, k.LeaveInsert}
+}
+
+// editorNormal are the vim keys of the query editor's normal mode. They
+// are dispatched by updateQuery, not through panelActions — a motion is
+// not a menu entry — so this slice is what documents them in `?`.
+func (k keyMap) editorNormal() []key.Binding {
+	return []key.Binding{
+		k.VimLeft, k.VimRight, k.VimWordFwd, k.VimWordBack,
+		k.VimLineStart, k.VimLineEnd, k.VimTop, k.VimBottom,
+		k.VimAppend, k.VimOpenBelow, k.VimOpenAbove,
+		k.VimDeleteChar, k.VimDeleteLine, k.VimYankLine, k.VimPaste,
+	}
 }
 
 // editorCompletion are the keys the autocomplete popup owns while it is
@@ -377,7 +425,7 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 	// short list is documented next to the panel's normal-mode actions
 	// rather than being reachable only from a mode `?` cannot open.
 	if id == panelQuery {
-		groups = append(groups, k.editorInsert(), k.editorCompletion())
+		groups = append(groups, k.editorNormal(), k.editorInsert(), k.editorCompletion())
 	}
 	return append(groups, k.navigationFor(id), k.global())
 }
@@ -409,6 +457,15 @@ func (k *keyMap) slots() []bindingSlot {
 		{"delete-history", &k.DeleteHistory}, {"clear-history", &k.ClearHistory},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
+
+		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},
+		{"vim-word-fwd", &k.VimWordFwd}, {"vim-word-back", &k.VimWordBack},
+		{"vim-line-start", &k.VimLineStart}, {"vim-line-end", &k.VimLineEnd},
+		{"vim-top", &k.VimTop}, {"vim-bottom", &k.VimBottom},
+		{"vim-append", &k.VimAppend}, {"vim-open-below", &k.VimOpenBelow},
+		{"vim-open-above", &k.VimOpenAbove}, {"vim-delete-char", &k.VimDeleteChar},
+		{"vim-delete-line", &k.VimDeleteLine}, {"vim-yank-line", &k.VimYankLine},
+		{"vim-paste", &k.VimPaste},
 
 		{"complete", &k.Complete}, {"complete-next", &k.CompleteNext},
 		{"complete-prev", &k.CompletePrev}, {"accept-completion", &k.AcceptCompletion},

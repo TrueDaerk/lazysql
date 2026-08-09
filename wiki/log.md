@@ -383,3 +383,13 @@ Chronological history of wiki changes, newest last.
   `dataContent`'s `bodyRows` budget shrank by one to match; `colGap`'s width
   math was untouched since the separator fills the same one cell the old gap
   did.
+- Added [design/vim-mode-query-editor](design/vim-mode-query-editor.md)
+  (issue #33): panel [5]'s normal mode is now a vim dialect — h/j/k/l,
+  w/b, 0/$, gg/G, i/a/o/O, x/dd/yy/p — implemented as a pure buffer
+  engine in `internal/ui/vim.go` over the v2 textarea rather than by
+  adopting vimtea (Bubbletea v1, owns its own rendering). Two-key chords
+  hold pending state that any other key or a panel switch resets; undo
+  is omitted (no textarea history to call into). Updated
+  [design/query-editor-panel](design/query-editor-panel.md): the vim
+  layer claims h/l, y, d, x, p ahead of the grid fall-through, and `a`
+  is append rather than the actions menu in this one panel.

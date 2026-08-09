@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -443,23 +444,33 @@ func TestActionsMenuDispatchesSameActionAsKey(t *testing.T) {
 }
 
 func TestDrillInLogsAndRecordsHistory(t *testing.T) {
-	// Start on [2] Databases: drilling in from [1] Connections opens a live
-	// connection, which the dedicated connect tests cover.
-	m := sized(120, 40)
-	m = send(t, m,
-		press('2'),
-		special(tea.KeyEnter, 0), // database -> tables
-		special(tea.KeyEnter, 0), // table -> select
-	)
+	// Drilling in from [1] Connections opens a live connection, which the
+	// dedicated connect tests cover; this one starts from a connected
+	// model and walks database -> table -> data.
+	m := browsing(t)
+	if _, err := m.driver.Exec(context.Background(),
+		`CREATE TABLE IF NOT EXISTS drill (id INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	m = send(t, m, press('2'), special(tea.KeyEnter, 0)) // database -> tables
 	if m.focus != panelTables {
 		t.Fatalf("focus = %v, want %v", m.focus, panelTables)
+	}
+	m.panels[panelTables].selectByName("drill")
+	m = send(t, m, special(tea.KeyEnter, 0)) // table -> data grid
+
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the data grid", m.focus)
 	}
 	hist := m.panels[panelHistory].items
 	if len(hist) != 1 || !strings.HasPrefix(hist[0], "SELECT * FROM ") {
 		t.Fatalf("history = %v, want one SELECT entry", hist)
 	}
-	if len(m.commandLog) != 2 {
-		t.Fatalf("command log = %v, want 2 entries", m.commandLog)
+	if !logContains(m, `SELECT * FROM "drill" LIMIT 100 OFFSET 0;`) {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+	if !logContains(m, `SELECT COUNT(*) FROM "drill";`) {
+		t.Fatalf("command log is missing the count: %v", m.commandLog)
 	}
 }
 
@@ -560,7 +571,7 @@ func TestRendersAtManySizes(t *testing.T) {
 // them must actually be handled.
 func TestOptionsBarAndHelpShareOneSource(t *testing.T) {
 	k := newKeyMap()
-	for id := panelID(0); id < panelCount; id++ {
+	for id := panelID(0); id <= panelMain; id++ {
 		helpKeys := map[string]bool{}
 		for _, group := range k.helpGroups(id) {
 			for _, b := range group {
@@ -583,7 +594,7 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			global[ks] = true
 		}
 	}
-	for id := panelID(0); id < panelCount; id++ {
+	for id := panelID(0); id <= panelMain; id++ {
 		actions := map[string]bool{}
 		for _, a := range k.panelActions(id) {
 			for _, ks := range a.binding.Keys() {
@@ -608,7 +619,7 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 func TestPanelActionsDoNotShadowGlobalKeys(t *testing.T) {
 	k := newKeyMap()
 	globals := append(k.global(), k.navigation()...)
-	for id := panelID(0); id < panelCount; id++ {
+	for id := panelID(0); id <= panelMain; id++ {
 		for _, a := range k.panelActions(id) {
 			for _, g := range globals {
 				for _, gk := range g.Keys() {

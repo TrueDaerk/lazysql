@@ -48,3 +48,20 @@ Chronological history of wiki changes, newest last.
   [reference/dialect-introspection-quirks](reference/dialect-introspection-quirks.md)
   for the `listTables` → `listRelations` dialect change and the per-engine
   spellings of the table/view kind column.
+- Added [design/data-grid](design/data-grid.md) with the paginated main view
+  (issue #5): one 100-row page in memory at a time, the page query and its
+  `COUNT(*)` as two independent commands so a slow count never blocks the grid,
+  row and column scroll windows derived from the cell cursor instead of stored,
+  and `panelMain` as a focus target that has no number and no `Model.panels`
+  slot but shares the one keybinding table.
+- Documented the quick filter's parse-first rule in the same concept:
+  `db.ParseFilter` rewrites recognised `column <op> <literal>` chains into
+  quoted identifiers plus bound placeholders, and only an unrecognised fragment
+  stays verbatim — flagged in `Filter.Verbatim`, warned about in the command
+  log and marked `where (verbatim)` in the status line. `Driver.QueryPage` now
+  takes a `*db.Filter` so no caller can assemble its own WHERE text.
+- Added [reference/sqlite-double-quoted-strings](reference/sqlite-double-quoted-strings.md):
+  found while writing the filter tests — SQLite reads a double-quoted token that
+  matches no column as a string literal, so `"typo" = 1` quietly matches nothing
+  instead of erroring. Safety is unaffected (the value is still bound), but a
+  missing column is not a way to provoke a query failure there.

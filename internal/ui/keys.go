@@ -35,6 +35,15 @@ type keyMap struct {
 	ToggleTab      key.Binding
 	RunQuery       key.Binding
 	ClearHistory   key.Binding
+
+	// Data grid (the focusable main view).
+	ColLeft     key.Binding
+	ColRight    key.Binding
+	NextPage    key.Binding
+	PrevPage    key.Binding
+	SortColumn  key.Binding
+	WhereFilter key.Binding
+	ViewCell    key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -64,6 +73,14 @@ func newKeyMap() keyMap {
 		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
 		RunQuery:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "run query")),
 		ClearHistory:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear history")),
+
+		ColLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
+		ColRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
+		NextPage:    key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "next page")),
+		PrevPage:    key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "prev page")),
+		SortColumn:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort column")),
+		WhereFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "where filter")),
+		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 	}
 }
 
@@ -92,6 +109,13 @@ const (
 	actToggleTab
 	actRunQuery
 	actClearHistory
+	actColLeft
+	actColRight
+	actNextPage
+	actPrevPage
+	actSortColumn
+	actWhereFilter
+	actViewCell
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -127,6 +151,17 @@ func (k keyMap) panelActions(id panelID) []action {
 		return []action{
 			{actRunQuery, k.RunQuery},
 			{actClearHistory, k.ClearHistory},
+		}
+	case panelMain:
+		return []action{
+			{actColLeft, k.ColLeft},
+			{actColRight, k.ColRight},
+			{actNextPage, k.NextPage},
+			{actPrevPage, k.PrevPage},
+			{actSortColumn, k.SortColumn},
+			{actWhereFilter, k.WhereFilter},
+			{actViewCell, k.ViewCell},
+			{actRefresh, k.Refresh},
 		}
 	}
 	return nil

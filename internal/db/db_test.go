@@ -160,7 +160,7 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 	})
 
 	t.Run("QueryPage", func(t *testing.T) {
-		rs, err := drv.QueryPage(ctx, "", "users", "", &Sort{Column: "id"}, 2, 1)
+		rs, err := drv.QueryPage(ctx, "", "users", nil, &Sort{Column: "id"}, 2, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,7 +176,8 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 	})
 
 	t.Run("QueryPageFilterSort", func(t *testing.T) {
-		rs, err := drv.QueryPage(ctx, "", "users", "email IS NOT NULL", &Sort{Column: "name", Desc: true}, 10, 0)
+		f := ParseFilter(drv.Dialect(), "email IS NOT NULL")
+		rs, err := drv.QueryPage(ctx, "", "users", f, &Sort{Column: "name", Desc: true}, 10, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,6 +186,55 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		}
 		if got := rs.Rows[0][1]; got != "carol" {
 			t.Errorf("first row = %v, want carol (DESC)", got)
+		}
+	})
+
+	// A parameterized filter has to reach the engine as a parameter, and
+	// the count has to see the same rows the page does.
+	t.Run("QueryPageBoundFilter", func(t *testing.T) {
+		f := ParseFilter(drv.Dialect(), "name = 'bob'")
+		if f.Verbatim || len(f.Args) != 1 {
+			t.Fatalf("filter = %+v, want one bound argument", f)
+		}
+		rs, err := drv.QueryPage(ctx, "", "users", f, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Rows) != 1 || rs.Rows[0][1] != "bob" {
+			t.Fatalf("rows = %v, want just bob", rs.Rows)
+		}
+		n, err := drv.CountRows(ctx, "", "users", f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("CountRows = %d, want 1", n)
+		}
+	})
+
+	t.Run("CountRows", func(t *testing.T) {
+		n, err := drv.CountRows(ctx, "", "users", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != 3 {
+			t.Fatalf("CountRows = %d, want 3", n)
+		}
+	})
+
+	// A value that would break out of a string literal must not: it is
+	// bound, so it can only ever match no rows.
+	t.Run("FilterInjectionIsBound", func(t *testing.T) {
+		f := ParseFilter(drv.Dialect(), `name = 'x'' OR 1=1 --'`)
+		if f.Verbatim {
+			t.Fatalf("filter %+v fell back to verbatim", f)
+		}
+		rs, err := drv.QueryPage(ctx, "", "users", f, nil, 10, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rs.Rows) != 0 {
+			t.Fatalf("rows = %v, want none", rs.Rows)
 		}
 	})
 
@@ -218,7 +268,7 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		if _, err := drv.Exec(ctx, "CREATE TABLE "+quoted+" (x INTEGER)"); err != nil {
 			t.Fatalf("create with quoted ident: %v", err)
 		}
-		if _, err := drv.QueryPage(ctx, "", `weird "table`, "", nil, 5, 0); err != nil {
+		if _, err := drv.QueryPage(ctx, "", `weird "table`, nil, nil, 5, 0); err != nil {
 			t.Fatalf("QueryPage on quoted ident: %v", err)
 		}
 	})

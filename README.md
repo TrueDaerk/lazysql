@@ -55,6 +55,16 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 | `?` | Help / all bindings |
 | `q` | Quit |
 
+In the data grid (`enter` on a table, `esc` back):
+
+| Key | Action |
+|-----|--------|
+| `h`/`l`, `←`/`→` | Move the cell cursor between columns |
+| `ctrl+f` / `ctrl+b`, `pgdn`/`pgup` | Next / previous page |
+| `s` | Sort the cursor column (ASC → DESC → off) |
+| `f` | Quick `WHERE` filter |
+| `v` | Show the full cell value (JSON pretty-printed) |
+
 ## Install
 
 ```sh

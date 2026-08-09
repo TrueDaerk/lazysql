@@ -443,6 +443,14 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focusBack()
 		return m, nil
 	case key.Matches(msg, k.Enter):
+		// The Relations tab is the one tab with something left to drill
+		// into: the related table under the cursor.
+		if m.tab == mainTabRelations {
+			if _, ok := m.selectedRelationEdge(); ok {
+				cmd := m.walkRelation()
+				return m, cmd
+			}
+		}
 		// enter re-runs whatever the visible tab shows: the relation is
 		// already open, so the only thing left to drill into is fresh
 		// data.

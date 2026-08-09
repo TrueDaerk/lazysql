@@ -1,17 +1,17 @@
 ---
 type: Design Decision
-title: Main-view tabs — Data, Structure, Indexes, DDL
-description: Why the main view has four tabs behind one metadata fetch, why they cycle with [ and ] rather than digits, and what survives when the selected relation changes.
+title: Main-view tabs — Data, Structure, Indexes, DDL, Relations
+description: Why the main view has five tabs behind one metadata fetch, why they cycle with [ and ] rather than digits, and what survives when the selected relation changes.
 tags: [ui, main-view, tabs, introspection, ddl, clipboard]
 generated:
   by: claude-code/opus-5
   at: 2026-08-09T00:00:00Z
 ---
 
-# Main-view tabs — Data, Structure, Indexes, DDL
+# Main-view tabs — Data, Structure, Indexes, DDL, Relations
 
-The main view shows one open relation through four tabs. `Data` is the
-paged grid from [design/data-grid](data-grid.md); the other three render
+The main view shows one open relation through five tabs. `Data` is the
+paged grid from [design/data-grid](data-grid.md); the others render
 introspection results:
 
 | Tab | Contents |
@@ -19,6 +19,7 @@ introspection results:
 | `Structure` | one row per column: position, name, type, nullability, default, key info, extra |
 | `Indexes` | the indexes (name, type, unique, columns), then the foreign keys with their referenced table and columns |
 | `DDL` | the `CREATE` statement, scrollable, `y` copies it |
+| `Relations` | the foreign keys in both directions, walkable with `enter` — see [design/relations-tab](relations-tab.md) |
 
 ## One fetch behind three tabs
 
@@ -55,12 +56,13 @@ things depending on focus — exactly what the numbered-panel convention
 exists to prevent.
 
 So the tabs cycle with `[` (previous) and `]` (next), as two separate
-bindings rather than one two-key binding: with four tabs, walking
+bindings rather than one two-key binding: with five tabs, walking
 backwards matters, and every key in the options bar must be individually
 bound and documented
 ([design/keybindings-single-source](keybindings-single-source.md)). The
 tab bar at the top of the main view is the discoverability half —
-`‹Data|Structure|Indexes|DDL›` with the selected tab highlighted, in the
+`‹Data|Structure|Indexes|DDL|Relations›` with the selected tab
+highlighted, in the
 same idiom as the `[3]` panel's Tables/Views sub-tabs.
 
 ## What resets when the relation changes
@@ -83,6 +85,8 @@ still match.
 - `Structure` has a row cursor; the window follows it.
 - `Indexes` and `DDL` scroll by offset — their rows are not selectable
   targets, and the DDL is free text.
+- `Relations` has a row cursor over both halves of its edge list, and
+  `enter` there walks to the selected table instead of reloading.
 
 `R` (and `enter`) re-read whatever the visible tab shows: the metadata
 on the three introspection tabs, the page on `Data`.

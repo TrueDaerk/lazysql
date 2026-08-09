@@ -117,3 +117,7 @@ entry so a schema change is picked up.
   also feeds the FK cache
 - [design/keybindings-single-source](keybindings-single-source.md) — how
   `g`/`G`/`ctrl+o` reach the options bar and `?`
+
+The same namespace scan and its `refsCache` back the `Relations` main-view
+tab, which shows both directions per table and walks them without a row
+filter — see [design/relations-tab](relations-tab.md).

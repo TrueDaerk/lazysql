@@ -65,6 +65,8 @@ func (m Model) metaContent(w, h int) string {
 			lines = append(lines, m.indexLines(w, body)...)
 		case mainTabDDL:
 			lines = append(lines, m.ddlLines(w, body)...)
+		case mainTabRelations:
+			lines = append(lines, m.relationsLines(w, body)...)
 		}
 	}
 	return joinTruncated(lines, w, h)

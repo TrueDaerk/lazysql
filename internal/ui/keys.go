@@ -97,6 +97,14 @@ type keyMap struct {
 	ClearFilter key.Binding
 	ViewCell    key.Binding
 
+	// Foreign-key navigation. FollowFK jumps along the constraint the
+	// cursor column takes part in, IncomingRefs goes the other way, and
+	// BrowseBack walks the jumps back — as does `esc`, which pops the
+	// jump history before it gives the focus stack a turn.
+	FollowFK     key.Binding
+	IncomingRefs key.Binding
+	BrowseBack   key.Binding
+
 	// Staged editing (Data tab).
 	EditCell       key.Binding
 	DeleteRow      key.Binding
@@ -183,10 +191,10 @@ func newKeyMap() keyMap {
 		CloseCompletion: key.NewBinding(
 			key.WithKeys("esc"), key.WithHelp("esc", "close the popup")),
 
-		ColLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
-		ColRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
-		NextPage:    key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "next page")),
-		PrevPage:    key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "prev page")),
+		ColLeft:    key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
+		ColRight:   key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
+		NextPage:   key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "next page")),
+		PrevPage:   key.NewBinding(key.WithKeys("ctrl+b", "pgup"), key.WithHelp("ctrl+b", "prev page")),
 		SortColumn: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort column")),
 		// `/` is the filter key everywhere else in the shell, so the grid
 		// answers to it too; `f` stays bound for the muscle memory the
@@ -194,6 +202,12 @@ func newKeyMap() keyMap {
 		WhereFilter: key.NewBinding(key.WithKeys("/", "f"), key.WithHelp("/", "filter rows")),
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
+
+		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
+		IncomingRefs: key.NewBinding(
+			key.WithKeys("G"), key.WithHelp("G", "rows referencing this one")),
+		BrowseBack: key.NewBinding(
+			key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "back to previous table")),
 
 		EditCell:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
 		DeleteRow:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stage row delete")),
@@ -297,6 +311,9 @@ const (
 	actWhereFilter
 	actClearFilter
 	actViewCell
+	actFollowFK
+	actIncomingRefs
+	actBrowseBack
 	actEditCell
 	actDeleteRow
 	actInsertRow
@@ -372,6 +389,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
+			{actFollowFK, k.FollowFK},
+			{actIncomingRefs, k.IncomingRefs},
+			{actBrowseBack, k.BrowseBack},
 			{actEditCell, k.EditCell},
 			{actDeleteRow, k.DeleteRow},
 			{actInsertRow, k.InsertRow},
@@ -466,6 +486,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
+		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},
+		{"browse-back", &k.BrowseBack},
 
 		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
 		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},

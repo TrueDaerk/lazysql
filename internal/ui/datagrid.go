@@ -79,9 +79,15 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 		kinds[len(d.rows)+i] = rowInserted
 	}
 
+	fkCols := m.fkColumnSet()
 	cols := make([]gridColumn, len(d.cols))
 	for i, c := range d.cols {
 		header := c.Name
+		// A column that takes part in a foreign key is marked, so `g`
+		// is discoverable without opening the Indexes tab first.
+		if fkCols[strings.ToLower(c.Name)] {
+			header += fkMark
+		}
 		if desc, ok := d.sortOn(c.Name); ok {
 			if desc {
 				header += " ▼"

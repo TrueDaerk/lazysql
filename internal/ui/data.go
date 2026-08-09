@@ -240,9 +240,14 @@ func (m *Model) openTable(name string) tea.Cmd {
 		table:    name,
 		req:      m.data.req,
 	}
+	// Picking a relation from panel [3] is a fresh start, so the jump
+	// history of whatever chain of references was being followed goes.
+	m.browseStack = nil
+	m.fkAfter = actNone
 	// The Data tab always loads: it backs the row count in the status
-	// line and is where `esc`-and-back lands.
-	return tea.Batch(m.reloadPage(), m.ensureMeta())
+	// line and is where `esc`-and-back lands. The foreign keys come
+	// along because the grid header marks the columns that have one.
+	return tea.Batch(m.reloadPage(), m.ensureMeta(), m.ensureFKs())
 }
 
 // reloadPage re-runs the page query and the count for the current
@@ -428,6 +433,13 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 		return m, nil
 	case key.Matches(msg, k.Back):
+		// esc unwinds the foreign-key jumps first: coming back to where
+		// the chain started is what the key means while there is a
+		// history, and only an empty history hands it to the focus stack.
+		if len(m.browseStack) > 0 {
+			cmd := m.browseBack()
+			return m, cmd
+		}
 		m.focusBack()
 		return m, nil
 	case key.Matches(msg, k.Enter):
@@ -491,6 +503,15 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actClearFilter:
 		cmd := m.clearFilter()
+		return m, cmd, true
+	case actFollowFK:
+		cmd := m.followFK()
+		return m, cmd, true
+	case actIncomingRefs:
+		cmd := m.showIncomingRefs()
+		return m, cmd, true
+	case actBrowseBack:
+		cmd := m.browseBack()
 		return m, cmd, true
 	case actViewCell:
 		name, colType := "", ""

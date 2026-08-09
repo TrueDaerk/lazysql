@@ -57,11 +57,11 @@ func sqliteSchema(d Dialect, database string) string {
 	return d.QuoteIdent(database)
 }
 
-func (d sqliteDialect) listTables(ctx context.Context, q querier, database string) ([]string, error) {
+func (d sqliteDialect) listRelations(ctx context.Context, q querier, database string) ([]Relation, error) {
 	// sqlite_master lives per attached database and cannot be
 	// parameterized by schema, so the (quoted) schema is interpolated.
-	return scanStrings(ctx, q,
-		`SELECT name FROM `+sqliteSchema(d, database)+`.sqlite_master
+	return scanRelations(ctx, q,
+		`SELECT name, type FROM `+sqliteSchema(d, database)+`.sqlite_master
 		 WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
 		 ORDER BY name`)
 }

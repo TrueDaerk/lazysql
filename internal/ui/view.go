@@ -148,9 +148,21 @@ func (m Model) mainContent(w, h int) string {
 		m.style.titleFocused.Render(panelTitles[m.focus]) + m.style.muted.Render(" — main view"),
 		"",
 		"selected: " + sel,
-		"",
-		m.style.muted.Render("no result set yet — connect and drill in with enter"),
 	}
+	if m.active != "" {
+		lines = append(lines,
+			"connection: "+m.active,
+			"database: "+displayDatabase(m.database),
+			fmt.Sprintf("relations: %d tables · %d views",
+				len(db.FilterRelations(m.relations, db.RelationTable)),
+				len(db.FilterRelations(m.relations, db.RelationView))),
+		)
+	}
+	if m.table != "" {
+		lines = append(lines, "opened: "+m.table)
+	}
+	lines = append(lines, "",
+		m.style.muted.Render("no result set yet — the data preview lands with the query view"))
 	return joinTruncated(lines, w, h)
 }
 

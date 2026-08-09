@@ -48,10 +48,11 @@ func mysqlSchemaCond(database string) (string, []any) {
 	return "table_schema = ?", []any{database}
 }
 
-func (mysqlDialect) listTables(ctx context.Context, q querier, database string) ([]string, error) {
+func (mysqlDialect) listRelations(ctx context.Context, q querier, database string) ([]Relation, error) {
 	cond, args := mysqlSchemaCond(database)
-	return scanStrings(ctx, q,
-		`SELECT table_name FROM information_schema.tables WHERE `+cond+` ORDER BY table_name`,
+	return scanRelations(ctx, q,
+		`SELECT table_name, table_type FROM information_schema.tables
+		 WHERE `+cond+` ORDER BY table_name`,
 		args...)
 }
 

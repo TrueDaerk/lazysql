@@ -35,6 +35,7 @@ func seed(t *testing.T, drv Driver) {
 			email TEXT
 		)`,
 		`CREATE INDEX idx_users_name ON users (name)`,
+		`CREATE VIEW named_users AS SELECT id, name FROM users`,
 	}
 	for _, s := range stmts {
 		if _, err := drv.Exec(ctx, s); err != nil {
@@ -81,6 +82,28 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		}
 		if !slices.Contains(tables, "users") {
 			t.Fatalf("ListTables = %v, want to contain users", tables)
+		}
+	})
+
+	// The [3] Tables panel splits the listing into its Tables and Views
+	// sub-tabs, so the kind has to survive the driver boundary.
+	t.Run("ListRelations", func(t *testing.T) {
+		rels, err := drv.ListRelations(ctx, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kinds := map[string]RelationKind{}
+		for _, r := range rels {
+			kinds[r.Name] = r.Kind
+		}
+		if kinds["users"] != RelationTable {
+			t.Errorf("users kind = %v, want RelationTable", kinds["users"])
+		}
+		if kinds["named_users"] != RelationView {
+			t.Errorf("named_users kind = %v, want RelationView", kinds["named_users"])
+		}
+		if got := FilterRelations(rels, RelationView); !slices.Contains(got, "named_users") {
+			t.Errorf("FilterRelations(views) = %v, want to contain named_users", got)
 		}
 	})
 

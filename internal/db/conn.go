@@ -68,11 +68,19 @@ func (c *conn) ListDatabases(ctx context.Context) ([]string, error) {
 }
 
 func (c *conn) ListTables(ctx context.Context, database string) ([]string, error) {
+	rels, err := c.ListRelations(ctx, database)
+	if err != nil {
+		return nil, err
+	}
+	return RelationNames(rels), nil
+}
+
+func (c *conn) ListRelations(ctx context.Context, database string) ([]Relation, error) {
 	q, err := c.q()
 	if err != nil {
 		return nil, err
 	}
-	return c.dialect.listTables(ctx, q, database)
+	return c.dialect.listRelations(ctx, q, database)
 }
 
 func (c *conn) TableColumns(ctx context.Context, database, table string) ([]Column, error) {

@@ -44,9 +44,9 @@ func pgSchema(database string) string {
 	return database
 }
 
-func (postgresDialect) listTables(ctx context.Context, q querier, database string) ([]string, error) {
-	return scanStrings(ctx, q,
-		`SELECT table_name FROM information_schema.tables
+func (postgresDialect) listRelations(ctx context.Context, q querier, database string) ([]Relation, error) {
+	return scanRelations(ctx, q,
+		`SELECT table_name, table_type FROM information_schema.tables
 		 WHERE table_schema = $1 ORDER BY table_name`,
 		pgSchema(database))
 }

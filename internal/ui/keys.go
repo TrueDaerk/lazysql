@@ -32,6 +32,7 @@ type keyMap struct {
 	Refresh        key.Binding
 	Actions        key.Binding
 	Filter         key.Binding
+	ToggleTab      key.Binding
 	RunQuery       key.Binding
 	ClearHistory   key.Binding
 }
@@ -57,9 +58,10 @@ func newKeyMap() keyMap {
 		DropConnection: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove connection")),
 		TestConnection: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
 		Connect:        key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
-		Refresh:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+		Refresh:        key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
-		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
+		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
 		RunQuery:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "run query")),
 		ClearHistory:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear history")),
 	}
@@ -87,6 +89,7 @@ const (
 	actTestConnection
 	actRefresh
 	actFilter
+	actToggleTab
 	actRunQuery
 	actClearHistory
 )
@@ -109,10 +112,16 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDropConnection, k.DropConnection},
 			{actTestConnection, k.TestConnection},
 		}
-	case panelDatabases, panelTables:
+	case panelDatabases:
 		return []action{
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+		}
+	case panelTables:
+		return []action{
+			{actRefresh, k.Refresh},
+			{actFilter, k.Filter},
+			{actToggleTab, k.ToggleTab},
 		}
 	case panelHistory:
 		return []action{

@@ -39,6 +39,41 @@ type Index struct {
 	Primary bool
 }
 
+// RelationKind distinguishes the two kinds of listable relation. The UI
+// shows them in separate sub-tabs of the [3] Tables panel.
+type RelationKind int
+
+const (
+	RelationTable RelationKind = iota
+	RelationView
+)
+
+// Relation is one entry of a namespace listing: a table or a view.
+type Relation struct {
+	Name string
+	Kind RelationKind
+}
+
+// RelationNames extracts the names of a relation slice, keeping order.
+func RelationNames(rels []Relation) []string {
+	out := make([]string, 0, len(rels))
+	for _, r := range rels {
+		out = append(out, r.Name)
+	}
+	return out
+}
+
+// FilterRelations returns the names of the relations of one kind.
+func FilterRelations(rels []Relation, kind RelationKind) []string {
+	var out []string
+	for _, r := range rels {
+		if r.Kind == kind {
+			out = append(out, r.Name)
+		}
+	}
+	return out
+}
+
 // ResultSet is a fully materialized, driver-agnostic query result.
 // Cell values are nil (SQL NULL), string, int64, float64, bool or
 // time.Time — never driver-private types or aliased []byte.
@@ -75,9 +110,12 @@ type Driver interface {
 	// MySQL/MariaDB, schemas of the connected database for PostgreSQL,
 	// attached databases for SQLite and DuckDB.
 	ListDatabases(ctx context.Context) ([]string, error)
-	// ListTables returns tables and views in the given namespace.
-	// An empty database means the connection's current/default one.
+	// ListTables returns the names of tables and views in the given
+	// namespace. An empty database means the connection's
+	// current/default one.
 	ListTables(ctx context.Context, database string) ([]string, error)
+	// ListRelations is ListTables with the table/view distinction kept.
+	ListRelations(ctx context.Context, database string) ([]Relation, error)
 	TableColumns(ctx context.Context, database, table string) ([]Column, error)
 	TableIndexes(ctx context.Context, database, table string) ([]Index, error)
 	TableDDL(ctx context.Context, database, table string) (string, error)
@@ -111,7 +149,9 @@ type Dialect interface {
 	LimitOffset(limit, offset int) string
 
 	listDatabases(ctx context.Context, q querier) ([]string, error)
-	listTables(ctx context.Context, q querier, database string) ([]string, error)
+	// listRelations returns tables and views with their kind; the
+	// name-only ListTables is derived from it.
+	listRelations(ctx context.Context, q querier, database string) ([]Relation, error)
 	tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error)
 	tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error)
 	tableDDL(ctx context.Context, q querier, database, table string) (string, error)

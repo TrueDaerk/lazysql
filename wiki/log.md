@@ -38,3 +38,13 @@ Chronological history of wiki changes, newest last.
   `parseTime=true` is required for the `ResultSet` value contract, SQLite needs
   the `file:` URI form once options appear, and the redaction mask has to be
   URL-safe.
+- Added [design/catalog-browsing](design/catalog-browsing.md) with the database
+  and table panels (issue #4): catalog reads run as `tea.Cmd`s whose replies are
+  dropped when stale, `[3]` gained `Tables`/`Views` sub-tabs fed by one
+  `ListRelations` round trip, `/` filters inline by case-insensitive
+  subsequence, and SQLite/DuckDB collapse to a `(default)` pseudo-database that
+  maps back to the driver's empty-string namespace.
+- Updated [design/db-driver-abstraction](design/db-driver-abstraction.md) and
+  [reference/dialect-introspection-quirks](reference/dialect-introspection-quirks.md)
+  for the `listTables` → `listRelations` dialect change and the per-engine
+  spellings of the table/view kind column.

@@ -45,14 +45,16 @@ func duckdbDBCond(database string) (string, []any) {
 	return "database_name = ?", []any{database}
 }
 
-func (duckdbDialect) listTables(ctx context.Context, q querier, database string) ([]string, error) {
+func (duckdbDialect) listRelations(ctx context.Context, q querier, database string) ([]Relation, error) {
 	cond, args := duckdbDBCond(database)
-	return scanStrings(ctx, q,
-		`SELECT table_name FROM duckdb_tables() WHERE `+cond+`
+	// duckdb_tables() and duckdb_views() are separate functions, so the
+	// kind column is a literal rather than a catalog value.
+	return scanRelations(ctx, q,
+		`SELECT table_name, 'table' FROM duckdb_tables() WHERE `+cond+`
 		 UNION ALL
-		 SELECT view_name FROM duckdb_views() WHERE NOT internal AND `+cond+`
+		 SELECT view_name, 'view' FROM duckdb_views() WHERE NOT internal AND `+cond+`
 		 ORDER BY 1`,
-		append(args, args...)...)
+		append(append([]any{}, args...), args...)...)
 }
 
 func (duckdbDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {

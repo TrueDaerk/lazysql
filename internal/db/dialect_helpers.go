@@ -23,6 +23,30 @@ func scanStrings(ctx context.Context, q querier, query string, args ...any) ([]s
 	return out, rows.Err()
 }
 
+// scanRelations runs a query whose result is (name, kind) and normalizes
+// the engine's kind spelling. Anything containing "view" is a view;
+// everything else (BASE TABLE, LOCAL TEMPORARY, …) is a table.
+func scanRelations(ctx context.Context, q querier, query string, args ...any) ([]Relation, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Relation
+	for rows.Next() {
+		var name, kind string
+		if err := rows.Scan(&name, &kind); err != nil {
+			return nil, err
+		}
+		rel := Relation{Name: name, Kind: RelationTable}
+		if strings.Contains(strings.ToLower(kind), "view") {
+			rel.Kind = RelationView
+		}
+		out = append(out, rel)
+	}
+	return out, rows.Err()
+}
+
 // synthesizeDDL builds a CREATE TABLE statement from introspected
 // columns, for engines that do not store the original DDL.
 func synthesizeDDL(d Dialect, database, table string, cols []Column) string {

@@ -385,6 +385,18 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 			name = m.data.cols[m.data.col].Name
 		}
 		m.modal = newCellModal(name, v)
+	case actEditCell:
+		cmd := m.startEdit()
+		return m, cmd, true
+	case actCommitChanges:
+		cmd := m.openCommitModal()
+		return m, cmd, true
+	case actUnstageCell:
+		cmd := m.unstageAtCursor()
+		return m, cmd, true
+	case actDiscardChanges:
+		cmd := m.confirmDiscard()
+		return m, cmd, true
 	default:
 		return m, nil, false
 	}

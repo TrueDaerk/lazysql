@@ -60,8 +60,10 @@ type metaView struct {
 	row [mainTabCount]int
 
 	// copyAfterLoad makes `y` work on a tab that has not been opened
-	// yet: the copy runs when the metadata lands.
+	// yet: the copy runs when the metadata lands. editAfterLoad does the
+	// same for `e`, which needs the primary key from the metadata.
 	copyAfterLoad bool
+	editAfterLoad bool
 
 	req int
 }

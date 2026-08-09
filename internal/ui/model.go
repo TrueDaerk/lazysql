@@ -90,6 +90,11 @@ type Model struct {
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
 
+	// changes is the staged changeset: edits accumulate here and only
+	// execute on explicit commit. It is a pointer so every copied Model
+	// shares one changeset.
+	changes *db.Changeset
+
 	// tab is the main view's selected tab and meta is the metadata the
 	// three introspection tabs render.
 	tab  mainTab
@@ -112,6 +117,7 @@ func New() Model {
 		help:      help.New(),
 		style:     newStyles(),
 		connState: map[string]connState{},
+		changes:   db.NewChangeset(),
 	}
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id}
@@ -180,6 +186,9 @@ func (m *Model) renameConnState(oldName, newName string) {
 
 // resetBrowse drops everything that belonged to the previous connection.
 func (m *Model) resetBrowse() {
+	// Staged changes reference the connection's tables; they cannot
+	// survive it. They are discarded, not committed.
+	m.changes.Clear()
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
@@ -392,6 +401,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.meta.err = msg.err.Error()
 			m.meta.copyAfterLoad = false
+			m.meta.editAfterLoad = false
 			return m, logCmd("-- introspect %s FAILED: %v", msg.table, msg.err)
 		}
 		m.meta.cols, m.meta.indexes, m.meta.fks = msg.cols, msg.indexes, msg.fks
@@ -402,6 +412,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.meta.copyAfterLoad {
 			m.meta.copyAfterLoad = false
 			cmd := m.copyDDL()
+			return m, cmd
+		}
+		if m.meta.editAfterLoad {
+			m.meta.editAfterLoad = false
+			cmd := m.openEditModal()
 			return m, cmd
 		}
 		return m, nil
@@ -418,6 +433,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.data.total, m.data.hasTotal = msg.total, true
 		return m, nil
+
+	case changesCommittedMsg:
+		if msg.err != nil {
+			// The transaction rolled back: nothing was applied, and the
+			// changeset survives so the user can fix and retry.
+			return m, logCmd("-- COMMIT FAILED — nothing applied, changeset kept: %v", msg.err)
+		}
+		cmds := []tea.Cmd{logCmd("BEGIN;")}
+		for _, s := range msg.stmts {
+			stmt := s
+			cmds = append(cmds,
+				logCmd("%s;  -- args %v", stmt.SQL, stmt.Args),
+				func() tea.Msg { return historyEntryMsg{statement: stmt.SQL + ";"} },
+			)
+		}
+		m.changes.Clear()
+		cmds = append(cmds,
+			logCmd("COMMIT;  -- %s applied", countChanges(len(msg.stmts))),
+			m.reloadPage(),
+		)
+		return m, tea.Batch(cmds...)
 
 	case connPersistedMsg:
 		if msg.err != nil {

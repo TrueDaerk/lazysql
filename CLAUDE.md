@@ -39,6 +39,20 @@ When building TUI code, use the `tui:lazygit-style` skill — it contains the Bu
 - `go test ./...` for packages with tests; driver code needs unit tests against SQLite/DuckDB (in-process, no server required).
 - Run the TUI in a real PTY when possible; check resize behavior and the tiny-terminal guard.
 
+## Project wiki (OKF 0.2)
+
+The repo maintains its own wiki as an [OKF 0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md) knowledge bundle in `wiki/` — a directory tree of markdown files with YAML frontmatter. It captures the knowledge that surrounds the code: design decisions, dialect quirks, driver behavior, keybinding rationale, playbooks.
+
+Rules:
+
+- Every wiki document is an OKF **concept**: YAML frontmatter with at least `type` (e.g. `Design Decision`, `Dialect Note`, `Playbook`, `Reference`), plus `title`, `description`, and `tags` where useful.
+- Record authorship with `generated: { by: <actor>, at: <ISO timestamp> }` — agents use `<producer>/<version>` (e.g. `claude-code/fable-5`), humans `human:<id>`.
+- Record provenance in `sources` (with `resource` per entry) when a concept derives from external material (upstream docs, spec URLs, benchmark runs).
+- Keep `wiki/index.md` as the directory listing and `wiki/log.md` as the chronological update history; both are reserved filenames, never concepts. Update both whenever concepts change.
+- Cross-reference with standard markdown links between concepts; concept ID = bundle-relative path without `.md`.
+- When making a non-obvious design decision or discovering a dialect/driver quirk during implementation, write or update a wiki concept in the same change set.
+- Unknown frontmatter keys are tolerated; never reject or strip them.
+
 ## Security
 
 - Never write passwords to config files or logs — use the OS keyring (`zalando/go-keyring`).

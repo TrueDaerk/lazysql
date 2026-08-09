@@ -427,3 +427,18 @@ Chronological history of wiki changes, newest last.
   read as integers), with `LIKE` always text and an unparseable value
   reported on the modal's error line. `dataView` gained `conds` so a
   repeated `/` can add to the filter rather than replace it.
+
+## 2026-08-09 — Cell detail popup (issue #39)
+
+- New [design/cell-detail-popup](design/cell-detail-popup.md):
+  `cellModal` now classifies a cell's raw bytes (`classifyCell` in
+  `internal/ui/celldetail.go`) rather than trusting the declared column
+  type — valid JSON (object/array root) pretty-prints, invalid UTF-8
+  hex-dumps (`hexDumpLines`, `hexdump -C` style), everything else stays
+  plain text. The title now reads `table.column — type, N bytes`
+  (`(json)`/`(binary)` appended when the detected kind adds
+  information); `y` inside the modal copies `rawText` — the untouched
+  value — through the same `clipboardWrite` seam
+  [copy-and-export](copy-and-export.md) uses, without closing the
+  modal. Updated [design/data-grid](design/data-grid.md) to point at
+  the new concept instead of duplicating it.

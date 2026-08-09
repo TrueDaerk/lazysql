@@ -66,7 +66,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `s` | Sort the cursor column (ASC → DESC → off) |
 | `/` (or `f`) | Filter rows (modal) |
 | `F` | Clear the filter |
-| `v` | Show the full cell value (JSON pretty-printed) |
+| `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
 
 `/` opens the filter modal on the column under the cursor: pick a column,
 an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,

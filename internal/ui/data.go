@@ -493,9 +493,10 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		cmd := m.clearFilter()
 		return m, cmd, true
 	case actViewCell:
-		name := ""
-		if m.data.col < len(m.data.cols) {
+		name, colType := "", ""
+		if m.data.col >= 0 && m.data.col < len(m.data.cols) {
 			name = m.data.cols[m.data.col].Name
+			colType = m.data.cols[m.data.col].DataType
 		}
 		if ins, ok := m.phantomAtCursor(); ok {
 			// A staged insert has no fetched cell; show what it will bind.
@@ -504,14 +505,14 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 				m.modal = &confirmModal{title: "Cell — " + name, body: "left to the column's DEFAULT."}
 				return m, nil, true
 			}
-			m.modal = newCellModal(name, v)
+			m.modal = newCellModal(m.dataSubject(), name, colType, v)
 			return m, nil, true
 		}
 		v, ok := m.data.cell()
 		if !ok {
 			return m, nil, true
 		}
-		m.modal = newCellModal(name, v)
+		m.modal = newCellModal(m.dataSubject(), name, colType, v)
 	case actEditCell:
 		cmd := m.startEdit()
 		return m, cmd, true

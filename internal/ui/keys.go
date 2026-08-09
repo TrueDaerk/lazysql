@@ -96,6 +96,7 @@ type keyMap struct {
 	WhereFilter key.Binding
 	ClearFilter key.Binding
 	ViewCell    key.Binding
+	RowDetail   key.Binding
 
 	// Foreign-key navigation. FollowFK jumps along the constraint the
 	// cursor column takes part in, IncomingRefs goes the other way, and
@@ -202,6 +203,7 @@ func newKeyMap() keyMap {
 		WhereFilter: key.NewBinding(key.WithKeys("/", "f"), key.WithHelp("/", "filter rows")),
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
+		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
 
 		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
 		IncomingRefs: key.NewBinding(
@@ -311,6 +313,7 @@ const (
 	actWhereFilter
 	actClearFilter
 	actViewCell
+	actRowDetail
 	actFollowFK
 	actIncomingRefs
 	actBrowseBack
@@ -389,6 +392,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
+			{actRowDetail, k.RowDetail},
 			{actFollowFK, k.FollowFK},
 			{actIncomingRefs, k.IncomingRefs},
 			{actBrowseBack, k.BrowseBack},
@@ -486,6 +490,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
+		{"row-detail", &k.RowDetail},
 		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},
 		{"browse-back", &k.BrowseBack},
 

@@ -534,6 +534,10 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 		m.modal = newCellModal(m.dataSubject(), name, colType, v)
+	case actRowDetail:
+		if rd, ok := newRowDetailModal(m); ok {
+			m.modal = rd
+		}
 	case actEditCell:
 		cmd := m.startEdit()
 		return m, cmd, true

@@ -461,3 +461,15 @@ Chronological history of wiki changes, newest last.
   table, filter, sort, page and cell cursor all come back together.
   Updated [design/data-grid](design/data-grid.md) to point at the new
   concept.
+
+## 2026-08-09 — Vertical row detail view (issue #41)
+
+- New [design/row-detail-view](design/row-detail-view.md): `x` opens
+  `rowDetailModal` (`internal/ui/rowdetail.go`), a scrollable
+  name/type/value list for the cursor row — psql's `\x` for tables too
+  wide for the grid. It builds its fields from the same staged-change
+  detection `buildGrid` uses (a phantom INSERT's unbound columns render
+  `DEFAULT`, a staged edit keeps its yellow tint, a row staged for
+  deletion strikes the whole list through), and `v` on a field opens the
+  existing cell detail popup rather than a second renderer. Updated
+  [design/data-grid](design/data-grid.md) to point at the new concept.

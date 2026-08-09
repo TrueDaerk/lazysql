@@ -185,6 +185,10 @@ type Model struct {
 	// a time; `X` cancels it.
 	export exportState
 
+	// diff is the schema diff on screen (running or finished), nil when
+	// none. It dials its own connections, so it survives disconnects.
+	diff *diffView
+
 	// history is the persistent query history behind panel [4], newest
 	// first. editor is panel [5] — the buffer and its mode, which outlive
 	// every focus change — and run is the script currently executing, if
@@ -725,6 +729,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.finishExport(msg)
 		return m, cmd
 
+	case diffSecretMsg:
+		// Bind the command first: promptDiffSecrets mutates m (modal or
+		// diff state), and Go may otherwise copy the pre-call model.
+		cmd := m.promptDiffSecrets(msg.a, msg.b)
+		return m, cmd
+
+	case schemaDiffProgressMsg:
+		cmd := m.applyDiffProgress(msg)
+		return m, cmd
+
+	case schemaDiffDoneMsg:
+		cmd := m.finishDiff(msg)
+		return m, cmd
+
 	case connPersistedMsg:
 		if msg.err != nil {
 			return m, logCmd("-- %s %s FAILED: %v", msg.verb, msg.name, msg.err)
@@ -830,6 +848,14 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	p := m.panels[m.focus]
+
+	// An open schema diff owns the report keys while panel [1] is
+	// focused; anything it does not claim falls through to the panel.
+	if m.focus == panelConnections && m.diff != nil {
+		if mm, cmd, handled := m.updateDiffKeys(msg); handled {
+			return mm, cmd
+		}
+	}
 
 	switch {
 	case key.Matches(msg, k.Down):
@@ -964,6 +990,10 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 				},
 			}
 		}
+
+	case actSchemaDiff:
+		cmd := m.openSchemaDiff()
+		return m, cmd
 
 	case actRefresh:
 		return m, m.reloadFocused()

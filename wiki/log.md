@@ -492,3 +492,18 @@ Chronological history of wiki changes, newest last.
   [design/foreign-key-navigation](design/foreign-key-navigation.md) to
   point at it.
 
+
+## 2026-08-09 — Schema diff between two connections (issue #43)
+
+- New [design/schema-diff](design/schema-diff.md): `D` on a connection
+  diffs its schema against another connection's. The comparison model
+  (`internal/db/schemadiff.go`) is a pure `db.Schema` snapshot built
+  from the existing `ListRelations`/`TableColumns`/`TableIndexes`/
+  `TableForeignKeys` calls — no new introspection surface. Type
+  synonyms normalize only within one engine family (MariaDB folds onto
+  MySQL); a cross-engine diff compares types verbatim and says so in
+  its header. The UI flow (`internal/ui/schemadiff.go`) dials both
+  sides fresh through the same `dial()` a connect uses and closes them
+  after, streams progress export-style over a channel, and renders a
+  scrollable red/green/yellow report in the main view with `y` copy
+  and `E` export. Report only — no migration SQL.

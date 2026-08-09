@@ -15,6 +15,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Data view** — paginated rows, column sorting, quick `WHERE` filters.
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.
 - **Relations view** — a per-table map of incoming and outgoing foreign keys, walkable with `enter`.
+- **Schema diff** — compare the schemas of two connections (`D` on a connection): tables, columns, indexes and foreign keys, with type synonyms normalized within one engine family.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
 - **Query editor** — free-form SQL with dialect-aware syntax highlighting, schema-aware autocomplete, history, result tabs, and cancellation.
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file.
@@ -104,6 +105,20 @@ walks the schema; `esc` unwinds the walk. The incoming half needs the
 foreign keys of every table in the namespace, so it is scanned in the
 background (the tab says `scanning…` meanwhile) and cached per database,
 shared with `G`. It is a per-table hub, not a full ERD.
+
+`D` on a connection in panel `[1]` diffs its schema against another
+connection's: a popup picks the other side and the namespace on each
+(empty = the connection's default). Both sides are dialed fresh —
+keyring passwords resolve as on connect, "ask on connect" profiles
+prompt first — introspected through the same driver interface as the
+Structure tab, and closed again. The report takes over the main view:
+tables only in A (red), only in B (green), and per-table column, index
+and foreign-key differences as `A: … / B: …` lines (yellow). `j`/`k`
+scroll it, `y` copies it, `E` exports it to a file, `esc` dismisses it.
+Within one engine family type synonyms are normalized (SQLite `INT` =
+`INTEGER`); a cross-engine diff compares types verbatim and says so in
+the report header. The report is read-only — it generates no migration
+SQL.
 
 The query editor is panel `[4]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two

@@ -10,8 +10,9 @@ import (
 
 // formModal is the reusable multi-field popup: a vertical stack of labelled
 // fields with one cursor, an inline validation error line, and the usual
-// enter/esc contract. The connection editor is the first user; row insert and
-// filter builders will reuse it.
+// enter/esc contract. The connection editor is its user. (The row insert form
+// is its own modal: its fields are columns, and each one cycles between a
+// typed value, NULL and the column's default rather than holding a string.)
 //
 // Fields can be hidden dynamically (`visible`), which is how the engine choice
 // swaps host/port for a file path without rebuilding the modal.

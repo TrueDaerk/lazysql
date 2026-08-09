@@ -49,17 +49,16 @@ func (m *Model) startEdit() tea.Cmd {
 	if !m.data.open() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
+	if m.onPhantomRow() {
+		return logCmd("-- edit skipped: the cursor is on a staged insert (u unstages it)")
+	}
 	if len(m.data.rows) == 0 {
 		return logCmd("-- edit skipped: no rows on this page")
 	}
 	if m.meta.loaded {
 		return m.openEditModal()
 	}
-	m.meta.editAfterLoad = true
-	if m.meta.loading {
-		return nil
-	}
-	return m.startMetaLoad()
+	return m.deferUntilMeta(actEditCell)
 }
 
 // editIdentity returns the primary key columns of the open table and
@@ -72,7 +71,7 @@ func (m Model) editIdentity(row int) (pkCols []string, pkVals []any, problem str
 		}
 	}
 	if len(pkCols) == 0 {
-		return nil, nil, "the table has no primary key, so a row cannot be identified safely.\n\nlazysql refuses to guess row identity — add a primary key to edit this table."
+		return nil, nil, "the table has no primary key, so a row cannot be identified safely.\n\nlazysql refuses to guess row identity — add a primary key to edit or delete rows here. Inserting is still allowed."
 	}
 	if row < 0 || row >= len(m.data.rows) {
 		return nil, nil, "no row under the cursor."
@@ -113,6 +112,9 @@ func (m *Model) openEditModal() tea.Cmd {
 	if problem != "" {
 		m.modal = &confirmModal{title: "Editing disabled", body: problem, danger: true}
 		return nil
+	}
+	if m.changes.DeleteStaged(m.data.database, m.data.table, pkVals) {
+		return logCmd("-- edit skipped: the row is staged for deletion (u unstages it)")
 	}
 	if m.data.col >= len(m.data.cols) {
 		return nil
@@ -168,18 +170,32 @@ func (m *Model) stageChange(c db.CellChange) tea.Cmd {
 	return logCmd("-- stage: %s;  -- args %v", st.SQL, st.Args)
 }
 
-// unstageAtCursor is `u`: drop the staged change of the cell under the
-// cursor, if there is one.
+// unstageAtCursor is `u`: drop the staged change under the cursor. A
+// phantom row unstages its whole INSERT, a row staged for deletion
+// unstages the DELETE, and anything else unstages the cursor cell —
+// the row-level operations come first because on those rows there is no
+// cell change to remove anyway.
 func (m *Model) unstageAtCursor() tea.Cmd {
 	if !m.data.open() || m.tab.metadata() {
 		return nil
 	}
-	pkCols := m.changes.PKColsFor(m.data.database, m.data.table)
+	if ins, ok := m.phantomAtCursor(); ok {
+		m.changes.UnstageInsert(ins.Database, ins.Table, ins.ID)
+		m.clampCursor()
+		return logCmd("-- unstage insert into %s", ins.Table)
+	}
+	pkCols := m.pkColumns()
 	if pkCols == nil {
 		return logCmd("-- nothing staged for %s", m.data.table)
 	}
 	pkVals, ok := m.rowKeyVals(pkCols, m.data.row)
-	if !ok || m.data.col >= len(m.data.cols) {
+	if !ok {
+		return nil
+	}
+	if m.changes.UnstageDelete(m.data.database, m.data.table, pkVals) {
+		return logCmd("-- unstage delete of %s (%s)", m.data.table, rowLabel(pkCols, pkVals))
+	}
+	if m.data.col >= len(m.data.cols) {
 		return nil
 	}
 	colName := m.data.cols[m.data.col].Name
@@ -187,6 +203,25 @@ func (m *Model) unstageAtCursor() tea.Cmd {
 		return logCmd("-- unstage %s.%s", m.data.table, colName)
 	}
 	return logCmd("-- no staged change under the cursor")
+}
+
+// pkColumns names the primary key of the open table. The metadata is
+// the source of truth, but a changeset that already holds a change of
+// the table knows them too — which is how the grid keeps highlighting
+// staged rows after the metadata cache was dropped.
+func (m Model) pkColumns() []string {
+	if m.meta.loaded && m.meta.table == m.data.table {
+		var cols []string
+		for _, c := range m.meta.cols {
+			if c.PrimaryKey {
+				cols = append(cols, c.Name)
+			}
+		}
+		if cols != nil {
+			return cols
+		}
+	}
+	return m.changes.PKColsFor(m.data.database, m.data.table)
 }
 
 // confirmDiscard is `U`: throw the whole changeset away, after asking.

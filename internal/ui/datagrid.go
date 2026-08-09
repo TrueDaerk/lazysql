@@ -22,6 +22,20 @@ const (
 // cannot be confused with the string "NULL".
 const nullText = "NULL"
 
+// rowKind is how a rendered row relates to the changeset: an untouched
+// page row, a row staged for deletion, or a phantom row standing for a
+// staged insert that does not exist in the database yet.
+type rowKind int
+
+const (
+	rowPlain rowKind = iota
+	rowDeleted
+	rowInserted
+)
+
+// defaultText marks a phantom row's cell that the INSERT leaves out.
+const defaultText = "DEFAULT"
+
 // gridColumn is one rendered column: its header, its type and the
 // already-formatted cells of the page under it.
 type gridColumn struct {
@@ -34,10 +48,26 @@ type gridColumn struct {
 }
 
 // buildGrid formats the whole page once so column widths, the header
-// and every row agree on the same strings.
-func (m Model) buildGrid() []gridColumn {
+// and every row agree on the same strings. The staged inserts of the
+// open table are appended as phantom rows after the page, which is why
+// it also returns what each rendered row is.
+func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 	d := m.data
 	rowKeys := m.stagedRowKeys()
+	inserts := m.stagedInserts()
+	n := len(d.rows) + len(inserts)
+
+	kinds := make([]rowKind, n)
+	for r := range d.rows {
+		if rowKeys != nil && rowKeys[r] != nil &&
+			m.changes.DeleteStaged(d.database, d.table, rowKeys[r]) {
+			kinds[r] = rowDeleted
+		}
+	}
+	for i := range inserts {
+		kinds[len(d.rows)+i] = rowInserted
+	}
+
 	cols := make([]gridColumn, len(d.cols))
 	for i, c := range d.cols {
 		header := c.Name
@@ -51,9 +81,9 @@ func (m Model) buildGrid() []gridColumn {
 		g := gridColumn{
 			header: header,
 			typ:    strings.ToLower(c.DataType),
-			cells:  make([]string, len(d.rows)),
-			nulls:  make([]bool, len(d.rows)),
-			staged: make([]bool, len(d.rows)),
+			cells:  make([]string, n),
+			nulls:  make([]bool, n),
+			staged: make([]bool, n),
 			width:  maxInt(lipgloss.Width(header), lipgloss.Width(c.DataType)),
 		}
 		for r, row := range d.rows {
@@ -71,7 +101,22 @@ func (m Model) buildGrid() []gridColumn {
 			}
 			g.nulls[r] = v == nil
 			g.cells[r] = flatten(db.FormatValue(v, nullText))
-			if w := lipgloss.Width(g.cells[r]); w > g.width {
+		}
+		for j, ins := range inserts {
+			r := len(d.rows) + j
+			v, bound := insertValueFor(ins, c.Name)
+			switch {
+			case !bound:
+				g.cells[r] = defaultText
+			case v == nil:
+				g.nulls[r] = true
+				g.cells[r] = nullText
+			default:
+				g.cells[r] = flatten(db.FormatValue(v, nullText))
+			}
+		}
+		for _, cell := range g.cells {
+			if w := lipgloss.Width(cell); w > g.width {
 				g.width = w
 			}
 		}
@@ -83,14 +128,15 @@ func (m Model) buildGrid() []gridColumn {
 		}
 		cols[i] = g
 	}
-	return cols
+	return cols, kinds
 }
 
 // stagedRowKeys returns each page row's primary key values, or nil when
-// nothing is staged for the open table. The key columns come from the
-// changeset itself, so highlighting works without a metadata fetch.
+// the primary key of the open table is not known. The key columns come
+// from the metadata when it is loaded and from the changeset otherwise,
+// so highlighting survives a dropped metadata cache.
 func (m Model) stagedRowKeys() [][]any {
-	pkCols := m.changes.PKColsFor(m.data.database, m.data.table)
+	pkCols := m.pkColumns()
 	if pkCols == nil {
 		return nil
 	}
@@ -182,15 +228,15 @@ func (m Model) dataContent(w, h int) string {
 	case len(d.cols) == 0:
 		lines = append(lines, "", m.style.muted.Render("no columns"))
 	default:
-		cols := m.buildGrid()
+		cols, kinds := m.buildGrid()
 		cs, ce := columnWindow(cols, d.col, w)
-		rs, re := rowWindow(len(d.rows), d.row, bodyRows)
+		rs, re := rowWindow(len(kinds), d.row, bodyRows)
 
 		lines = append(lines, m.gridHeader(cols[cs:ce], cs, w))
 		for r := rs; r < re; r++ {
-			lines = append(lines, m.gridRow(cols[cs:ce], cs, r, w))
+			lines = append(lines, m.gridRow(cols[cs:ce], cs, r, kinds[r], w))
 		}
-		if len(d.rows) == 0 {
+		if len(kinds) == 0 {
 			lines = append(lines, m.style.muted.Render("no rows match"))
 		}
 		if cs > 0 || ce < len(cols) {
@@ -228,7 +274,7 @@ func (m Model) gridHeader(cols []gridColumn, first, w int) string {
 
 // gridRow renders one row of the page, tinting the cursor row and, more
 // strongly, the cursor cell.
-func (m Model) gridRow(cols []gridColumn, first, r, w int) string {
+func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) string {
 	var b strings.Builder
 	onRow := r == m.data.row && m.focus == panelMain
 	for i, c := range cols {
@@ -244,16 +290,19 @@ func (m Model) gridRow(cols []gridColumn, first, r, w int) string {
 		if r < len(c.cells) {
 			text, isNull, isStaged = c.cells[r], c.nulls[r], c.staged[r]
 		}
-		b.WriteString(m.cellStyle(onRow, first+i == m.data.col, isNull, isStaged).
+		b.WriteString(m.cellStyle(onRow, first+i == m.data.col, isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
 	return truncate(b.String(), w)
 }
 
-// cellStyle picks the tint of one cell from the cursor position, whether
-// the value is NULL and whether an edit of it is staged. Staged wins
-// over NULL: yellow is the "pending" color throughout the app.
-func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool) lipgloss.Style {
+// cellStyle picks the tint of one cell from the cursor position, what
+// the row is staged as, whether the value is NULL and whether an edit of
+// it is staged. A staged row op wins over everything below it: the whole
+// row is going away or arriving, so a per-cell tint would only muddle
+// it. Otherwise staged wins over NULL — yellow is the "pending" color
+// throughout the app.
+func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	switch {
 	case onRow && onCol && m.focus == panelMain:
@@ -262,6 +311,10 @@ func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool) lipgloss.Style {
 		style = m.style.rowCursor
 	}
 	switch {
+	case kind == rowDeleted:
+		return style.Foreground(colorRed).Strikethrough(true)
+	case kind == rowInserted:
+		return style.Foreground(colorGreen).Bold(true)
 	case isStaged:
 		style = style.Foreground(colorYellow).Bold(true)
 	case isNull:

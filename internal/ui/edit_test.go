@@ -232,7 +232,10 @@ func TestEditKeysAreDocumented(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('?'))
 	out := m.View().Content
-	for _, want := range []string{"edit cell", "commit staged changes", "unstage cell", "discard staged changes"} {
+	for _, want := range []string{
+		"edit cell", "stage row delete", "insert row", "duplicate row",
+		"commit staged changes", "unstage", "discard staged changes",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help is missing %q", want)
 		}

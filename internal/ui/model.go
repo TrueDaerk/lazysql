@@ -389,7 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.data.cols = msg.result.Columns
 		m.data.rows = msg.result.Rows
-		m.data.clampCursor()
+		m.clampCursor()
 		return m, nil
 
 	case metaLoadedMsg:
@@ -400,8 +400,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.meta.loaded = true
 		if msg.err != nil {
 			m.meta.err = msg.err.Error()
-			m.meta.copyAfterLoad = false
-			m.meta.editAfterLoad = false
+			m.meta.afterLoad = actNone
 			return m, logCmd("-- introspect %s FAILED: %v", msg.table, msg.err)
 		}
 		m.meta.cols, m.meta.indexes, m.meta.fks = msg.cols, msg.indexes, msg.fks
@@ -409,15 +408,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ddlErr != nil {
 			m.meta.ddlErr = msg.ddlErr.Error()
 		}
-		if m.meta.copyAfterLoad {
-			m.meta.copyAfterLoad = false
-			cmd := m.copyDDL()
-			return m, cmd
-		}
-		if m.meta.editAfterLoad {
-			m.meta.editAfterLoad = false
-			cmd := m.openEditModal()
-			return m, cmd
+		// A key pressed before the metadata existed runs now. The action
+		// takes the same path it would have taken with a warm cache.
+		if id := m.meta.afterLoad; id != actNone {
+			m.meta.afterLoad = actNone
+			mm, cmd := m.runAction(id)
+			return mm, cmd
 		}
 		return m, nil
 

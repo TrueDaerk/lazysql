@@ -201,13 +201,39 @@ func editorGutterWidth(lines, w int) (gutter, content int) {
 	return gutter, w - gutter
 }
 
-// editorBlock renders the buffer: line numbers, highlighted SQL, and the
-// cursor drawn over it. The result is exactly h rows of at most w cells,
-// so the main view can stack it without measuring.
+// editorHeight is how many of a main view's rows content rows the buffer
+// gets: as many as it needs, up to half the box, never fewer than three
+// so a one-line query still leaves the result room.
+func (m Model) editorHeight(w, rows int) int {
+	return min(min(m.editorRows(w)+1, maxInt(rows/2, 3)), rows)
+}
+
+// editorBlock renders the buffer at w x h.
 func (m Model) editorBlock(w, h int) string {
+	block, _, _, _ := m.renderEditor(w, h)
+	return block
+}
+
+// editorCaret is where the caret ended up inside the block editorBlock
+// would render at the same size: a row and a column, both zero-based,
+// within the block itself. The completion popup anchors on it. ok is
+// false when the caret is not drawn — the panel does not have the
+// keyboard, or the scroll window left it out of view.
+func (m Model) editorCaret(w, h int) (row, col int, ok bool) {
+	_, row, col, ok = m.renderEditor(w, h)
+	return row, col, ok
+}
+
+// renderEditor renders the buffer: line numbers, highlighted SQL, and the
+// cursor drawn over it. The result is exactly h rows of at most w cells,
+// so the main view can stack it without measuring, and the caret's cell
+// inside that block comes back with it — the popup has to be placed in
+// screen coordinates, and only the code that lays the rows out knows
+// which one the caret landed on.
+func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, caretOK bool) {
 	s := m.style
 	if w < 1 || h < 1 {
-		return ""
+		return "", 0, 0, false
 	}
 	lines := highlightLines(m.sqlDialect(), m.script())
 	gutterW, contentW := editorGutterWidth(len(lines), w)
@@ -232,11 +258,11 @@ func (m Model) editorBlock(w, h int) string {
 		if showCursor {
 			row = cursorStyle.Render("S") + s.muted.Render(truncate("ELECT * FROM …", contentW-1))
 		}
-		return padRows([]string{gutter(s, gutterW, 1) + row}, h)
+		return padRows([]string{gutter(s, gutterW, 1) + row}, h), 0, gutterW, showCursor
 	}
 
 	var rows []string
-	cursorAt := -1 // index into rows, for the scroll window
+	cursorAt, cursorX := -1, 0 // index into rows and cell within it
 	for i, line := range lines {
 		segs := wrapSegments(line.runes, contentW)
 		curSeg, curOff, extra := -1, 0, false
@@ -252,13 +278,16 @@ func (m Model) editorBlock(w, h int) string {
 			if si == curSeg && !extra {
 				at = curOff
 				cursorAt = len(rows)
+				// The caret's *cell* is not its rune index: a wide rune
+				// before it takes two columns.
+				cursorX = gutterW + lipgloss.Width(string(line.runes[seg[0]:seg[0]+at]))
 			}
 			rows = append(rows, gutter(s, gutterW, num)+
 				renderTokens(s, line.runes[seg[0]:seg[1]], line.kinds[seg[0]:seg[1]], at, cursorStyle))
 		}
 		// A cursor past the end of a full row gets a row of its own.
 		if extra {
-			cursorAt = len(rows)
+			cursorAt, cursorX = len(rows), gutterW
 			rows = append(rows, gutter(s, gutterW, 0)+cursorStyle.Render(" "))
 		}
 	}
@@ -274,7 +303,11 @@ func (m Model) editorBlock(w, h int) string {
 		start = maxInt(len(rows)-h, 0)
 	}
 	end := min(start+h, len(rows))
-	return padRows(rows[start:end], h)
+	caretRow, caretOK = cursorAt-start, cursorAt >= 0
+	if caretRow < 0 || caretRow >= h {
+		caretOK = false
+	}
+	return padRows(rows[start:end], h), caretRow, cursorX, caretOK
 }
 
 // gutter renders one line-number cell. num <= 0 is a continuation row of

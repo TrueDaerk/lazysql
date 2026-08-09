@@ -181,6 +181,12 @@ type Model struct {
 	editor  queryEditor
 	run     queryRun
 
+	// completion is the editor's autocomplete popup, and schema the
+	// column cache behind it. The cache keys itself on connection +
+	// database and drops itself when either changes.
+	completion completion
+	schema     schemaCache
+
 	startupErr string
 
 	keys  keyMap
@@ -445,6 +451,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := m.finishQuery(msg)
+		return m, cmd
+
+	case schemaColumnsMsg:
+		// Bind the command first: applySchemaColumns mutates the cache on
+		// m, and Go may otherwise copy the pre-call model into the return.
+		cmd := m.applySchemaColumns(msg)
 		return m, cmd
 
 	case focusPanelMsg:

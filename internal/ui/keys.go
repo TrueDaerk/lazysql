@@ -60,6 +60,15 @@ type keyMap struct {
 	RunEditor  key.Binding
 	ClearQuery key.Binding
 
+	// The autocomplete popup. Complete opens it on demand; the other four
+	// only act while it is open, which is why CloseCompletion can be esc
+	// without costing insert mode its own esc.
+	Complete         key.Binding
+	CompleteNext     key.Binding
+	CompletePrev     key.Binding
+	AcceptCompletion key.Binding
+	CloseCompletion  key.Binding
+
 	// Data grid (the focusable main view).
 	ColLeft     key.Binding
 	ColRight    key.Binding
@@ -128,6 +137,20 @@ func newKeyMap() keyMap {
 		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
 
+		// `ctrl+@` is what a terminal sends for ctrl+space; both spellings
+		// are bound so the key works wherever it is reported either way.
+		Complete: key.NewBinding(
+			key.WithKeys("ctrl+space", "ctrl+@", "tab"),
+			key.WithHelp("ctrl+space/tab", "complete")),
+		CompleteNext: key.NewBinding(
+			key.WithKeys("down", "ctrl+n"), key.WithHelp("↓/ctrl+n", "next suggestion")),
+		CompletePrev: key.NewBinding(
+			key.WithKeys("up", "ctrl+p"), key.WithHelp("↑/ctrl+p", "prev suggestion")),
+		AcceptCompletion: key.NewBinding(
+			key.WithKeys("enter", "tab"), key.WithHelp("enter/tab", "accept suggestion")),
+		CloseCompletion: key.NewBinding(
+			key.WithKeys("esc"), key.WithHelp("esc", "close the popup")),
+
 		ColLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
 		ColRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
 		NextPage:    key.NewBinding(key.WithKeys("ctrl+f", "pgdown"), key.WithHelp("ctrl+f", "next page")),
@@ -177,7 +200,17 @@ func (k keyMap) navigationFor(id panelID) []key.Binding {
 // slice — and not the panel's action list — is what the options bar and
 // `?` show there.
 func (k keyMap) editorInsert() []key.Binding {
-	return []key.Binding{k.RunEditor, k.CancelQuery, k.LeaveInsert}
+	return []key.Binding{k.Complete, k.RunEditor, k.CancelQuery, k.LeaveInsert}
+}
+
+// editorCompletion are the keys the autocomplete popup owns while it is
+// open. Like editorInsert they are dispatched by updateEditor rather than
+// through panelActions — they only mean anything inside the editor — so
+// this slice is what the options bar shows and what `?` lists for them.
+func (k keyMap) editorCompletion() []key.Binding {
+	return []key.Binding{
+		k.CompleteNext, k.CompletePrev, k.AcceptCompletion, k.CloseCompletion,
+	}
 }
 
 // global returns the bindings handled by the root model.
@@ -344,7 +377,7 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 	// short list is documented next to the panel's normal-mode actions
 	// rather than being reachable only from a mode `?` cannot open.
 	if id == panelQuery {
-		groups = append(groups, k.editorInsert())
+		groups = append(groups, k.editorInsert(), k.editorCompletion())
 	}
 	return append(groups, k.navigationFor(id), k.global())
 }
@@ -376,6 +409,10 @@ func (k *keyMap) slots() []bindingSlot {
 		{"delete-history", &k.DeleteHistory}, {"clear-history", &k.ClearHistory},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
+
+		{"complete", &k.Complete}, {"complete-next", &k.CompleteNext},
+		{"complete-prev", &k.CompletePrev}, {"accept-completion", &k.AcceptCompletion},
+		{"close-completion", &k.CloseCompletion},
 
 		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},

@@ -202,6 +202,9 @@ func (m *Model) setEditing(on bool) {
 		m.editor.area.Focus()
 		return
 	}
+	// The completion popup belongs to insert mode: it is anchored on a
+	// caret that is no longer taking input.
+	m.completion = completion{}
 	m.editor.area.Blur()
 }
 
@@ -242,20 +245,42 @@ func (m *Model) clearQuery() tea.Cmd {
 	return nil
 }
 
-// updateEditor is insert mode: three keys keep their meaning and every
-// other one types.
+// updateEditor is insert mode: a handful of keys keep their meaning and
+// every other one types.
 func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+	// An open completion popup claims its four keys ahead of everything
+	// else. esc is the one that matters: it closes the popup and nothing
+	// else, so the buffer and insert mode survive it.
+	if m.completion.open {
+		switch {
+		case key.Matches(msg, k.CloseCompletion):
+			m.closeCompletion()
+			return m, nil
+		case key.Matches(msg, k.CompleteNext):
+			m.moveCompletion(1)
+			return m, nil
+		case key.Matches(msg, k.CompletePrev):
+			m.moveCompletion(-1)
+			return m, nil
+		case key.Matches(msg, k.AcceptCompletion):
+			m.acceptCompletion()
+			return m, nil
+		}
+	}
+
 	switch {
 	case key.Matches(msg, k.LeaveInsert):
 		// The buffer is kept: esc means "give me my keys back", not
 		// "throw away what I typed".
+		m.closeCompletion()
 		m.setEditing(false)
 		return m, nil
 
 	case key.Matches(msg, k.RunEditor), msg.String() == "ctrl+enter":
 		// A run ends insert mode so the result is immediately
 		// navigable — paging, `v`, the tabs — without an extra esc.
+		m.closeCompletion()
 		m.setEditing(false)
 		cmd := m.submitQuery(m.script())
 		return m, cmd
@@ -264,16 +289,32 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// In the editor ctrl+c is the run's abort key, never the app's
 		// quit key. With nothing running it leaves insert mode, the
 		// closest thing to "stop" it can mean here.
+		m.closeCompletion()
 		if m.run.running {
 			cmd := m.cancelQuery()
 			return m, cmd
 		}
 		m.setEditing(false)
 		return m, nil
+
+	case key.Matches(msg, k.Complete):
+		// `tab` is also the accept key, so it only completes where there
+		// is a word to complete; with nothing but whitespace before the
+		// caret it stays an ordinary tab. ctrl+space always completes,
+		// including on an empty prefix.
+		if msg.String() != "tab" || m.editorContext().completable() {
+			cmd := m.refreshCompletion(true)
+			return m, cmd
+		}
 	}
+
 	var cmd tea.Cmd
 	m.editor.area, cmd = m.editor.area.Update(msg)
-	return m, cmd
+	// The popup follows the buffer: every keystroke re-derives it, which
+	// is what narrows it as the word grows and closes it when the word
+	// ends. The fetches it wants are batched behind the textarea's own
+	// command, never waited on.
+	return m, tea.Batch(cmd, m.refreshCompletion(false))
 }
 
 // updateQuery is normal mode on panel [5]. Unclaimed keys fall through
@@ -637,11 +678,7 @@ func (m Model) queryContent(w, h int) string {
 		return clipHeight(strings.Join(body, "\n"), h)
 	}
 
-	editorH := min(m.editorRows(w)+1, maxInt(rows/2, 3))
-	if editorH > rows {
-		editorH = rows
-	}
-	rendered := m.editorBlock(w, editorH)
+	rendered := m.editorBlock(w, m.editorHeight(w, rows))
 	body = append(body, rendered)
 	rows -= lipgloss.Height(rendered)
 	if rows <= 0 {
@@ -680,8 +717,11 @@ func (m Model) editorMode() string {
 // keys of the mode the editor is actually in, the same ones the options
 // bar shows.
 func (m Model) editorHint() string {
-	if m.editor.editing {
-		return "ctrl+r run · esc normal mode"
+	switch {
+	case m.completion.open:
+		return "↑/↓ select · enter/tab accept · esc close the popup"
+	case m.editor.editing:
+		return "ctrl+r run · ctrl+space complete · esc normal mode"
 	}
 	return "i edit · ctrl+r run · D clear · esc back"
 }

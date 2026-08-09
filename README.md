@@ -15,7 +15,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Data view** — paginated rows, column sorting, quick `WHERE` filters.
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
-- **Query editor** — free-form SQL with dialect-aware syntax highlighting, history, result tabs, and cancellation.
+- **Query editor** — free-form SQL with dialect-aware syntax highlighting, schema-aware autocomplete, history, result tabs, and cancellation.
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file.
 - **Command log** — every SQL statement the app executes is visible.
 - **SSH tunnels** — connect to remote databases through a jump host.
@@ -84,8 +84,24 @@ In insert mode every key types into the buffer except:
 | Key | Action |
 |-----|--------|
 | `ctrl+r` | Run the buffer (returns to normal mode) |
+| `ctrl+space` / `tab` | Complete the word under the cursor |
 | `esc` | Back to normal mode, buffer kept |
 | `ctrl+c` | Cancel the running query |
+
+Typing two identifier characters opens the autocomplete popup by itself;
+`ctrl+space` opens it on any prefix, including none. It offers the
+dialect's SQL keywords, the tables and views of the current database, and
+the columns of every table the buffer already mentions — `customers.`
+narrows it to that table's columns. Schema metadata is fetched in the
+background and cached per connection and database, so the popup never
+stalls the editor: it shows what is cached and fills in when the fetch
+lands. While it is open:
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓`, `ctrl+p`/`ctrl+n` | Move the selection |
+| `enter` / `tab` | Accept, inserting at the cursor |
+| `esc` | Close the popup only — the buffer and insert mode are untouched |
 
 With a query result on screen the grid's own keys (paging, `v`, the tabs)
 work straight from the editor panel in normal mode, so iterating on a

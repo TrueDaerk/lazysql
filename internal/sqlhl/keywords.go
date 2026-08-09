@@ -1,6 +1,7 @@
 package sqlhl
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -83,3 +84,43 @@ func keywords(d Dialect) map[string]bool {
 	}
 	return keywordSets[Generic]
 }
+
+var (
+	keywordListOnce sync.Once
+	keywordLists    map[Dialect][]string
+)
+
+// Keywords returns the dialect's keyword set as a sorted, uppercase list.
+// It is the same set the highlighter matches against: a word worth
+// colouring is a word worth offering in the editor's completion popup,
+// and keeping one list means a dialect gains both at once.
+//
+// The result is shared and must not be modified.
+func Keywords(d Dialect) []string {
+	keywordListOnce.Do(func() {
+		keywordLists = map[Dialect][]string{}
+		for _, dialect := range []Dialect{Generic, MySQL, Postgres, SQLite, DuckDB} {
+			set := keywords(dialect)
+			list := make([]string, 0, len(set))
+			for w := range set {
+				list = append(list, w)
+			}
+			sort.Strings(list)
+			keywordLists[dialect] = list
+		}
+	})
+	if list, ok := keywordLists[d]; ok {
+		return list
+	}
+	return keywordLists[Generic]
+}
+
+// IsKeyword reports whether word is a keyword of the dialect, ignoring
+// case. The completion popup asks before it inserts an identifier bare:
+// a table called `order` has to come back quoted.
+//
+// Like the set behind it this is generous — it holds type names too — so
+// it can say yes to a word no engine actually reserves. Quoting an
+// identifier that did not need it is still valid SQL; the other mistake
+// is a syntax error.
+func IsKeyword(d Dialect, word string) bool { return keywords(d)[strings.ToUpper(word)] }

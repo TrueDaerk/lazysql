@@ -614,6 +614,17 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			}
 		}
 		actions[k.Actions.Keys()[0]] = true
+		// The query editor's two mode groups — insert mode and the
+		// completion popup — are dispatched by updateEditor rather than
+		// through the action table, since they only mean anything inside
+		// the buffer. They are bound; they are just not actions.
+		if id == panelQuery {
+			for _, b := range append(k.editorInsert(), k.editorCompletion()...) {
+				for _, ks := range b.Keys() {
+					actions[ks] = true
+				}
+			}
+		}
 
 		for _, group := range k.helpGroups(id) {
 			for _, b := range group {

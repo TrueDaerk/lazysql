@@ -65,6 +65,22 @@ In the data grid (`enter` on a table, `esc` back):
 | `f` | Quick `WHERE` filter |
 | `v` | Show the full cell value (JSON pretty-printed) |
 
+In the query editor (`:` from anywhere):
+
+| Key | Action |
+|-----|--------|
+| `ctrl+r` | Run the script |
+| `enter` | New line |
+| `esc` | Close, keeping the draft |
+| `ctrl+c` | Cancel the running query |
+
+Several statements separated by `;` run in order; the result of the last
+`SELECT` is what the Data tab shows, and anything that changes data asks
+first. Every executed statement is appended to `[4] Query history`, which
+persists in `${XDG_STATE_HOME:-~/.local/state}/lazysql/history` with the
+engine it ran on and when. There, `enter` loads an entry back into the
+editor, `x` runs it, `d` deletes it, `D` clears the history and `/` filters.
+
 ## Install
 
 ```sh

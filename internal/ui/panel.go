@@ -61,6 +61,10 @@ type sidePanel struct {
 	// whether `/` input mode is still capturing keys.
 	filter    string
 	filtering bool
+	// idx maps a visible row back to its position in all. It is nil
+	// while no filter narrows the list, where the mapping is the
+	// identity.
+	idx []int
 
 	// tabs are the sub-tab labels drawn next to the title ([3] Tables).
 	tabs []string
@@ -139,17 +143,19 @@ func (p *sidePanel) clearFilter() {
 // applyFilter recomputes items/status from all/allStatus.
 func (p *sidePanel) applyFilter() {
 	if p.filter == "" {
-		p.items, p.status = p.all, p.allStatus
+		p.items, p.status, p.idx = p.all, p.allStatus, nil
 		p.move(0)
 		return
 	}
 	items := make([]string, 0, len(p.all))
+	idx := make([]int, 0, len(p.all))
 	var status []itemStatus
 	for i, it := range p.all {
 		if !fuzzyMatch(p.filter, it) {
 			continue
 		}
 		items = append(items, it)
+		idx = append(idx, i)
 		if len(p.allStatus) > 0 {
 			st := statusIdle
 			if i < len(p.allStatus) {
@@ -158,9 +164,23 @@ func (p *sidePanel) applyFilter() {
 			status = append(status, st)
 		}
 	}
-	p.items, p.status = items, status
+	p.items, p.status, p.idx = items, status, idx
 	p.cursor, p.offset = 0, 0
 	p.move(0)
+}
+
+// sourceIndex maps a visible row back onto the unfiltered list, so a
+// caller holding the data behind the panel can find the record the
+// cursor is on even when two records render identically. It returns -1
+// when the row does not exist.
+func (p *sidePanel) sourceIndex(i int) int {
+	if i < 0 || i >= len(p.items) {
+		return -1
+	}
+	if p.idx == nil {
+		return i
+	}
+	return p.idx[i]
 }
 
 // selectByName moves the cursor onto the named row and reports whether the

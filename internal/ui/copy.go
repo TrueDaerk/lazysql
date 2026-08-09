@@ -43,7 +43,7 @@ type copiedMsg struct{ line string }
 // row under it, and the metadata tabs have no row at all.
 func (m *Model) copyMenu() tea.Cmd {
 	if !m.data.open() {
-		return logCmd("-- copy skipped: no relation open")
+		return logCmd("-- copy skipped: nothing open")
 	}
 	var entries []menuEntry
 	add := func(k, label string, id actionID) {
@@ -60,16 +60,24 @@ func (m *Model) copyMenu() tea.Cmd {
 		add("c", "cell — raw value", actCopyCell)
 		add("r", "row — CSV line", actCopyRowCSV)
 		add("o", "row — JSON object", actCopyRowJSON)
-		add("i", "row — INSERT statement", actCopyRowInsert)
+		// An INSERT needs a table to insert into, which a free-form
+		// result set does not have.
+		if m.data.browsing() {
+			add("i", "row — INSERT statement", actCopyRowInsert)
+		}
 	}
-	add("C", "table — CSV", actCopyTableCSV)
-	add("O", "table — JSON array", actCopyTableJSON)
-	add("I", "table — INSERT statements", actCopyTableInsert)
-	add("A", "table — CREATE TABLE + INSERTs", actCopyTableSchema)
-	add("d", "DDL statement", actCopyDDL)
+	// The table scopes re-read the relation through the server; a query
+	// result has no relation behind it, only the rows already on screen.
+	if m.data.browsing() {
+		add("C", "table — CSV", actCopyTableCSV)
+		add("O", "table — JSON array", actCopyTableJSON)
+		add("I", "table — INSERT statements", actCopyTableInsert)
+		add("A", "table — CREATE TABLE + INSERTs", actCopyTableSchema)
+		add("d", "DDL statement", actCopyDDL)
+	}
 	entries = append(entries, menuEntry{key: "esc", label: "cancel"})
 
-	m.modal = &menuModal{title: "Copy — " + m.data.table, entries: entries}
+	m.modal = &menuModal{title: "Copy — " + m.dataSubject(), entries: entries}
 	return nil
 }
 
@@ -122,12 +130,12 @@ func (m Model) copyCell() tea.Cmd {
 	}
 	name := m.data.cols[m.data.col].Name
 	v := values[m.data.col]
-	subject := fmt.Sprintf("cell %s.%s", m.data.table, name)
+	subject := fmt.Sprintf("cell %s.%s", m.dataSubject(), name)
 	if v == nil {
 		subject += " (NULL → empty)"
 	}
 	text := db.FormatValue(v, "")
-	return copyTextCmd(subject, m.data.table+"-"+name+".txt", text)
+	return copyTextCmd(subject, m.dataSubject()+"-"+name+".txt", text)
 }
 
 // copyRow copies the row under the cursor in one of the three row
@@ -142,10 +150,20 @@ func (m Model) copyRow(f export.Format) tea.Cmd {
 		return logCmd("-- copy row FAILED: %v", err)
 	}
 	return copyTextCmd(
-		fmt.Sprintf("row of %s as %s", m.data.table, strings.ToUpper(string(f))),
-		fmt.Sprintf("%s-row.%s", m.data.table, f),
+		fmt.Sprintf("row of %s as %s", m.dataSubject(), strings.ToUpper(string(f))),
+		fmt.Sprintf("%s-row.%s", m.dataSubject(), f),
 		text,
 	)
+}
+
+// dataSubject names what the Data tab is showing, for log lines, copy
+// labels and file names: the open relation, or "query" for a result the
+// editor produced.
+func (m Model) dataSubject() string {
+	if m.data.browsing() {
+		return m.data.table
+	}
+	return "query"
 }
 
 // exportOptions is what the serializers need about the open relation.
@@ -173,7 +191,7 @@ func copyTextCmd(subject, filename, text string) tea.Cmd {
 // so the cap is what keeps `y` from trying to hold a 100k-row table in
 // memory. Reaching it is reported, never silent.
 func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
-	if !m.data.open() {
+	if !m.data.browsing() {
 		return logCmd("-- copy table skipped: no relation open")
 	}
 	if m.driver == nil {

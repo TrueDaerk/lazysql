@@ -249,13 +249,18 @@ func (c *conn) ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, err
 }
 
 func (c *conn) Query(ctx context.Context, query string, args ...any) (*ResultSet, error) {
+	rs, _, err := c.QueryLimit(ctx, query, 0, args...)
+	return rs, err
+}
+
+func (c *conn) QueryLimit(ctx context.Context, query string, max int, args ...any) (*ResultSet, bool, error) {
 	if c.db == nil {
-		return nil, errNotConnected
+		return nil, false, errNotConnected
 	}
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
-	return scanResultSet(ctx, rows)
+	return scanResultSetLimit(ctx, rows, max)
 }

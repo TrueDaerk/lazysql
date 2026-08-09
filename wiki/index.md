@@ -17,6 +17,7 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 - [design/main-view-tabs](design/main-view-tabs.md) — Design Decision — Data/Structure/Indexes/DDL tabs behind one metadata fetch, `[`/`]` cycling instead of digits, and what survives a relation change.
 - [design/staged-changeset](design/staged-changeset.md) — Design Decision — cell edits, row deletes and row inserts stage into one engine-agnostic changeset, rows are identified only by their primary key, and the commit runs every statement in one transaction.
 - [design/copy-and-export](design/copy-and-export.md) — Design Decision — one incremental serializer package behind both the `y` copy menu and the `E` file export, why a clipboard copy is capped while a file export streams, how NULL is spelled per format, and how the export reports progress and cancels.
+- [design/query-editor-and-history](design/query-editor-and-history.md) — Design Decision — `:` editor, why free-form results are materialized and paged in memory, dialect-aware statement splitting and read/write classification, confirmed-not-staged DML, run cancellation, and the JSON Lines history under `XDG_STATE_HOME`.
 
 ## reference
 

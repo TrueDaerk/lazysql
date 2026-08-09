@@ -7,13 +7,23 @@ import (
 )
 
 // scanResultSet materializes *sql.Rows into a driver-agnostic ResultSet.
+func scanResultSet(ctx context.Context, rows *sql.Rows) (*ResultSet, error) {
+	rs, _, err := scanResultSetLimit(ctx, rows, 0)
+	return rs, err
+}
+
+// scanResultSetLimit is scanResultSet with a cap on how many rows are
+// materialized; max <= 0 means unlimited. truncated reports that the
+// server still had rows when the cap was reached — the caller needs to
+// say so, because a silently short result reads as a complete one.
+//
 // Every cell is scanned into `any` and then normalized so the UI never
 // sees driver-private types. The context is checked between rows so a
 // cancelled query stops promptly even if the driver keeps yielding.
-func scanResultSet(ctx context.Context, rows *sql.Rows) (*ResultSet, error) {
+func scanResultSetLimit(ctx context.Context, rows *sql.Rows, max int) (*ResultSet, bool, error) {
 	types, err := rows.ColumnTypes()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	cols := make([]Column, len(types))
 	for i, t := range types {
@@ -28,7 +38,10 @@ func scanResultSet(ctx context.Context, rows *sql.Rows) (*ResultSet, error) {
 	rs := &ResultSet{Columns: cols, Rows: [][]any{}}
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, false, err
+		}
+		if max > 0 && len(rs.Rows) >= max {
+			return rs, true, rows.Err()
 		}
 		raw := make([]any, len(cols))
 		ptrs := make([]any, len(cols))
@@ -36,7 +49,7 @@ func scanResultSet(ctx context.Context, rows *sql.Rows) (*ResultSet, error) {
 			ptrs[i] = &raw[i]
 		}
 		if err := rows.Scan(ptrs...); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		row := make([]any, len(cols))
 		for i, v := range raw {
@@ -45,9 +58,9 @@ func scanResultSet(ctx context.Context, rows *sql.Rows) (*ResultSet, error) {
 		rs.Rows = append(rs.Rows, row)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return rs, nil
+	return rs, false, nil
 }
 
 // normalizeValue maps whatever the driver produced onto the small set of

@@ -20,8 +20,12 @@ type keyMap struct {
 	// Screen modes and app-level keys.
 	ScreenNext key.Binding
 	ScreenPrev key.Binding
-	Help       key.Binding
-	Quit       key.Binding
+	OpenEditor key.Binding
+	// CancelQuery is only meaningful while a query runs and is enabled
+	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
+	CancelQuery key.Binding
+	Help        key.Binding
+	Quit        key.Binding
 
 	// Context actions, keyed by panel.
 	NewConnection  key.Binding
@@ -33,7 +37,9 @@ type keyMap struct {
 	Actions        key.Binding
 	Filter         key.Binding
 	ToggleTab      key.Binding
+	LoadQuery      key.Binding
 	RunQuery       key.Binding
+	DeleteHistory  key.Binding
 	ClearHistory   key.Binding
 
 	// Data grid (the focusable main view).
@@ -77,8 +83,11 @@ func newKeyMap() keyMap {
 
 		ScreenNext: key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "next screen mode")),
 		ScreenPrev: key.NewBinding(key.WithKeys("_"), key.WithHelp("_", "prev screen mode")),
-		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		OpenEditor: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "query editor")),
+		CancelQuery: key.NewBinding(
+			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel query"), key.WithDisabled()),
+		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
@@ -89,7 +98,9 @@ func newKeyMap() keyMap {
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
 		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
+		LoadQuery:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "load into editor")),
 		RunQuery:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "run query")),
+		DeleteHistory:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete entry")),
 		ClearHistory:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear history")),
 
 		ColLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
@@ -127,7 +138,10 @@ func (k keyMap) navigation() []key.Binding {
 
 // global returns the bindings handled by the root model.
 func (k keyMap) global() []key.Binding {
-	return []key.Binding{k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev, k.Help, k.Quit}
+	return []key.Binding{
+		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
+		k.OpenEditor, k.CancelQuery, k.Help, k.Quit,
+	}
 }
 
 // actionID names a context action so that a key press and the `a` actions
@@ -146,7 +160,9 @@ const (
 	actRefresh
 	actFilter
 	actToggleTab
+	actLoadQuery
 	actRunQuery
+	actDeleteHistory
 	actClearHistory
 	actColLeft
 	actColRight
@@ -213,8 +229,11 @@ func (k keyMap) panelActions(id panelID) []action {
 		}
 	case panelHistory:
 		return []action{
+			{actLoadQuery, k.LoadQuery},
 			{actRunQuery, k.RunQuery},
+			{actDeleteHistory, k.DeleteHistory},
 			{actClearHistory, k.ClearHistory},
+			{actFilter, k.Filter},
 		}
 	case panelMain:
 		return []action{
@@ -261,7 +280,7 @@ func (k keyMap) actions(id panelID) []key.Binding {
 // panel's own actions first, then the most useful universal keys.
 func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 	out := append([]key.Binding{}, k.actions(id)...)
-	return append(out, k.Jump, k.NextPanel, k.Help, k.Quit)
+	return append(out, k.Jump, k.NextPanel, k.OpenEditor, k.CancelQuery, k.Help, k.Quit)
 }
 
 // helpGroups is the full `?` listing for the focused panel, drawn from the

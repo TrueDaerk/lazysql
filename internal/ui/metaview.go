@@ -30,7 +30,13 @@ func (m Model) mainTabBar(w int) string {
 	line := m.style.muted.Render("‹") +
 		strings.Join(parts, m.style.muted.Render("|")) +
 		m.style.muted.Render("›")
-	line += m.style.muted.Render(" "+displayDatabase(m.data.database)+".") + m.data.table
+	if m.data.isQuery() {
+		// A query result belongs to no relation, so the bar names the
+		// statement instead of a table.
+		line += m.style.muted.Render(" query ") + truncate(flatten(m.data.query), maxInt(w/2, 20))
+	} else {
+		line += m.style.muted.Render(" "+displayDatabase(m.data.database)+".") + m.data.table
+	}
 	if m.tab == mainTabData && m.data.loading || m.tab.metadata() && m.meta.loading {
 		line += " " + m.style.pending.Render("loading…")
 	}

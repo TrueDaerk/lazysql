@@ -152,6 +152,12 @@ func (m Model) mainContent(w, h int) string {
 	if m.focus == panelConnections {
 		return m.connectionDetail(w, h)
 	}
+	// Panel [4] shows the selected statement in full: the side column
+	// has room for one line of it and the engine and timestamp have to
+	// live somewhere.
+	if m.focus == panelHistory {
+		return m.historyDetail(w, h)
+	}
 	if m.data.open() {
 		if m.tab.metadata() {
 			return m.metaContent(w, h)
@@ -183,7 +189,7 @@ func (m Model) mainContent(w, h int) string {
 		lines = append(lines, "opened: "+m.table)
 	}
 	lines = append(lines, "",
-		m.style.muted.Render("no result set yet — the data preview lands with the query view"))
+		m.style.muted.Render("nothing open — pick a relation in [3] Tables, or press : to run a query"))
 	return joinTruncated(lines, w, h)
 }
 

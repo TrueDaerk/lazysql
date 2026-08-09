@@ -134,7 +134,7 @@ func (m *Model) resetMeta() {
 // and nothing has loaded it yet. It is a no-op on the Data tab, on an
 // in-flight load and on already-loaded metadata.
 func (m *Model) ensureMeta() tea.Cmd {
-	if !m.tab.metadata() || m.driver == nil || !m.data.open() {
+	if !m.tab.metadata() || m.driver == nil || !m.data.browsing() {
 		return nil
 	}
 	if m.meta.loaded || m.meta.loading {
@@ -146,7 +146,7 @@ func (m *Model) ensureMeta() tea.Cmd {
 // startMetaLoad fires the fetch unconditionally. Callers decide whether
 // the cache made it unnecessary.
 func (m *Model) startMetaLoad() tea.Cmd {
-	if m.driver == nil || !m.data.open() {
+	if m.driver == nil || !m.data.browsing() {
 		return nil
 	}
 	m.meta.req++
@@ -176,6 +176,12 @@ func (m Model) freshMeta(msg metaLoadedMsg) bool {
 
 // setMainTab switches tabs and loads the metadata the new one needs.
 func (m *Model) setMainTab(t mainTab) tea.Cmd {
+	// The three introspection tabs describe a relation. A query result
+	// has none, so there is nothing to cycle to.
+	if m.data.isQuery() {
+		m.tab = mainTabData
+		return nil
+	}
 	m.tab = (t + mainTabCount) % mainTabCount
 	return m.ensureMeta()
 }
@@ -200,7 +206,7 @@ func (m Model) metaActions(id actionID) (Model, tea.Cmd, bool) {
 // copyDDL copies the open relation's DDL, fetching it first when no tab
 // has needed it yet.
 func (m *Model) copyDDL() tea.Cmd {
-	if !m.data.open() {
+	if !m.data.browsing() {
 		return logCmd("-- copy DDL skipped: no relation open")
 	}
 	if m.meta.loaded {

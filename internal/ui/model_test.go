@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("XDG_CONFIG_HOME", dir)
+	// The query history is persistent; point it at the temp home too so
+	// no test can append to the developer's own history file.
+	os.Setenv("XDG_STATE_HOME", dir)
 	keyring.MockInit()
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -466,8 +469,10 @@ func TestDrillInLogsAndRecordsHistory(t *testing.T) {
 	if m.focus != panelMain {
 		t.Fatalf("focus = %v, want the data grid", m.focus)
 	}
+	// The panel row is the timestamp plus the statement; the entry
+	// behind it holds the statement as it ran.
 	hist := m.panels[panelHistory].items
-	if len(hist) != 1 || !strings.HasPrefix(hist[0], "SELECT * FROM ") {
+	if len(hist) != 1 || !strings.Contains(hist[0], "SELECT * FROM ") {
 		t.Fatalf("history = %v, want one SELECT entry", hist)
 	}
 	if !logContains(m, `SELECT * FROM "drill" LIMIT 100 OFFSET 0;`) {

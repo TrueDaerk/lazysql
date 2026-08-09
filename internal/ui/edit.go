@@ -46,7 +46,7 @@ func commitChangesCmd(drv db.Driver, stmts []db.Statement) tea.Cmd {
 // cached metadata; when no tab has fetched it yet the fetch is started
 // and the modal opens when the reply lands, like `y` does for the DDL.
 func (m *Model) startEdit() tea.Cmd {
-	if !m.data.open() || m.tab.metadata() || m.driver == nil {
+	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if m.onPhantomRow() {
@@ -176,7 +176,7 @@ func (m *Model) stageChange(c db.CellChange) tea.Cmd {
 // the row-level operations come first because on those rows there is no
 // cell change to remove anyway.
 func (m *Model) unstageAtCursor() tea.Cmd {
-	if !m.data.open() || m.tab.metadata() {
+	if !m.data.browsing() || m.tab.metadata() {
 		return nil
 	}
 	if ins, ok := m.phantomAtCursor(); ok {

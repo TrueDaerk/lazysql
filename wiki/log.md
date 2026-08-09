@@ -154,3 +154,37 @@ Chronological history of wiki changes, newest last.
   queue that runs a key press's message cascade to a standstill: the
   export flow is four rounds deep (prompt → worker start → progress →
   done) and the old driver silently dropped the last one.
+- Added [design/query-editor-and-history](design/query-editor-and-history.md)
+  with the query editor (issue #10): `:` opens a `textarea` modal, `ctrl+r`
+  runs, `esc` keeps the draft. Free-form results cannot be re-issued with a
+  different `OFFSET` without rewriting user SQL, so they are materialized once
+  through the new `Driver.QueryLimit` (capped at 10 000 rows, truncation
+  reported) and paged in memory; `dataView.table` and `dataView.query` are
+  mutually exclusive, and every table-scoped guard moved from `open()` to the
+  new `browsing()`.
+- `db.SplitStatements` is a dialect-aware lexer rather than a split on `;`:
+  backticks and `#` comments are MySQL's, `$tag$` bodies PostgreSQL's, and only
+  MySQL reads `\'` as an escape. `db.ClassifyStatement` errs towards write, with
+  `WITH` demoted when the script modifies data and `PRAGMA x = y` counted as a
+  write; `EXPLAIN` stays a read despite PostgreSQL's `EXPLAIN ANALYZE`.
+- Editor DML bypasses the changeset — a statement the user wrote already carries
+  its own row identity — and is gated by a confirm modal that prints the exact
+  write statements. A run stops at the first failure.
+- Discovered while testing cancellation: the query worker must *not* guard its
+  per-statement send with `select … case <-ctx.Done()` the way the export worker
+  guards progress. The message reporting the cancelled statement is produced
+  after the context is already dead, so the guard swallowed exactly that
+  message. A plain blocking send is safe because the root drains until
+  `queryDoneMsg`.
+- `ctrl+c` cancels a run instead of quitting: `CancelQuery` is bound with
+  `key.WithDisabled()`, enabled only while a run is in flight, and its case sits
+  before `Quit` in `updateGlobal`, so `key.Matches` resolves the conflict with
+  no extra state check.
+- Added `internal/history`: JSON Lines at
+  `${XDG_STATE_HOME:-~/.local/state}/lazysql/history`, mode 0600, append-only
+  with atomic rewrites for delete/clear, unparsable lines skipped, compacted to
+  1000 entries on load. Panel [4] now renders it newest-first with `enter` (load
+  into the editor), `x` (run), `d` (delete), `D` (clear) and `/`. `sidePanel`
+  gained `sourceIndex` so `d` targets the right entry while a filter is active —
+  two runs of the same statement render as identical rows.
+

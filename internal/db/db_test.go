@@ -227,6 +227,41 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		}
 	})
 
+	// A column name that needs quoting — a space, or a bare word that is
+	// also a keyword — must not break the generated ORDER BY.
+	t.Run("QueryPageSortQuotedColumn", func(t *testing.T) {
+		d := drv.Dialect()
+		create := `CREATE TABLE "quoted cols" (id INTEGER PRIMARY KEY, "full name" TEXT, "order" TEXT)`
+		if _, err := drv.Exec(ctx, create); err != nil {
+			t.Fatalf("create table: %v", err)
+		}
+		insert := "INSERT INTO " + d.QuoteIdent("quoted cols") +
+			" (id, " + d.QuoteIdent("full name") + ", " + d.QuoteIdent("order") + ") VALUES (" +
+			d.Placeholder(1) + ", " + d.Placeholder(2) + ", " + d.Placeholder(3) + ")"
+		for i, row := range [][]any{
+			{1, "bob jones", "second"},
+			{2, "alice smith", "first"},
+		} {
+			if _, err := drv.Exec(ctx, insert, row...); err != nil {
+				t.Fatalf("insert row %d: %v", i, err)
+			}
+		}
+		rs, err := drv.QueryPage(ctx, "", "quoted cols", nil, &Sort{Column: "full name"}, 10, 0)
+		if err != nil {
+			t.Fatalf("sort on space-containing column: %v", err)
+		}
+		if len(rs.Rows) != 2 || rs.Rows[0][1] != "alice smith" {
+			t.Fatalf("rows = %v, want alice smith first (ASC)", rs.Rows)
+		}
+		rs, err = drv.QueryPage(ctx, "", "quoted cols", nil, &Sort{Column: "order", Desc: true}, 10, 0)
+		if err != nil {
+			t.Fatalf("sort on keyword column: %v", err)
+		}
+		if len(rs.Rows) != 2 || rs.Rows[0][2] != "second" {
+			t.Fatalf("rows = %v, want second first (DESC)", rs.Rows)
+		}
+	})
+
 	// A parameterized filter has to reach the engine as a parameter, and
 	// the count has to see the same rows the page does.
 	t.Run("QueryPageBoundFilter", func(t *testing.T) {

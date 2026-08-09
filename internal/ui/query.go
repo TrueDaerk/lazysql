@@ -21,8 +21,10 @@ import (
 // the main view's Data tab next to the browsing pages. Three rules shape
 // the flow:
 //
-//   - Nothing that changes data runs unasked. A script holding DML or
-//     DDL goes through a confirm modal that shows the exact statements.
+//   - Ordinary DML/DDL runs unasked — it is logged, not staged, and
+//     asking every time trains blind dismissal. The one shape that does
+//     ask first is a DELETE or UPDATE with no WHERE and no LIMIT: it
+//     would touch every row in its table, and the confirm modal names it.
 //   - A run is always interruptible. The statements execute in one
 //     goroutine under a cancellable context and ctrl+c aborts it without
 //     touching the connection or the app.
@@ -369,30 +371,53 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 		return logCmd("-- run query skipped: nothing to run")
 	}
 
-	var writes []string
-	for _, s := range stmts {
-		if db.ClassifyStatement(s) == db.StatementWrite {
-			writes = append(writes, s)
-		}
-	}
-	if len(writes) == 0 {
+	// Ordinary DML/DDL — INSERT, CREATE TABLE, a DELETE or UPDATE that
+	// already carries WHERE or LIMIT — just runs: it is logged to the
+	// command log like any other statement, and asking every time only
+	// trains the user to dismiss the modal blindly. The one shape worth
+	// stopping for is a DELETE or UPDATE with neither, which touches
+	// every row in its table.
+	unguarded := db.FindUnguardedWrites(m.driver.Engine(), stmts)
+	if len(unguarded) == 0 {
 		return m.startQuery(stmts)
 	}
-	// Staged edits go through the changeset and its commit modal; this
-	// path bypasses both, so it says so.
-	body := strings.Join(writes, ";\n") + ";"
-	if len(writes) != len(stmts) {
-		body += fmt.Sprintf("\n\n(%d of %d statements; the rest only read.)", len(writes), len(stmts))
-	}
-	body += "\n\nThese execute immediately against " + m.active +
-		" — they are not staged and there is nothing to roll back."
 	m.modal = &confirmModal{
-		title:     "Run " + countStatements(len(writes)) + " that change data",
-		body:      body,
+		title:     unguardedWriteTitle(unguarded),
+		body:      unguardedWriteBody(unguarded, m.active),
 		danger:    true,
 		onConfirm: func(mm *Model) tea.Cmd { return mm.startQuery(stmts) },
 	}
 	return nil
+}
+
+// unguardedWriteTitle names the table for the common case of one
+// offending statement, and falls back to a count for a script that has
+// several.
+func unguardedWriteTitle(ws []db.UnguardedWrite) string {
+	if len(ws) == 1 {
+		w := ws[0]
+		if w.Table != "" {
+			return fmt.Sprintf("%s without WHERE or LIMIT — %s", w.Verb, w.Table)
+		}
+		return w.Verb + " without WHERE or LIMIT"
+	}
+	return fmt.Sprintf("%s without WHERE or LIMIT", countStatements(len(ws)))
+}
+
+// unguardedWriteBody spells out what each offending statement will do
+// and asks for the run to be confirmed against the live connection.
+func unguardedWriteBody(ws []db.UnguardedWrite, active string) string {
+	verb := map[string]string{"DELETE": "delete every row", "UPDATE": "update every row"}
+	lines := make([]string, 0, len(ws))
+	for _, w := range ws {
+		table := w.Table
+		if table == "" {
+			table = "its table"
+		}
+		lines = append(lines, fmt.Sprintf("%s;\n  — no WHERE or LIMIT: will %s in %s.",
+			w.Statement, verb[w.Verb], table))
+	}
+	return strings.Join(lines, "\n\n") + "\n\nThis runs immediately against " + active + "."
 }
 
 // startQuery launches the worker for an already-vetted statement list.

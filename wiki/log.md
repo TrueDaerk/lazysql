@@ -360,3 +360,15 @@ Chronological history of wiki changes, newest last.
   existing flow — `esc` now closes the popup before it leaves insert
   mode — which is the issue's requirement and is asserted in
   [design/query-editor-panel](design/query-editor-panel.md)'s tests.
+- Updated [design/query-editor-and-history](design/query-editor-and-history.md)
+  §3 (issue #31): the blanket "this executes immediately, there is nothing to
+  roll back" confirm modal on every editor DML/DDL statement is gone —
+  ordinary writes (`INSERT`, `CREATE TABLE`, a guarded `UPDATE`/`DELETE`) now
+  run unasked, still logged, still unstaged. The one case still confirmed is a
+  `DELETE`/`UPDATE` with neither `WHERE` nor `LIMIT` at its own level, which
+  the new `db.FindUnguardedWrites` (`internal/db/dml_guard.go`) detects by
+  tokenizing with `internal/sqlhl` rather than substring search, so a comment
+  or string literal mentioning "where" does not suppress the warning and a
+  `WHERE` inside a subquery does not guard the statement around it. The modal
+  names the affected table (best-effort, from the same token scan) and warns
+  once for the whole multi-statement buffer if any statement matches.

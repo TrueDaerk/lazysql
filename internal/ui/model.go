@@ -90,6 +90,11 @@ type Model struct {
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
 
+	// tab is the main view's selected tab and meta is the metadata the
+	// three introspection tabs render.
+	tab  mainTab
+	meta metaView
+
 	startupErr string
 
 	keys  keyMap
@@ -178,6 +183,8 @@ func (m *Model) resetBrowse() {
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
+	m.tab = mainTabData
+	m.resetMeta()
 	m.relations = nil
 	m.tableTab = tabTables
 	if m.focus == panelMain {
@@ -199,6 +206,7 @@ func (m *Model) openDatabase(name string) tea.Cmd {
 	// The open page belongs to the namespace we are leaving.
 	m.table = ""
 	m.data = dataView{}
+	m.resetMeta()
 	if m.focus == panelMain {
 		m.focus = panelTables
 	}
@@ -239,6 +247,9 @@ func (m *Model) reloadFocused() tea.Cmd {
 			loadRelationsCmd(m.active, m.driver, m.database),
 		)
 	case panelMain:
+		if m.tab.metadata() {
+			return m.reloadMeta()
+		}
 		return m.reloadPage()
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
@@ -370,6 +381,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.data.cols = msg.result.Columns
 		m.data.rows = msg.result.Rows
 		m.data.clampCursor()
+		return m, nil
+
+	case metaLoadedMsg:
+		if !m.freshMeta(msg) {
+			return m, nil
+		}
+		m.meta.loading = false
+		m.meta.loaded = true
+		if msg.err != nil {
+			m.meta.err = msg.err.Error()
+			m.meta.copyAfterLoad = false
+			return m, logCmd("-- introspect %s FAILED: %v", msg.table, msg.err)
+		}
+		m.meta.cols, m.meta.indexes, m.meta.fks = msg.cols, msg.indexes, msg.fks
+		m.meta.ddl, m.meta.ddlErr = msg.ddl, ""
+		if msg.ddlErr != nil {
+			m.meta.ddlErr = msg.ddlErr.Error()
+		}
+		if m.meta.copyAfterLoad {
+			m.meta.copyAfterLoad = false
+			cmd := m.copyDDL()
+			return m, cmd
+		}
 		return m, nil
 
 	case rowCountMsg:
@@ -541,7 +575,11 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 // runAction performs a context action. Both a key press and an entry in the
 // `a` actions menu reach the panel behaviour through here.
 func (m Model) runAction(id actionID) (Model, tea.Cmd) {
-	// The data grid's actions live with the grid.
+	// The main view's tab actions run first: they mean the same thing
+	// on every tab. The data grid's own actions live with the grid.
+	if mm, cmd, handled := m.metaActions(id); handled {
+		return mm, cmd
+	}
 	if mm, cmd, handled := m.dataActions(id); handled {
 		return mm, cmd
 	}

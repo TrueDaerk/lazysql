@@ -24,12 +24,18 @@ const (
 )
 
 // Column describes one column of a table or result set.
+//
+// Extra carries the engine's own note about how the value is produced —
+// "auto_increment", "identity always", "autoincrement", "stored" — and
+// is empty whenever the engine has nothing to say. It is display-only:
+// no code branches on its contents.
 type Column struct {
 	Name       string
 	DataType   string
 	Nullable   bool
 	Default    *string
 	PrimaryKey bool
+	Extra      string
 }
 
 // Index describes one index on a table.
@@ -38,6 +44,23 @@ type Index struct {
 	Columns []string
 	Unique  bool
 	Primary bool
+}
+
+// ForeignKey describes one foreign key constraint. Columns and
+// RefColumns are positionally paired: Columns[i] references
+// RefColumns[i] of RefTable. RefTable is schema-qualified only when the
+// referenced table lives outside the constrained table's namespace.
+//
+// OnUpdate/OnDelete are the referential actions spelled the SQL way
+// ("CASCADE", "SET NULL", …); "NO ACTION" and the empty string both
+// mean the engine's default.
+type ForeignKey struct {
+	Name       string
+	Columns    []string
+	RefTable   string
+	RefColumns []string
+	OnUpdate   string
+	OnDelete   string
 }
 
 // RelationKind distinguishes the two kinds of listable relation. The UI
@@ -147,6 +170,7 @@ type Driver interface {
 	ListRelations(ctx context.Context, database string) ([]Relation, error)
 	TableColumns(ctx context.Context, database, table string) ([]Column, error)
 	TableIndexes(ctx context.Context, database, table string) ([]Index, error)
+	TableForeignKeys(ctx context.Context, database, table string) ([]ForeignKey, error)
 	TableDDL(ctx context.Context, database, table string) (string, error)
 
 	// QueryPage reads one page of a table. filter and sortBy may be nil.
@@ -186,6 +210,7 @@ type Dialect interface {
 	listRelations(ctx context.Context, q querier, database string) ([]Relation, error)
 	tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error)
 	tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error)
+	tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error)
 	tableDDL(ctx context.Context, q querier, database, table string) (string, error)
 }
 

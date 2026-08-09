@@ -65,3 +65,24 @@ Chronological history of wiki changes, newest last.
   matches no column as a string literal, so `"typo" = 1` quietly matches nothing
   instead of erroring. Safety is unaffected (the value is still bound), but a
   missing column is not a way to provoke a query failure there.
+- Added [design/main-view-tabs](design/main-view-tabs.md) with the
+  `Data | Structure | Indexes | DDL` main view (issue #6): the three
+  introspection tabs share one lazy metadata fetch and one staleness
+  check, `metaView.ddlErr` is kept apart from `metaView.err` so a
+  missing `CREATE` statement costs only the DDL tab, and the tabs cycle
+  with `[`/`]` because `1`–`4` are global panel jumps that the main
+  view must not redefine. Selecting another relation keeps the tab and
+  drops everything else.
+- Extended the driver for those tabs: `Column.Extra`, a `ForeignKey`
+  type and `Driver.TableForeignKeys` across all five engines, and
+  `synthesizeDDL` now emits foreign key constraints and secondary
+  `CREATE INDEX` statements — so PostgreSQL's synthesized DDL says as
+  much as MySQL's `SHOW CREATE TABLE`.
+- Updated
+  [reference/dialect-introspection-quirks](reference/dialect-introspection-quirks.md)
+  with what that cost per engine: SQLite hides `AUTOINCREMENT` in the
+  stored DDL text and names no foreign key constraint, DuckDB spells
+  the referenced table only inside `constraint_text`, PostgreSQL needs
+  `conkey`/`confkey` unnested *together* and its action codes cast
+  `::text` for pgx, and MySQL splits foreign keys across
+  `key_column_usage` and `referential_constraints`.

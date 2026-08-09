@@ -42,10 +42,16 @@ func (mysqlDialect) listDatabases(ctx context.Context, q querier) ([]string, err
 // schemaCond returns the table_schema predicate and its args; an empty
 // database means the connection's current one.
 func mysqlSchemaCond(database string) (string, []any) {
+	return mysqlSchemaCondOn("", database)
+}
+
+// mysqlSchemaCondOn is schemaCond for a joined query, where the column
+// needs a table alias in front of it ("k.").
+func mysqlSchemaCondOn(prefix, database string) (string, []any) {
 	if database == "" {
-		return "table_schema = DATABASE()", nil
+		return prefix + "table_schema = DATABASE()", nil
 	}
-	return "table_schema = ?", []any{database}
+	return prefix + "table_schema = ?", []any{database}
 }
 
 func (mysqlDialect) listRelations(ctx context.Context, q querier, database string) ([]Relation, error) {
@@ -59,7 +65,7 @@ func (mysqlDialect) listRelations(ctx context.Context, q querier, database strin
 func (mysqlDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	cond, args := mysqlSchemaCond(database)
 	rows, err := q.QueryContext(ctx,
-		`SELECT column_name, column_type, is_nullable, column_default, column_key
+		`SELECT column_name, column_type, is_nullable, column_default, column_key, extra
 		 FROM information_schema.columns
 		 WHERE `+cond+` AND table_name = ?
 		 ORDER BY ordinal_position`,
@@ -72,19 +78,68 @@ func (mysqlDialect) tableColumns(ctx context.Context, q querier, database, table
 	var cols []Column
 	for rows.Next() {
 		var name, typ, nullable, key string
-		var def *string
-		if err := rows.Scan(&name, &typ, &nullable, &def, &key); err != nil {
+		var def, extra *string
+		if err := rows.Scan(&name, &typ, &nullable, &def, &key, &extra); err != nil {
 			return nil, err
 		}
-		cols = append(cols, Column{
+		c := Column{
 			Name:       name,
 			DataType:   typ,
 			Nullable:   nullable == "YES",
 			Default:    def,
 			PrimaryKey: key == "PRI",
-		})
+		}
+		if extra != nil {
+			c.Extra = *extra
+		}
+		cols = append(cols, c)
 	}
 	return cols, rows.Err()
+}
+
+func (mysqlDialect) tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error) {
+	cond, args := mysqlSchemaCondOn("k.", database)
+	// referential_constraints holds the ON UPDATE/ON DELETE rules;
+	// key_column_usage holds one row per key column, in key order.
+	rows, err := q.QueryContext(ctx,
+		`SELECT k.constraint_name, k.column_name,
+		        k.referenced_table_schema, k.referenced_table_name, k.referenced_column_name,
+		        r.update_rule, r.delete_rule
+		 FROM information_schema.key_column_usage k
+		 JOIN information_schema.referential_constraints r
+		   ON r.constraint_schema = k.constraint_schema
+		  AND r.constraint_name = k.constraint_name
+		  AND r.table_name = k.table_name
+		 WHERE `+cond+` AND k.table_name = ? AND k.referenced_table_name IS NOT NULL
+		 ORDER BY k.constraint_name, k.ordinal_position`,
+		append(args, table)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var fks []ForeignKey
+	for rows.Next() {
+		var name, col, refTable, onUpdate, onDelete string
+		var refSchema, refCol *string
+		if err := rows.Scan(&name, &col, &refSchema, &refTable, &refCol, &onUpdate, &onDelete); err != nil {
+			return nil, err
+		}
+		if refSchema != nil && database != "" && *refSchema != database {
+			refTable = *refSchema + "." + refTable
+		}
+		fk := ForeignKey{Name: name, RefTable: refTable, OnUpdate: onUpdate, OnDelete: onDelete}
+		fks = appendFKColumn(fks, fk, col, derefOr(refCol, ""))
+	}
+	return fks, rows.Err()
+}
+
+// derefOr reads a nullable string column with a fallback.
+func derefOr(s *string, fallback string) string {
+	if s == nil {
+		return fallback
+	}
+	return *s
 }
 
 func (mysqlDialect) tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error) {

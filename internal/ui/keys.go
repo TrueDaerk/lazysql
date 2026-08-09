@@ -44,6 +44,11 @@ type keyMap struct {
 	SortColumn  key.Binding
 	WhereFilter key.Binding
 	ViewCell    key.Binding
+
+	// Main-view tabs (Data | Structure | Indexes | DDL).
+	PrevMainTab key.Binding
+	NextMainTab key.Binding
+	CopyDDL     key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -81,6 +86,10 @@ func newKeyMap() keyMap {
 		SortColumn:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort column")),
 		WhereFilter: key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "where filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
+
+		PrevMainTab: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
+		NextMainTab: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		CopyDDL:     key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy DDL")),
 	}
 }
 
@@ -116,6 +125,9 @@ const (
 	actSortColumn
 	actWhereFilter
 	actViewCell
+	actPrevMainTab
+	actNextMainTab
+	actCopyDDL
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -154,6 +166,8 @@ func (k keyMap) panelActions(id panelID) []action {
 		}
 	case panelMain:
 		return []action{
+			{actPrevMainTab, k.PrevMainTab},
+			{actNextMainTab, k.NextMainTab},
 			{actColLeft, k.ColLeft},
 			{actColRight, k.ColRight},
 			{actNextPage, k.NextPage},
@@ -161,6 +175,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actSortColumn, k.SortColumn},
 			{actWhereFilter, k.WhereFilter},
 			{actViewCell, k.ViewCell},
+			{actCopyDDL, k.CopyDDL},
 			{actRefresh, k.Refresh},
 		}
 	}

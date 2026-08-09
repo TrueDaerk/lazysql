@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	_ "github.com/marcboeker/go-duckdb/v2"
@@ -91,15 +92,68 @@ func (duckdbDialect) tableColumns(ctx context.Context, q querier, database, tabl
 		if err := rows.Scan(&name, &typ, &nullable, &def); err != nil {
 			return nil, err
 		}
-		cols = append(cols, Column{
+		c := Column{
 			Name:       name,
 			DataType:   typ,
 			Nullable:   nullable,
 			Default:    def,
 			PrimaryKey: pkCols[name],
-		})
+		}
+		if def != nil && strings.HasPrefix(strings.ToLower(*def), "nextval(") {
+			c.Extra = "sequence"
+		}
+		cols = append(cols, c)
 	}
 	return cols, rows.Err()
+}
+
+// duckdbFKRef pulls the referenced table and columns out of a
+// constraint_text such as
+// "FOREIGN KEY (user_id) REFERENCES users(id)". duckdb_constraints()
+// exposes the constrained columns as a list but spells the reference
+// only inside that text, and its column names have changed between
+// DuckDB versions — parsing the text works on every version.
+var duckdbFKRef = regexp.MustCompile(`(?i)REFERENCES\s+([^\s(]+)\s*\(([^)]*)\)`)
+
+func (duckdbDialect) tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error) {
+	cond, args := duckdbDBCond(database)
+	rows, err := q.QueryContext(ctx,
+		`SELECT constraint_text, CAST(constraint_column_names AS VARCHAR)
+		 FROM duckdb_constraints()
+		 WHERE `+cond+` AND table_name = ? AND constraint_type = 'FOREIGN KEY'
+		 ORDER BY constraint_index`,
+		append(append([]any{}, args...), table)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var fks []ForeignKey
+	for rows.Next() {
+		var text, colList string
+		if err := rows.Scan(&text, &colList); err != nil {
+			return nil, err
+		}
+		fk := ForeignKey{Columns: splitDuckList(colList)}
+		if m := duckdbFKRef.FindStringSubmatch(text); m != nil {
+			fk.RefTable = strings.Trim(m[1], `"`)
+			fk.RefColumns = splitDuckList(m[2])
+		}
+		fks = append(fks, fk)
+	}
+	return fks, rows.Err()
+}
+
+// splitDuckList splits a VARCHAR-rendered DuckDB list ("[a, b]") or a
+// plain comma-separated column list into its trimmed, unquoted parts.
+func splitDuckList(s string) []string {
+	var out []string
+	for _, c := range strings.Split(strings.Trim(s, "[]"), ",") {
+		if c = strings.Trim(strings.TrimSpace(c), `'"`); c != "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (duckdbDialect) tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error) {
@@ -125,13 +179,7 @@ func (duckdbDialect) tableIndexes(ctx context.Context, q querier, database, tabl
 		if err := rows.Scan(&name, &unique, &exprs); err != nil {
 			return nil, err
 		}
-		var cols []string
-		for _, c := range strings.Split(strings.Trim(exprs, "[]"), ",") {
-			if c = strings.Trim(strings.TrimSpace(c), `'"`); c != "" {
-				cols = append(cols, c)
-			}
-		}
-		idx = append(idx, Index{Name: name, Columns: cols, Unique: unique})
+		idx = append(idx, Index{Name: name, Columns: splitDuckList(exprs), Unique: unique})
 	}
 	return idx, rows.Err()
 }

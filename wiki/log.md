@@ -303,3 +303,25 @@ Chronological history of wiki changes, newest last.
   [design/query-editor-and-history](design/query-editor-and-history.md)
   (which still describes what a *run* does, now with the modal wording
   corrected).
+- Added [design/sql-syntax-highlighting](design/sql-syntax-highlighting.md)
+  with SQL highlighting in the query editor (issue #29). New package
+  `internal/sqlhl`: a hand-written scanner (chosen over chroma, which
+  would drag a lexer registry and a second style system in for one
+  language) whose two rules are that it never fails and never loses a
+  byte — tokens tile the input, so `Kinds` can hand the renderer one kind
+  per rune. Dialect differences that actually matter turned out to be
+  four: `"x"` is a string in MySQL and an identifier elsewhere,
+  backslashes escape only in MySQL literals, `#` comments only in MySQL,
+  and block comments nest only in PostgreSQL/DuckDB. The bigger surprise
+  was on the UI side: the Bubbles textarea styles a line whole, with no
+  hook for part of one, so `internal/ui/highlight.go` now draws the
+  buffer — gutter, wrapping, colours, cursor — while the textarea stays
+  the input model. The rule that keeps them from fighting is that only
+  one may wrap: `newQueryEditor` pins the textarea's width at 500 cells
+  and clears its prompt and line numbers, so its cursor moves by logical
+  lines and the display wrapping is lazysql's. The scroll offset is
+  derived from the cursor rather than stored, so no edit made from
+  elsewhere can leave it stale. Five new `[theme]` slots (`sql-keyword`,
+  `sql-string`, `sql-number`, `sql-comment`, `sql-placeholder`);
+  identifiers and operators stay uncoloured on purpose, and delimited
+  identifiers borrow `accent`.

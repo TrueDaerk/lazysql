@@ -15,7 +15,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Data view** — paginated rows, column sorting, quick `WHERE` filters.
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
-- **Query editor** — free-form SQL with history, result tabs, and cancellation.
+- **Query editor** — free-form SQL with dialect-aware syntax highlighting, history, result tabs, and cancellation.
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file.
 - **Command log** — every SQL statement the app executes is visible.
 - **SSH tunnels** — connect to remote databases through a jump host.
@@ -139,7 +139,11 @@ staged = "yellow"
 ```
 
 Named colors: `border-focused`, `border-blurred`, `accent`, `staged`,
-`deleted`, `error`, `selection-bg`, `row-cursor-bg`, `cell-cursor-bg`.
+`deleted`, `error`, `selection-bg`, `row-cursor-bg`, `cell-cursor-bg`,
+and the query editor's SQL highlighting — `sql-keyword`, `sql-string`,
+`sql-number`, `sql-comment`, `sql-placeholder`. Identifiers and
+operators are deliberately left uncolored so they keep your terminal's
+own foreground.
 
 ## Install
 

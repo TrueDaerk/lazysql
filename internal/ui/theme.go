@@ -24,6 +24,15 @@ type palette struct {
 	SelectionBg   color.Color
 	RowCursorBg   color.Color
 	CellCursorBg  color.Color
+
+	// SQL syntax highlighting in the query editor. Identifiers and
+	// operators have no slot of their own: they keep the terminal's
+	// foreground, which is what makes the coloured tokens stand out.
+	SQLKeyword     color.Color
+	SQLString      color.Color
+	SQLNumber      color.Color
+	SQLComment     color.Color
+	SQLPlaceholder color.Color
 }
 
 // presets are the built-in themes selectable via `theme = "<name>"` in the
@@ -42,6 +51,12 @@ var presets = map[string]palette{
 		SelectionBg:   lipgloss.Color("237"),
 		RowCursorBg:   lipgloss.Color("236"),
 		CellCursorBg:  lipgloss.Color("240"),
+
+		SQLKeyword:     lipgloss.Color("5"),
+		SQLString:      lipgloss.Color("2"),
+		SQLNumber:      lipgloss.Color("6"),
+		SQLComment:     lipgloss.Color("8"),
+		SQLPlaceholder: lipgloss.Color("3"),
 	},
 	"light": {
 		BorderFocused: lipgloss.Color("#1a7f37"),
@@ -53,6 +68,12 @@ var presets = map[string]palette{
 		SelectionBg:   lipgloss.Color("253"),
 		RowCursorBg:   lipgloss.Color("253"),
 		CellCursorBg:  lipgloss.Color("245"),
+
+		SQLKeyword:     lipgloss.Color("#8250df"),
+		SQLString:      lipgloss.Color("#0a3069"),
+		SQLNumber:      lipgloss.Color("#0550ae"),
+		SQLComment:     lipgloss.Color("#6e7781"),
+		SQLPlaceholder: lipgloss.Color("#9a6700"),
 	},
 }
 
@@ -75,6 +96,11 @@ func (p *palette) slots() []paletteSlot {
 		{"selection-bg", &p.SelectionBg},
 		{"row-cursor-bg", &p.RowCursorBg},
 		{"cell-cursor-bg", &p.CellCursorBg},
+		{"sql-keyword", &p.SQLKeyword},
+		{"sql-string", &p.SQLString},
+		{"sql-number", &p.SQLNumber},
+		{"sql-comment", &p.SQLComment},
+		{"sql-placeholder", &p.SQLPlaceholder},
 	}
 }
 
@@ -191,4 +217,10 @@ func applyPalette(p palette) {
 	colorSelectionBg = p.SelectionBg
 	colorRowCursorBg = p.RowCursorBg
 	colorCellCursorBg = p.CellCursorBg
+
+	colorSQLKeyword = p.SQLKeyword
+	colorSQLString = p.SQLString
+	colorSQLNumber = p.SQLNumber
+	colorSQLComment = p.SQLComment
+	colorSQLPlaceholder = p.SQLPlaceholder
 }

@@ -27,6 +27,10 @@ type keyMap struct {
 	ScreenNext key.Binding
 	ScreenPrev key.Binding
 	OpenEditor key.Binding
+	// LeaveInsert ends the query editor's insert mode. It is a binding of
+	// its own rather than a second meaning of Back, so `?` can name what
+	// esc does while the buffer has the keyboard.
+	LeaveInsert key.Binding
 	// CancelQuery is only meaningful while a query runs and is enabled
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
@@ -48,6 +52,13 @@ type keyMap struct {
 	RunQuery       key.Binding
 	DeleteHistory  key.Binding
 	ClearHistory   key.Binding
+
+	// Query editor, panel [5]. EditQuery enters insert mode, where every
+	// key that is not RunEditor, CancelQuery or Back types into the
+	// buffer; RunEditor executes it from either mode.
+	EditQuery  key.Binding
+	RunEditor  key.Binding
+	ClearQuery key.Binding
 
 	// Data grid (the focusable main view).
 	ColLeft     key.Binding
@@ -84,13 +95,15 @@ func newKeyMap() keyMap {
 		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "drill in")),
 		Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
-		Jump:      key.NewBinding(key.WithKeys("1", "2", "3", "4"), key.WithHelp("1-4", "jump to panel")),
+		Jump:      key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "jump to panel")),
 		NextPanel: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
 		PrevPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev panel")),
 
 		ScreenNext: key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "next screen mode")),
 		ScreenPrev: key.NewBinding(key.WithKeys("_"), key.WithHelp("_", "prev screen mode")),
 		OpenEditor: key.NewBinding(key.WithKeys(":"), key.WithHelp(":", "query editor")),
+		// esc leaves insert mode, so it is the editor's own back key too.
+		LeaveInsert: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "normal mode")),
 		CancelQuery: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel query"), key.WithDisabled()),
 		CommandLog: key.NewBinding(key.WithKeys("@"), key.WithHelp("@", "expand command log")),
@@ -110,6 +123,10 @@ func newKeyMap() keyMap {
 		RunQuery:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "run query")),
 		DeleteHistory:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete entry")),
 		ClearHistory:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear history")),
+
+		EditQuery:  key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
+		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
+		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
 
 		ColLeft:     key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
 		ColRight:    key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
@@ -144,6 +161,25 @@ func (k keyMap) navigation() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.Enter, k.Back}
 }
 
+// navigationFor is navigation() as the named panel means it. The query
+// editor is the one panel where `enter` is not "drill in" — it starts
+// insert mode, and says so in its own action list — so it drops out here
+// instead of being described twice.
+func (k keyMap) navigationFor(id panelID) []key.Binding {
+	if id == panelQuery {
+		return []key.Binding{k.Up, k.Down, k.Back}
+	}
+	return k.navigation()
+}
+
+// editorInsert are the keys that still act while the query editor is in
+// insert mode. Every other key types into the buffer, which is why this
+// slice — and not the panel's action list — is what the options bar and
+// `?` show there.
+func (k keyMap) editorInsert() []key.Binding {
+	return []key.Binding{k.RunEditor, k.CancelQuery, k.LeaveInsert}
+}
+
 // global returns the bindings handled by the root model.
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
@@ -172,6 +208,9 @@ const (
 	actRunQuery
 	actDeleteHistory
 	actClearHistory
+	actEditQuery
+	actRunEditor
+	actClearQuery
 	actColLeft
 	actColRight
 	actNextPage
@@ -243,6 +282,12 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actClearHistory, k.ClearHistory},
 			{actFilter, k.Filter},
 		}
+	case panelQuery:
+		return []action{
+			{actEditQuery, k.EditQuery},
+			{actRunEditor, k.RunEditor},
+			{actClearQuery, k.ClearQuery},
+		}
 	case panelMain:
 		return []action{
 			{actPrevMainTab, k.PrevMainTab},
@@ -294,11 +339,14 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 // helpGroups is the full `?` listing for the focused panel, drawn from the
 // same bindings as the options bar.
 func (k keyMap) helpGroups(id panelID) [][]key.Binding {
-	return [][]key.Binding{
-		k.actions(id),
-		k.navigation(),
-		k.global(),
+	groups := [][]key.Binding{k.actions(id)}
+	// The editor's insert mode swallows almost every key, so its own
+	// short list is documented next to the panel's normal-mode actions
+	// rather than being reachable only from a mode `?` cannot open.
+	if id == panelQuery {
+		groups = append(groups, k.editorInsert())
 	}
+	return append(groups, k.navigationFor(id), k.global())
 }
 
 // bindingSlot pairs a `[keys]` config action name with the keyMap field it
@@ -318,13 +366,16 @@ func (k *keyMap) slots() []bindingSlot {
 		{"jump", &k.Jump}, {"next-panel", &k.NextPanel}, {"prev-panel", &k.PrevPanel},
 
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
-		{"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog}, {"help", &k.Help}, {"quit", &k.Quit},
+		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
+		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
 		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"toggle-tab", &k.ToggleTab}, {"load-query", &k.LoadQuery}, {"run-query", &k.RunQuery},
 		{"delete-history", &k.DeleteHistory}, {"clear-history", &k.ClearHistory},
+
+		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
 
 		{"col-left", &k.ColLeft}, {"col-right", &k.ColRight}, {"next-page", &k.NextPage},
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},

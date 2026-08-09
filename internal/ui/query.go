@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -14,9 +15,11 @@ import (
 	"lazysql/internal/db"
 )
 
-// The query editor: `:` opens a multi-line textarea, ctrl+r runs it, and
-// the result lands in the main view's Data tab next to the browsing
-// pages. Three rules shape the flow:
+// The query editor is panel [5]: a multi-line textarea that lives in the
+// layout, not in a popup. `5` (or `:`) focuses it, ctrl+r runs the
+// buffer without ever closing or clearing it, and the result lands in
+// the main view's Data tab next to the browsing pages. Three rules shape
+// the flow:
 //
 //   - Nothing that changes data runs unasked. A script holding DML or
 //     DDL goes through a confirm modal that shows the exact statements.
@@ -152,22 +155,150 @@ func (j queryJob) run() {
 	j.ch <- queryDoneMsg{id: j.id, ran: ran, err: runErr}
 }
 
-// ---------- opening the editor ----------
+// ---------- the editor panel ----------
 
-// openQueryEditor is `:`. The draft survives every close, so an `esc` to
-// look something up in a panel costs nothing.
+// queryEditor is panel [5]. It has two modes, the shape the vim-mode
+// work will extend: in normal mode the panel's keys are lazysql's own —
+// `i` starts editing, ctrl+r runs the buffer, digits still jump — and in
+// insert mode every key that is not ctrl+r, ctrl+c or esc types into the
+// buffer. Without that split a persistent editor would swallow `q`, `?`
+// and the panel numbers for as long as it had focus.
+type queryEditor struct {
+	area    textarea.Model
+	editing bool
+}
+
+func newQueryEditor() queryEditor {
+	ta := textarea.New()
+	ta.Placeholder = "SELECT * FROM …"
+	ta.ShowLineNumbers = true
+	ta.CharLimit = 0
+	return queryEditor{area: ta}
+}
+
+// script is the buffer's text. It is the only copy of the draft the
+// model keeps: the editor is never torn down, so there is nothing to
+// save it into and nothing that can go out of sync with it.
+func (m Model) script() string { return m.editor.area.Value() }
+
+// setScript replaces the buffer and leaves the cursor at its end.
+func (m *Model) setScript(sql string) {
+	m.editor.area.SetValue(sql)
+	m.editor.area.MoveToEnd()
+}
+
+// setEditing switches the editor between normal and insert mode. The
+// textarea's own focus follows, so a blurred buffer cannot swallow a key
+// even if one reached it.
+func (m *Model) setEditing(on bool) {
+	m.editor.editing = on
+	if on {
+		m.editor.area.Focus()
+		return
+	}
+	m.editor.area.Blur()
+}
+
+// openQueryEditor is `:`: focus panel [5] and start typing. The buffer
+// survives every focus change, so `:` never costs the user a draft.
 func (m *Model) openQueryEditor() tea.Cmd {
-	m.modal = newQueryModal(m.draft)
+	m.setFocus(panelQuery)
+	m.setEditing(true)
 	return nil
 }
 
-// loadIntoEditor opens the editor on a statement from the history panel,
-// replacing whatever draft was there. The old draft is not worth a
-// confirm: it is one keystroke away in the history too.
+// loadIntoEditor puts a statement from the history panel in the buffer,
+// replacing whatever was there. The old text is not worth a confirm: it
+// is one keystroke away in the history too. The editor stays in normal
+// mode — a recalled statement is meant to be run, not typed over.
 func (m *Model) loadIntoEditor(sql string) tea.Cmd {
-	m.draft = sql
-	m.modal = newQueryModal(sql)
+	m.setScript(sql)
+	m.setFocus(panelQuery)
+	m.setEditing(false)
 	return nil
+}
+
+// clearQuery is `D` on panel [5]. An empty buffer goes without a
+// confirmation; anything else is work the user typed.
+func (m *Model) clearQuery() tea.Cmd {
+	if strings.TrimSpace(m.script()) == "" {
+		return nil
+	}
+	m.modal = &confirmModal{
+		title:  "Clear the query buffer",
+		body:   "Discard the editor's contents?",
+		danger: true,
+		onConfirm: func(mm *Model) tea.Cmd {
+			mm.setScript("")
+			return logCmd("-- clear the query buffer")
+		},
+	}
+	return nil
+}
+
+// updateEditor is insert mode: three keys keep their meaning and every
+// other one types.
+func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := m.keys
+	switch {
+	case key.Matches(msg, k.LeaveInsert):
+		// The buffer is kept: esc means "give me my keys back", not
+		// "throw away what I typed".
+		m.setEditing(false)
+		return m, nil
+
+	case key.Matches(msg, k.RunEditor), msg.String() == "ctrl+enter":
+		// A run ends insert mode so the result is immediately
+		// navigable — paging, `v`, the tabs — without an extra esc.
+		m.setEditing(false)
+		cmd := m.submitQuery(m.script())
+		return m, cmd
+
+	case msg.String() == "ctrl+c":
+		// In the editor ctrl+c is the run's abort key, never the app's
+		// quit key. With nothing running it leaves insert mode, the
+		// closest thing to "stop" it can mean here.
+		if m.run.running {
+			cmd := m.cancelQuery()
+			return m, cmd
+		}
+		m.setEditing(false)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.editor.area, cmd = m.editor.area.Update(msg)
+	return m, cmd
+}
+
+// updateQuery is normal mode on panel [5]. Unclaimed keys fall through
+// to the data grid whenever the main view is showing this editor's
+// result, so paging or inspecting a result never costs the editor its
+// focus.
+func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	k := m.keys
+	switch {
+	case key.Matches(msg, k.Down):
+		m.editor.area.CursorDown()
+		return m, nil
+	case key.Matches(msg, k.Up):
+		m.editor.area.CursorUp()
+		return m, nil
+	case key.Matches(msg, k.Back):
+		m.focusBack()
+		return m, nil
+	case key.Matches(msg, k.Actions):
+		m.modal = m.actionsMenu()
+		return m, nil
+	}
+	for _, a := range k.panelActions(panelQuery) {
+		if key.Matches(msg, a.binding) {
+			return m.runAction(a.id)
+		}
+	}
+	if m.data.isQuery() {
+		return m.updateData(msg)
+	}
+	return m, nil
 }
 
 // ---------- running ----------
@@ -175,8 +306,11 @@ func (m *Model) loadIntoEditor(sql string) tea.Cmd {
 // submitQuery is what ctrl+r hands over: split the script, and either
 // run it or ask first. Everything that can be decided without the server
 // is decided here, so the worker only ever reports database problems.
+//
+// It never writes to the buffer. The editor owns its text, and a run
+// started from the history panel must not overwrite what is being
+// written in panel [5].
 func (m *Model) submitQuery(script string) tea.Cmd {
-	m.draft = script
 	if m.driver == nil {
 		return logCmd("-- run query skipped: not connected")
 	}
@@ -338,9 +472,7 @@ func (m *Model) showQueryResult(sql string, rs *db.ResultSet, truncated bool) {
 	m.table = ""
 	m.resetMeta()
 	m.tab = mainTabData
-	// The result is the point of running the query, so the grid takes
-	// focus; `esc` walks back to whatever panel the user came from.
-	m.setFocus(panelMain)
+	m.focusResult()
 	m.data = dataView{
 		conn:      m.active,
 		database:  m.database,
@@ -365,7 +497,7 @@ func (m *Model) showQueryError(sql string, err error) {
 	m.table = ""
 	m.resetMeta()
 	m.tab = mainTabData
-	m.setFocus(panelMain)
+	m.focusResult()
 	m.data = dataView{
 		conn:     m.active,
 		database: m.database,
@@ -381,7 +513,7 @@ func (m *Model) showQueryNotice(sql string, affected int64) {
 	m.table = ""
 	m.resetMeta()
 	m.tab = mainTabData
-	m.setFocus(panelMain)
+	m.focusResult()
 	m.data = dataView{
 		conn:     m.active,
 		database: m.database,
@@ -417,76 +549,134 @@ func countAffected(n int64) string {
 	return fmt.Sprintf("%d rows affected", n)
 }
 
-// ---------- the editor modal ----------
+// ---------- rendering ----------
 
-// queryModal is the `:` popup: a textarea and nothing else. It never
-// touches the database itself — ctrl+r hands the text to submitQuery,
-// which decides whether it needs a confirmation first.
-type queryModal struct {
-	area textarea.Model
+// focusResult decides who owns the keyboard once a result lands. A run
+// started in panel [5] leaves the focus there: its main view shows the
+// buffer and the result together, which is the whole point of an editor
+// that stays open. Every other origin — `x` on the history panel, a
+// re-run from the grid — hands the grid the focus, the way it always did.
+func (m *Model) focusResult() {
+	if m.focus == panelQuery {
+		return
+	}
+	m.setFocus(panelMain)
 }
 
-func newQueryModal(initial string) *queryModal {
-	ta := textarea.New()
-	ta.Placeholder = "SELECT * FROM …"
-	ta.ShowLineNumbers = true
-	ta.CharLimit = 0
-	ta.SetValue(initial)
-	ta.MoveToEnd()
-	ta.Focus()
-	return &queryModal{area: ta}
-}
+// queryPanelBody is panel [5] in the side column: the buffer's first
+// lines, and what the editor is currently doing. The column is too
+// narrow to edit in — the editing surface is the main view — so this is
+// a preview, not a second copy of the textarea.
+func (m Model) queryPanelBody(w, h int) string {
+	s := m.style
+	focused := m.focus == panelQuery
+	titleStyle := s.title
+	if focused {
+		titleStyle = s.titleFocused
+	}
+	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(panelQuery)+1, panelTitles[panelQuery]))
+	switch {
+	case m.run.running:
+		line += " " + s.pending.Render("running…")
+	case focused && m.editor.editing:
+		line += " " + s.keyHint.Render("insert")
+	case focused:
+		line += " " + s.muted.Render("normal")
+	}
 
-func (q *queryModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// The draft is kept: `esc` means "get out of my way", not
-		// "throw away what I typed".
-		m.draft = q.area.Value()
-		return true, nil
-	case "ctrl+c":
-		// In the editor ctrl+c is the run's abort key, never the app's
-		// quit key. With nothing running it closes the editor, which is
-		// the closest thing to "stop" it can mean here.
-		if m.run.running {
-			return false, m.cancelQuery()
+	var b strings.Builder
+	b.WriteString(truncate(line, w))
+	rows := h - 1
+	if rows <= 0 {
+		return b.String()
+	}
+	lines := strings.Split(m.script(), "\n")
+	if strings.TrimSpace(m.script()) == "" {
+		b.WriteString("\n" + s.muted.Render(truncate("(empty — press : to write a query)", w)))
+		return b.String()
+	}
+	for i, l := range lines {
+		if i >= rows {
+			break
 		}
-		m.draft = q.area.Value()
-		return true, nil
-	case "ctrl+r", "ctrl+enter":
-		return true, m.submitQuery(q.area.Value())
+		// The last visible row says how much is out of sight rather than
+		// letting the preview end mid-script without a word.
+		if i == rows-1 && len(lines) > rows {
+			b.WriteString("\n" + s.muted.Render(truncate(
+				fmt.Sprintf("… %d more lines", len(lines)-rows+1), w)))
+			break
+		}
+		b.WriteString("\n" + truncate(l, w))
 	}
-	var cmd tea.Cmd
-	q.area, cmd = q.area.Update(msg)
-	return false, cmd
+	return b.String()
 }
 
-func (q *queryModal) view(s styles, maxW, maxH int) string {
-	w := min(maxW-10, 80)
-	if w < 20 {
-		w = 20
+// queryContent is the main view while panel [5] is focused: the editor
+// on top, and under it whatever the last run produced. The editor takes
+// what it needs up to half the box, so a one-line query does not push
+// the result off screen.
+func (m Model) queryContent(w, h int) string {
+	s := m.style
+	header := s.titleFocused.Render("Query editor") + s.muted.Render(" — "+m.editorMode())
+	if m.active != "" {
+		header += s.muted.Render(" · "+m.active+" / "+displayDatabase(m.database))
 	}
-	// The box grows with the script instead of always claiming its
-	// maximum: a one-line query should not open a half-screen modal.
-	h := min(maxH-9, 14)
-	if lines := q.area.LineCount() + 1; lines < h {
-		h = lines
+	body := []string{truncate(header, w)}
+	rows := h - 1
+	if rows <= 0 {
+		return clipHeight(strings.Join(body, "\n"), h)
 	}
-	if h < 3 {
-		h = 3
-	}
-	q.area.SetWidth(w)
-	q.area.SetHeight(h)
 
-	footer := "ctrl+r run · enter newline · esc close (draft kept)"
-	if q.area.Value() == "" {
-		footer = "ctrl+r run · esc cancel"
+	editorH := min(m.editor.area.LineCount()+1, maxInt(rows/2, 3))
+	if editorH > rows {
+		editorH = rows
 	}
-	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left,
-		s.modalTitle.Render("Query editor"),
-		"",
-		q.area.View(),
-		"",
-		s.muted.Render(footer),
-	))
+	// The textarea is sized on a copy: View may not mutate the model, and
+	// the box the editor has to fit is only known here.
+	area := m.editor.area
+	area.SetWidth(w)
+	area.SetHeight(editorH)
+	rendered := area.View()
+	body = append(body, rendered)
+	rows -= lipgloss.Height(rendered)
+	if rows <= 0 {
+		return clipHeight(strings.Join(body, "\n"), h)
+	}
+
+	body = append(body, s.muted.Render(truncate(m.editorHint(), w)))
+	if rows--; rows > 0 && m.data.open() {
+		body = append(body, m.dataContent(w, rows))
+	}
+	return clipHeight(strings.Join(body, "\n"), h)
+}
+
+// clipHeight drops whatever does not fit in h lines. The main view is a
+// fixed box; a block that overflows it would push the layout apart.
+func clipHeight(block string, h int) string {
+	lines := strings.Split(block, "\n")
+	if h < 0 {
+		h = 0
+	}
+	if len(lines) <= h {
+		return block
+	}
+	return strings.Join(lines[:h], "\n")
+}
+
+// editorMode names the mode for the main view's header.
+func (m Model) editorMode() string {
+	if m.editor.editing {
+		return "insert"
+	}
+	return "normal"
+}
+
+// editorHint is the one-line reminder under the buffer. It names the
+// keys of the mode the editor is actually in, the same ones the options
+// bar shows.
+func (m Model) editorHint() string {
+	if m.editor.editing {
+		return "ctrl+r run · esc normal mode"
+	}
+	return "i edit · ctrl+r run · D clear · esc back"
 }

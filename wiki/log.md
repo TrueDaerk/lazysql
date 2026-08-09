@@ -281,3 +281,25 @@ Chronological history of wiki changes, newest last.
   release with GitHub-generated notes. `internal/version.Version` (default
   `"dev"`) now also renders in the options bar next to the screen mode and
   app name, and `lazysql --version` prints it.
+- Added [design/query-editor-panel](design/query-editor-panel.md) with the
+  move of the SQL editor from a modal to the permanent panel `[5] Query`
+  (issue #28): `panelQuery` joined the panel enum, `Model.draft` and the
+  `queryModal` type are gone, and `Model.editor` (a `queryEditor` holding
+  the textarea and its mode) is now the single copy of the buffer.
+  `Model.Update` gained one routing step — the editor in insert mode
+  captures keys ahead of the globals, since a permanently focused
+  textarea would otherwise eat `q`, `?` and the panel digits.
+  `focusResult` replaced the unconditional `setFocus(panelMain)` of the
+  three `showQuery*` reducers: a run started in `[5]` keeps its focus,
+  and its main view stacks the buffer over the result, while a run from
+  the history panel or a grid re-run still hands the grid the focus.
+  Unclaimed normal-mode keys fall through to `updateData` so paging and
+  the tabs work without leaving the editor, and `submitQuery` no longer
+  writes to the buffer, so `x` on `[4]` cannot overwrite a half-written
+  statement. New `[keys]` actions: `edit-query`, `run-editor`,
+  `clear-query`, `leave-insert`; `jump` grew to `1`–`5`. Updated
+  [design/tui-shell-architecture](design/tui-shell-architecture.md) (the
+  routing order and the not-a-`sidePanel` exception) and
+  [design/query-editor-and-history](design/query-editor-and-history.md)
+  (which still describes what a *run* does, now with the modal wording
+  corrected).

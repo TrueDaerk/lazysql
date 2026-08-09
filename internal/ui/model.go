@@ -174,10 +174,11 @@ type Model struct {
 	export exportState
 
 	// history is the persistent query history behind panel [4], newest
-	// first. draft is the query editor's text, kept across closes, and
-	// run is the script currently executing, if any.
+	// first. editor is panel [5] — the buffer and its mode, which outlive
+	// every focus change — and run is the script currently executing, if
+	// any.
 	history []history.Entry
-	draft   string
+	editor  queryEditor
 	run     queryRun
 
 	startupErr string
@@ -217,6 +218,7 @@ func New() (Model, error) {
 		connState: map[string]connState{},
 		changes:   db.NewChangeset(),
 		cfg:       cfg,
+		editor:    newQueryEditor(),
 	}
 	if cfgErr != nil {
 		m.startupErr = cfgErr.Error()
@@ -390,7 +392,8 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 }
 
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
-// keys) → global keys → focused panel.
+// keys) → an open `/` filter → the query editor in insert mode → global
+// keys → focused panel.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -650,13 +653,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focus < panelCount && m.panels[m.focus].filtering {
 			return m.updateFilter(msg)
 		}
-		// 3. Global keys.
+		// 3. The query editor in insert mode captures every key it does
+		// not reserve — ahead of the global keys, or `q` would quit in
+		// the middle of a statement.
+		if m.focus == panelQuery && m.editor.editing {
+			return m.updateEditor(msg)
+		}
+		// 4. Global keys.
 		if handled, mm, cmd := m.updateGlobal(msg); handled {
 			return mm, cmd
 		}
-		// 4. The focused view: the data grid, or a side panel.
+		// 5. The focused view: the data grid, the query editor in normal
+		// mode, or a side panel.
 		if m.focus == panelMain {
 			return m.updateData(msg)
+		}
+		if m.focus == panelQuery {
+			return m.updateQuery(msg)
 		}
 		return m.updateFocused(msg)
 	}
@@ -882,6 +895,17 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 			cmd := m.submitQuery(e.SQL)
 			return m, cmd
 		}
+
+	case actEditQuery:
+		m.setEditing(true)
+
+	case actRunEditor:
+		cmd := m.submitQuery(m.script())
+		return m, cmd
+
+	case actClearQuery:
+		cmd := m.clearQuery()
+		return m, cmd
 
 	case actDeleteHistory:
 		cmd := m.deleteHistoryEntry()

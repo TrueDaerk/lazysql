@@ -17,7 +17,9 @@ the Bubbletea program.
 
 `ui.Model` owns terminal size, the focused panel, one `sidePanel` per side
 panel, the main view state, the open modal (`nil` = none), the screen mode and
-the command log. Panels are not independent `tea.Model`s: they are plain
+the command log. `[5] Query` is the one numbered panel that is not a
+`sidePanel`: it is a `panelID` with a textarea behind it, drawn and keyed by
+its own code ([query-editor-panel](query-editor-panel.md)). Panels are not independent `tea.Model`s: they are plain
 structs with a cursor, rendered by the root. A full child-model interface buys
 nothing while panels hold a list and a cursor, and it would force selection
 state to be plumbed back up for the main view on every keystroke.
@@ -35,8 +37,14 @@ keys.
    never cached.
 2. Domain messages (`commandLogMsg`, `historyEntryMsg`, `focusPanelMsg`).
 3. An open modal — it swallows **every** key. Nothing reaches panels beneath.
-4. Global keys (`1`–`4`, `tab`, `shift+tab`, `+`, `_`, `?`, `q`).
-5. The focused panel's navigation and context actions.
+4. An open `/` filter on the focused panel — every printable key narrows the
+   list instead of jumping or quitting.
+5. The query editor `[5]` in insert mode — it captures every key except
+   `ctrl+r`, `ctrl+c` and `esc`, ahead of the globals so `q` cannot quit in
+   the middle of a statement. See
+   [query-editor-panel](query-editor-panel.md).
+6. Global keys (`1`–`5`, `tab`, `shift+tab`, `+`, `_`, `?`, `q`).
+7. The focused panel's navigation and context actions.
 
 Because global keys are matched before panel actions, a panel action must never
 bind a key the global layer already claims. `TestPanelActionsDoNotShadowGlobalKeys`

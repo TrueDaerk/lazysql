@@ -119,7 +119,7 @@ func sized(w, h int) Model {
 
 func TestNumberKeysJumpToPanel(t *testing.T) {
 	m := sized(120, 40)
-	for i, r := range []rune{'2', '3', '4', '1'} {
+	for i, r := range []rune{'2', '3', '4', '5', '1'} {
 		m = send(t, m, press(r))
 		want := panelID(r - '1')
 		if m.focus != want {
@@ -138,8 +138,8 @@ func TestTabCyclesPanels(t *testing.T) {
 		}
 	}
 	m = send(t, m, special(tea.KeyTab, tea.ModShift))
-	if m.focus != panelHistory {
-		t.Fatalf("shift+tab: focus = %v, want %v", m.focus, panelHistory)
+	if m.focus != panelQuery {
+		t.Fatalf("shift+tab: focus = %v, want %v", m.focus, panelQuery)
 	}
 }
 

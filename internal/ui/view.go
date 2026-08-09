@@ -32,7 +32,9 @@ func (m Model) View() tea.View {
 	bodyH := m.height - 1 // options bar
 	var body string
 	if m.screen == screenFull {
-		if m.focus == panelMain {
+		// Panel [5] edits in the main view, so full-screening it means
+		// the editor, not the side column's preview of it.
+		if m.focus == panelMain || m.focus == panelQuery {
 			body = m.renderMainColumn(m.width, bodyH)
 		} else {
 			body = m.renderPanel(m.focus, m.width, bodyH)
@@ -115,7 +117,12 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 	// In lipgloss v2 Style.Width/Height are the *total* block size, borders
 	// included; the content area is 2 cells smaller in each direction.
 	cw, ch := maxInt(w-2, 1), maxInt(h-2, 1)
-	body := m.panels[id].render(m.style, id == m.focus, cw, ch)
+	// Panel [5] is not a list, so it renders itself; every other side
+	// panel is a cursor over a slice of strings.
+	body := clipHeight(m.queryPanelBody(cw, ch), ch)
+	if id != panelQuery {
+		body = m.panels[id].render(m.style, id == m.focus, cw, ch)
+	}
 	return border.Width(w).Height(h).Render(body)
 }
 
@@ -134,7 +141,9 @@ func (m Model) renderMainColumn(w, h int) string {
 	mainH := h - logH
 
 	border := m.style.blurredBorder
-	if m.focus == panelMain {
+	// Exactly one green border: the side column keeps it while panel [5]
+	// is focused, except in full-screen mode where the column is gone.
+	if m.focus == panelMain || (m.focus == panelQuery && m.screen == screenFull) {
 		border = m.style.focusedBorder
 	}
 	main := border.
@@ -158,6 +167,11 @@ func (m Model) mainContent(w, h int) string {
 	// live somewhere.
 	if m.focus == panelHistory {
 		return m.historyDetail(w, h)
+	}
+	// Panel [5] edits here: the side column has room for a preview of the
+	// buffer, not for typing in it.
+	if m.focus == panelQuery {
+		return m.queryContent(w, h)
 	}
 	if m.data.open() {
 		if m.tab.metadata() {
@@ -298,7 +312,13 @@ func (m Model) renderCommandLog(w, h int) string {
 func (m Model) renderOptionsBar() string {
 	h := m.help
 	h.SetWidth(maxInt(m.width-len(appName)-len(screenModeNames[m.screen])-len(version.Version)-9, 10))
-	left := h.ShortHelpView(m.keys.optionsBarBindings(m.focus))
+	bindings := m.keys.optionsBarBindings(m.focus)
+	// Insert mode leaves almost nothing bound, so the bar shows the keys
+	// that still act instead of a list the buffer would swallow.
+	if m.focus == panelQuery && m.editor.editing {
+		bindings = m.keys.editorInsert()
+	}
+	left := h.ShortHelpView(bindings)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)

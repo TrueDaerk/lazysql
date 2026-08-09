@@ -422,8 +422,8 @@ func TestAskOnConnectOpensPasswordPrompt(t *testing.T) {
 }
 
 func logContains(m Model, want string) bool {
-	for _, l := range m.commandLog {
-		if strings.Contains(l, want) {
+	for _, l := range m.commandLogEntries() {
+		if strings.Contains(l.text, want) {
 			return true
 		}
 	}

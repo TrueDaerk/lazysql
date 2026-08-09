@@ -267,7 +267,9 @@ func joinTruncated(lines []string, w, h int) string {
 	return strings.Join(out, "\n")
 }
 
-// renderCommandLog shows every statement the app executed, newest last.
+// renderCommandLog shows the tail of the command log — every statement
+// the app executed plus its own notes, newest last. `@` expands it into
+// a full scrollable view; this slim strip truncates long SQL to fit.
 func (m Model) renderCommandLog(w, h int) string {
 	cw, ch := maxInt(w-2, 1), maxInt(h-2, 1)
 	rows := ch - 1 // title line
@@ -275,12 +277,17 @@ func (m Model) renderCommandLog(w, h int) string {
 	var b strings.Builder
 	b.WriteString(m.style.title.Render("Command log"))
 	if rows > 0 {
-		start := len(m.commandLog) - rows
+		entries := m.commandLogEntries()
+		start := len(entries) - rows
 		if start < 0 {
 			start = 0
 		}
-		for _, line := range m.commandLog[start:] {
-			b.WriteString("\n" + m.style.muted.Render(truncate(line, cw)))
+		for _, e := range entries[start:] {
+			style := m.style.muted
+			if e.err {
+				style = m.style.danger
+			}
+			b.WriteString("\n" + style.Render(truncate(e.render(), cw)))
 		}
 	}
 	return m.style.blurredBorder.Width(w).Height(h).Render(b.String())

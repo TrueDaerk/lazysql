@@ -187,4 +187,20 @@ Chronological history of wiki changes, newest last.
   into the editor), `x` (run), `d` (delete), `D` (clear) and `/`. `sidePanel`
   gained `sourceIndex` so `d` targets the right entry while a filter is active —
   two runs of the same statement render as identical rows.
-
+- Added [design/command-log-panel](design/command-log-panel.md) (issue #11):
+  `internal/db/logger.go` adds a `Logger` ring buffer (`LogCapacity` 500) that
+  `conn` records into from its four `database/sql` choke points — `Exec`,
+  `ExecTx`, `QueryLimit` and the introspection `querierAdapter.QueryContext` —
+  so every statement is captured exactly once regardless of which UI path
+  triggered it, including the introspection queries that were never logged
+  before. Removed the ~dozen UI call sites that hand-echoed SQL text
+  (`data.go`'s page/count log lines, `model.go`'s `BEGIN`/statement/`COMMIT`
+  triplet, `query.go`'s per-statement echo) now that the Driver logs them
+  itself.
+- `Model.commandLogEntries()` merges that `Logger` with the UI's own
+  status-note stream (`commandLog []logLine`, timestamped, `err` set by a
+  `"FAILED"` substring) by timestamp into one feed. `@` opens a
+  `commandLogModal` (`esc`/`j`/`k`/`pgup`/`pgdown`/`g`/`G`) that is a snapshot
+  like every other modal — modals render from their own state, not the live
+  `Model`, so a statement logged while it is open needs a close/reopen to
+  show up.

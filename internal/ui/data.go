@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -241,7 +240,8 @@ func (m *Model) openTable(name string) tea.Cmd {
 }
 
 // reloadPage re-runs the page query and the count for the current
-// filter/sort/page, and logs the exact SQL both of them execute.
+// filter/sort/page. Both land in the command log through the Driver's
+// Logger as QueryPage/CountRows run them.
 func (m *Model) reloadPage() tea.Cmd {
 	if m.driver == nil || !m.data.browsing() {
 		return nil
@@ -250,10 +250,8 @@ func (m *Model) reloadPage() tea.Cmd {
 	m.data.loading = true
 	m.data.err = ""
 	d := m.data
-	dialect := m.driver.Dialect()
 
-	pageSQL := db.PageSQL(dialect, d.database, d.table, d.filter, d.sort, dataPageSize, d.offset())
-	countSQL := db.CountSQL(dialect, d.database, d.table, d.filter)
+	pageSQL := db.PageSQL(m.driver.Dialect(), d.database, d.table, d.filter, d.sort, dataPageSize, d.offset())
 
 	var cmds []tea.Cmd
 	// The warning goes first so it is not lost above the statement it
@@ -263,22 +261,11 @@ func (m *Model) reloadPage() tea.Cmd {
 			"-- WARNING: filter %q could not be parameterized — appended verbatim", d.filter.Raw))
 	}
 	cmds = append(cmds,
-		logCmd("%s", sqlLogLine(pageSQL, d.filter)),
-		logCmd("%s", sqlLogLine(countSQL, d.filter)),
 		historyCmd(pageSQL),
 		loadPageCmd(m.driver, d, m.data.req),
 		countRowsCmd(m.driver, d, m.data.req),
 	)
 	return tea.Batch(cmds...)
-}
-
-// sqlLogLine renders a statement for the command log, with its bound
-// arguments spelled out after it.
-func sqlLogLine(query string, f *db.Filter) string {
-	if f == nil || len(f.Args) == 0 {
-		return query + ";"
-	}
-	return fmt.Sprintf("%s;  -- args %v", query, f.Args)
 }
 
 // fresh reports whether a reply still belongs to the page on screen.

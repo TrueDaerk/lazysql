@@ -94,3 +94,28 @@ Chronological history of wiki changes, newest last.
   parameterized UPDATEs, and `Driver.ExecTx` commits everything in one
   transaction — failure rolls back and keeps the changeset. Tables
   without a declared primary key are not editable at all.
+- Extended [design/staged-changeset](design/staged-changeset.md) with
+  whole-row operations (issue #8): `d` stages a `db.RowDelete`, `n` opens
+  an insert form that stages a `db.RowInsert`, and `D` opens the same
+  form prefilled from the row under the cursor with its key cleared.
+  All three share the existing `db.Changeset`, which now holds one
+  ordered `[]db.Change` behind a `key()`/`target()`/`Statement(dialect)`
+  interface — so commit order is staging order across kinds and `c`
+  still runs everything in a single `ExecTx` transaction.
+- Recorded the two decisions that were not obvious while implementing
+  it: staging a delete drops that row's pending cell edits (and `e` on a
+  row staged for deletion is refused), and a staged insert has no natural
+  identity, so the changeset assigns it a monotonic `ID` that `u`
+  unstages by. The grid grew a `rowKind` per rendered row — struck-through
+  red deletes, green phantom insert rows appended after the page with
+  `DEFAULT` in every omitted column — and `dataView.extraRows`, which
+  `Model.clampCursor` re-derives from the changeset so the cursor can
+  reach a row that does not exist in the database yet.
+- Replaced `metaView.copyAfterLoad`/`editAfterLoad` with a single
+  `afterLoad actionID` (with an `actNone` zero value): four keys now need
+  the metadata before they can open anything, and replaying the action
+  through `runAction` keeps a cold key press identical to a warm one.
+- Added [reference/insert-default-values](reference/insert-default-values.md):
+  an INSERT that names no columns is `DEFAULT VALUES` in PostgreSQL,
+  SQLite and DuckDB and `() VALUES ()` in MySQL/MariaDB, and each form is
+  a syntax error in the other family.

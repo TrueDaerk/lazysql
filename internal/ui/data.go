@@ -52,6 +52,11 @@ type dataView struct {
 	// stale offset behind.
 	row, col int
 
+	// extraRows is how many phantom rows (staged inserts) the grid
+	// appends after the page. The changeset owns them; this is the count
+	// Model.clampCursor mirrors here so the cursor can reach them.
+	extraRows int
+
 	loading bool
 	err     string
 
@@ -86,11 +91,16 @@ func (d dataView) sortOn(name string) (desc, ok bool) {
 	return d.sort.Desc, true
 }
 
+// rowCount is how many rows the grid renders: the page plus the phantom
+// rows of the staged inserts.
+func (d dataView) rowCount() int { return len(d.rows) + d.extraRows }
+
 // clampCursor keeps the cell cursor inside the page after it changed
-// shape (new page, fewer columns, empty result).
+// shape (new page, fewer columns, empty result). Callers on the Model go
+// through Model.clampCursor, which refreshes extraRows first.
 func (d *dataView) clampCursor() {
-	if d.row >= len(d.rows) {
-		d.row = len(d.rows) - 1
+	if d.row >= d.rowCount() {
+		d.row = d.rowCount() - 1
 	}
 	if d.row < 0 {
 		d.row = 0
@@ -300,14 +310,14 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.updateMetaKeys(1)
 		}
 		m.data.row++
-		m.data.clampCursor()
+		m.clampCursor()
 		return m, nil
 	case key.Matches(msg, k.Up):
 		if m.tab.metadata() {
 			return m.updateMetaKeys(-1)
 		}
 		m.data.row--
-		m.data.clampCursor()
+		m.clampCursor()
 		return m, nil
 	case key.Matches(msg, k.Back):
 		m.focusBack()
@@ -351,10 +361,10 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 	switch id {
 	case actColLeft:
 		m.data.col--
-		m.data.clampCursor()
+		m.clampCursor()
 	case actColRight:
 		m.data.col++
-		m.data.clampCursor()
+		m.clampCursor()
 	case actNextPage:
 		cmd := m.turnPage(1)
 		return m, cmd, true
@@ -376,17 +386,36 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 			func(mm *Model, value string) tea.Cmd { return mm.setDataFilter(value) },
 		)
 	case actViewCell:
-		v, ok := m.data.cell()
-		if !ok {
-			return m, nil, true
-		}
 		name := ""
 		if m.data.col < len(m.data.cols) {
 			name = m.data.cols[m.data.col].Name
 		}
+		if ins, ok := m.phantomAtCursor(); ok {
+			// A staged insert has no fetched cell; show what it will bind.
+			v, bound := insertValueFor(ins, name)
+			if !bound {
+				m.modal = &confirmModal{title: "Cell — " + name, body: "left to the column's DEFAULT."}
+				return m, nil, true
+			}
+			m.modal = newCellModal(name, v)
+			return m, nil, true
+		}
+		v, ok := m.data.cell()
+		if !ok {
+			return m, nil, true
+		}
 		m.modal = newCellModal(name, v)
 	case actEditCell:
 		cmd := m.startEdit()
+		return m, cmd, true
+	case actDeleteRow:
+		cmd := m.startDelete()
+		return m, cmd, true
+	case actInsertRow:
+		cmd := m.startInsert(false)
+		return m, cmd, true
+	case actDuplicateRow:
+		cmd := m.startInsert(true)
 		return m, cmd, true
 	case actCommitChanges:
 		cmd := m.openCommitModal()

@@ -65,6 +65,202 @@ func TestUpdateSQLCompositeKeyAndNull(t *testing.T) {
 	}
 }
 
+// A row delete names every key column and binds every key value, in
+// each engine's own quoting and placeholder style.
+func TestDeleteSQLPerDialect(t *testing.T) {
+	r := RowDelete{
+		Table:  "users",
+		PKCols: []string{"id"},
+		PKVals: []any{int64(3)},
+	}
+	cases := []struct {
+		engine Engine
+		want   string
+	}{
+		{EngineSQLite, `DELETE FROM "users" WHERE "id" = ?`},
+		{EnginePostgres, `DELETE FROM "users" WHERE "id" = $1`},
+		{EngineMySQL, "DELETE FROM `users` WHERE `id` = ?"},
+	}
+	for _, tc := range cases {
+		st := DeleteSQL(dialect(t, tc.engine), r)
+		if st.SQL != tc.want {
+			t.Errorf("%s: SQL = %q, want %q", tc.engine, st.SQL, tc.want)
+		}
+		if !slices.Equal(st.Args, []any{any(int64(3))}) {
+			t.Errorf("%s: args = %v", tc.engine, st.Args)
+		}
+	}
+
+	// A composite key contributes one predicate per column.
+	st := DeleteSQL(dialect(t, EnginePostgres), RowDelete{
+		Database: "app",
+		Table:    "grades",
+		PKCols:   []string{"student", "course"},
+		PKVals:   []any{int64(1), "math"},
+	})
+	want := `DELETE FROM "app"."grades" WHERE "student" = $1 AND "course" = $2`
+	if st.SQL != want {
+		t.Fatalf("SQL = %q, want %q", st.SQL, want)
+	}
+}
+
+// An insert names only the columns the form filled in; every value is a
+// bound parameter and NULL is a bound nil.
+func TestInsertSQLPerDialect(t *testing.T) {
+	r := RowInsert{
+		Table:   "users",
+		Columns: []string{"name", "email"},
+		Values:  []any{"ada", nil},
+	}
+	cases := []struct {
+		engine Engine
+		want   string
+	}{
+		{EngineSQLite, `INSERT INTO "users" ("name", "email") VALUES (?, ?)`},
+		{EnginePostgres, `INSERT INTO "users" ("name", "email") VALUES ($1, $2)`},
+		{EngineMySQL, "INSERT INTO `users` (`name`, `email`) VALUES (?, ?)"},
+	}
+	for _, tc := range cases {
+		st := InsertSQL(dialect(t, tc.engine), r)
+		if st.SQL != tc.want {
+			t.Errorf("%s: SQL = %q, want %q", tc.engine, st.SQL, tc.want)
+		}
+		if !slices.Equal(st.Args, []any{any("ada"), nil}) {
+			t.Errorf("%s: args = %v", tc.engine, st.Args)
+		}
+	}
+}
+
+// An insert that leaves every column to its default is still a valid
+// statement — and MySQL spells that differently from everyone else.
+func TestInsertSQLDefaultValues(t *testing.T) {
+	r := RowInsert{Table: "users"}
+	cases := []struct {
+		engine Engine
+		want   string
+	}{
+		{EngineSQLite, `INSERT INTO "users" DEFAULT VALUES`},
+		{EnginePostgres, `INSERT INTO "users" DEFAULT VALUES`},
+		{EngineDuckDB, `INSERT INTO "users" DEFAULT VALUES`},
+		{EngineMySQL, "INSERT INTO `users` () VALUES ()"},
+		{EngineMariaDB, "INSERT INTO `users` () VALUES ()"},
+	}
+	for _, tc := range cases {
+		st := InsertSQL(dialect(t, tc.engine), r)
+		if st.SQL != tc.want {
+			t.Errorf("%s: SQL = %q, want %q", tc.engine, st.SQL, tc.want)
+		}
+		if len(st.Args) != 0 {
+			t.Errorf("%s: args = %v, want none", tc.engine, st.Args)
+		}
+	}
+}
+
+// Row operations share the changeset with cell edits: they commit in
+// staging order, a delete is staged once, and staging it drops the
+// pending edits of the row it removes.
+func TestChangesetRowOperations(t *testing.T) {
+	cs := NewChangeset()
+	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(1)},
+		Column: "c", NewValue: "kept"})
+	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(2)},
+		Column: "c", NewValue: "doomed"})
+
+	del := RowDelete{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(2)}}
+	if !cs.StageDelete(del) {
+		t.Fatal("StageDelete reported the delete as already staged")
+	}
+	if cs.StageDelete(del) {
+		t.Fatal("StageDelete staged the same row twice")
+	}
+	if _, ok := cs.Lookup("", "t", []any{int64(2)}, "c"); ok {
+		t.Fatal("staging a delete kept the edits of the row it removes")
+	}
+	if _, ok := cs.Lookup("", "t", []any{int64(1)}, "c"); !ok {
+		t.Fatal("staging a delete dropped another row's edit")
+	}
+	if !cs.DeleteStaged("", "t", []any{int64(2)}) {
+		t.Fatal("DeleteStaged does not see the staged delete")
+	}
+
+	// Two identical inserts are two rows, not one replaced staging.
+	a := cs.StageInsert(RowInsert{Table: "t", Columns: []string{"c"}, Values: []any{"new"}})
+	b := cs.StageInsert(RowInsert{Table: "t", Columns: []string{"c"}, Values: []any{"new"}})
+	if a.ID == b.ID {
+		t.Fatal("two staged inserts share an id")
+	}
+	if got := cs.InsertsFor("", "t"); len(got) != 2 {
+		t.Fatalf("InsertsFor = %d, want both inserts", len(got))
+	}
+
+	// Commit order is staging order, and every kind renders itself.
+	stmts := cs.Statements(dialect(t, EngineSQLite))
+	wantSQL := []string{
+		`UPDATE "t" SET "c" = ? WHERE "id" = ?`,
+		`DELETE FROM "t" WHERE "id" = ?`,
+		`INSERT INTO "t" ("c") VALUES (?)`,
+		`INSERT INTO "t" ("c") VALUES (?)`,
+	}
+	if len(stmts) != len(wantSQL) {
+		t.Fatalf("statements = %d, want %d", len(stmts), len(wantSQL))
+	}
+	for i, want := range wantSQL {
+		if stmts[i].SQL != want {
+			t.Errorf("statement %d = %q, want %q", i, stmts[i].SQL, want)
+		}
+	}
+
+	// Unstaging is per operation.
+	if !cs.UnstageInsert("", "t", a.ID) {
+		t.Fatal("UnstageInsert missed a staged insert")
+	}
+	if !cs.UnstageDelete("", "t", []any{int64(2)}) {
+		t.Fatal("UnstageDelete missed the staged delete")
+	}
+	if cs.Len() != 2 {
+		t.Fatalf("Len = %d, want the remaining edit and insert", cs.Len())
+	}
+	if cs.PKColsFor("", "t") == nil {
+		t.Fatal("PKColsFor lost the key columns")
+	}
+}
+
+// A mixed changeset applies as one transaction.
+func TestExecTxMixedRowOperations(t *testing.T) {
+	ctx := context.Background()
+	drv := openTest(t, EngineSQLite, ":memory:")
+	seed(t, drv)
+	d := drv.Dialect()
+
+	cs := NewChangeset()
+	cs.Stage(CellChange{Table: "users", PKCols: []string{"id"}, PKVals: []any{int64(1)},
+		Column: "email", NewValue: "new@example.com"})
+	cs.StageDelete(RowDelete{Table: "users", PKCols: []string{"id"}, PKVals: []any{int64(2)}})
+	cs.StageInsert(RowInsert{Table: "users",
+		Columns: []string{"id", "name", "email"},
+		Values:  []any{int64(99), "zoe", nil}})
+
+	if _, err := drv.ExecTx(ctx, cs.Statements(d)); err != nil {
+		t.Fatalf("ExecTx: %v", err)
+	}
+	rs, err := drv.Query(ctx, "SELECT id, name, email FROM users ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.Rows[0][2]; got != "new@example.com" {
+		t.Errorf("row 1 email = %v, want the update applied", got)
+	}
+	for _, row := range rs.Rows {
+		if row[0] == int64(2) {
+			t.Error("the deleted row is still there")
+		}
+	}
+	last := rs.Rows[len(rs.Rows)-1]
+	if last[0] != int64(99) || last[1] != "zoe" || last[2] != nil {
+		t.Errorf("inserted row = %v, want (99, zoe, NULL)", last)
+	}
+}
+
 // Staging the same cell twice replaces the change and keeps the original
 // OldValue; unstaging removes exactly one cell.
 func TestChangesetStageReplaceUnstage(t *testing.T) {

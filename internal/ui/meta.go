@@ -59,11 +59,11 @@ type metaView struct {
 	// of each tab, so switching tabs back and forth keeps the position.
 	row [mainTabCount]int
 
-	// copyAfterLoad makes `y` work on a tab that has not been opened
-	// yet: the copy runs when the metadata lands. editAfterLoad does the
-	// same for `e`, which needs the primary key from the metadata.
-	copyAfterLoad bool
-	editAfterLoad bool
+	// afterLoad is the action to re-run once the metadata lands, so keys
+	// that need it work on a tab that has never been opened: `y` needs
+	// the DDL, and `e`/`d`/`n`/`D` need the primary key and the column
+	// list. actNone means nothing is waiting.
+	afterLoad actionID
 
 	req int
 }
@@ -223,7 +223,13 @@ func (m *Model) copyDDL() tea.Cmd {
 	// Nothing cached yet: fetch, then copy when the reply lands. `y`
 	// works from the Data tab too, where ensureMeta would not fetch, so
 	// the load is started directly.
-	m.meta.copyAfterLoad = true
+	return m.deferUntilMeta(actCopyDDL)
+}
+
+// deferUntilMeta parks an action until the metadata fetch lands and
+// starts that fetch when it is not already running.
+func (m *Model) deferUntilMeta(id actionID) tea.Cmd {
+	m.meta.afterLoad = id
 	if m.meta.loading {
 		return nil
 	}

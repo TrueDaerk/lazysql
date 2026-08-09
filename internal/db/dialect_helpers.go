@@ -117,6 +117,19 @@ func synthesizeDDL(d Dialect, database, table string, cols []Column, idx []Index
 	return b.String()
 }
 
+// defaultValuesClause is how an engine spells "insert a row and take
+// every column's default". PostgreSQL, SQLite and DuckDB accept the
+// standard DEFAULT VALUES; MySQL and MariaDB do not and want an empty
+// column list instead. The clause includes its leading space.
+func defaultValuesClause(d Dialect) string {
+	switch d.Engine() {
+	case EngineMySQL, EngineMariaDB:
+		return " () VALUES ()"
+	default:
+		return " DEFAULT VALUES"
+	}
+}
+
 // quoteAll quotes a column list for a parenthesized clause.
 func quoteAll(d Dialect, names []string) string {
 	out := make([]string, 0, len(names))

@@ -319,7 +319,7 @@ func TestWideTableScrollsHorizontally(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	m = next.(Model)
 
-	cols := m.buildGrid()
+	cols, _ := m.buildGrid()
 	start, end := columnWindow(cols, 0, 30)
 	if start != 0 || end >= len(cols) {
 		t.Fatalf("window at the first column = [%d,%d), want a partial window from 0", start, end)

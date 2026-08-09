@@ -47,6 +47,9 @@ type keyMap struct {
 
 	// Staged editing (Data tab).
 	EditCell       key.Binding
+	DeleteRow      key.Binding
+	InsertRow      key.Binding
+	DuplicateRow   key.Binding
 	CommitChanges  key.Binding
 	UnstageCell    key.Binding
 	DiscardChanges key.Binding
@@ -94,8 +97,11 @@ func newKeyMap() keyMap {
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 
 		EditCell:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
+		DeleteRow:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stage row delete")),
+		InsertRow:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "insert row")),
+		DuplicateRow:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "duplicate row")),
 		CommitChanges:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit staged changes")),
-		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage cell")),
+		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
 
 		PrevMainTab: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
@@ -119,7 +125,10 @@ func (k keyMap) global() []key.Binding {
 type actionID int
 
 const (
-	actConnect actionID = iota
+	// actNone is the zero value, so a struct field can mean "no action
+	// pending" without a second bool next to it.
+	actNone actionID = iota
+	actConnect
 	actNewConnection
 	actEditConnection
 	actDropConnection
@@ -137,6 +146,9 @@ const (
 	actWhereFilter
 	actViewCell
 	actEditCell
+	actDeleteRow
+	actInsertRow
+	actDuplicateRow
 	actCommitChanges
 	actUnstageCell
 	actDiscardChanges
@@ -191,6 +203,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actWhereFilter, k.WhereFilter},
 			{actViewCell, k.ViewCell},
 			{actEditCell, k.EditCell},
+			{actDeleteRow, k.DeleteRow},
+			{actInsertRow, k.InsertRow},
+			{actDuplicateRow, k.DuplicateRow},
 			{actCommitChanges, k.CommitChanges},
 			{actUnstageCell, k.UnstageCell},
 			{actDiscardChanges, k.DiscardChanges},

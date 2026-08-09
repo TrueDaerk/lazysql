@@ -18,7 +18,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Schema diff** — compare the schemas of two connections (`D` on a connection): tables, columns, indexes and foreign keys, with type synonyms normalized within one engine family.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
 - **Query editor** — free-form SQL with dialect-aware syntax highlighting, schema-aware autocomplete, history, result tabs, and cancellation.
-- **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file.
+- **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file; a table's DDL, or a whole database's DDL in foreign-key dependency order, to a `.sql` file.
 - **Command log** — every SQL statement the app executes is visible.
 - **SSH tunnels** — connect to remote databases through a jump host.
 - **Configurable** — keybindings and theme via config file.

@@ -124,6 +124,10 @@ type keyMap struct {
 	CopyMenu     key.Binding
 	ExportTable  key.Binding
 	CancelExport key.Binding
+	// ExportDatabaseDDL lives on the Tables panel, not the main view: it
+	// exports every relation of the browsed database in one file, rather
+	// than the one relation ExportTable is scoped to.
+	ExportDatabaseDDL key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -230,6 +234,8 @@ func newKeyMap() keyMap {
 		// then: the options bar and `?` both skip disabled bindings.
 		CancelExport: key.NewBinding(
 			key.WithKeys("X"), key.WithHelp("X", "cancel export"), key.WithDisabled()),
+		ExportDatabaseDDL: key.NewBinding(
+			key.WithKeys("E"), key.WithHelp("E", "export database DDL")),
 	}
 }
 
@@ -344,7 +350,9 @@ const (
 	actCopyTableInsert
 	actCopyTableSchema
 	actExportTable
+	actExportDDL
 	actCancelExport
+	actExportDatabaseDDL
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -376,6 +384,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
 			{actToggleTab, k.ToggleTab},
+			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 		}
 	case panelQuery:
 		return []action{
@@ -506,6 +515,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-main-tab", &k.PrevMainTab}, {"next-main-tab", &k.NextMainTab},
 
 		{"copy-menu", &k.CopyMenu}, {"export-table", &k.ExportTable}, {"cancel-export", &k.CancelExport},
+		{"export-database-ddl", &k.ExportDatabaseDDL},
 	}
 }
 

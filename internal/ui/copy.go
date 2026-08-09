@@ -291,6 +291,12 @@ func (m Model) copyActions(id actionID) (Model, tea.Cmd, bool) {
 	case actExportTable:
 		cmd := m.startExport()
 		return m, cmd, true
+	// actExportDDL is not bound to a key of its own — it is what a
+	// deferred DDL export (startDDLExport's cold-cache path) replays
+	// once the metadata lands, regardless of which tab is open by then.
+	case actExportDDL:
+		cmd := m.startDDLExport()
+		return m, cmd, true
 	case actCancelExport:
 		cmd := m.cancelExport()
 		return m, cmd, true

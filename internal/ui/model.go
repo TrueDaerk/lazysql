@@ -185,6 +185,13 @@ type Model struct {
 	// a time; `X` cancels it.
 	export exportState
 
+	// dbDDLExport guards a whole-database DDL export the same way: only
+	// one runs at a time. It has no cancel key of its own — one round
+	// trip per relation finishes long before a data export would — but
+	// resetBrowse still cancels it when the connection it reads through
+	// is closing.
+	dbDDLExport dbDDLExportState
+
 	// diff is the schema diff on screen (running or finished), nil when
 	// none. It dials its own connections, so it survives disconnects.
 	diff *diffView
@@ -316,6 +323,10 @@ func (m *Model) resetBrowse() {
 	// An export reads through the driver that is about to be closed.
 	if m.export.running && m.export.cancel != nil {
 		m.export.cancel()
+	}
+	// So does a whole-database DDL export.
+	if m.dbDDLExport.running && m.dbDDLExport.cancel != nil {
+		m.dbDDLExport.cancel()
 	}
 	// So does a running script.
 	if m.run.running && m.run.cancel != nil {
@@ -729,6 +740,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.finishExport(msg)
 		return m, cmd
 
+	case databaseDDLExportedMsg:
+		if msg.id != m.dbDDLExport.id {
+			return m, nil
+		}
+		cmd := m.finishDatabaseDDLExport(msg)
+		return m, cmd
+
 	case diffSecretMsg:
 		// Bind the command first: promptDiffSecrets mutates m (modal or
 		// diff state), and Go may otherwise copy the pre-call model.
@@ -1007,6 +1025,10 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		m.tableTab = (m.tableTab + 1) % relationTabCount
 		m.panels[panelTables].clearFilter()
 		m.refreshRelations()
+
+	case actExportDatabaseDDL:
+		cmd := m.startDatabaseDDLExport()
+		return m, cmd
 
 	case actHistory:
 		m.modal = newHistoryModal(m.history, m.sqlDialect())

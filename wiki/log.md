@@ -507,3 +507,29 @@ Chronological history of wiki changes, newest last.
   after, streams progress export-style over a channel, and renders a
   scrollable red/green/yellow report in the main view with `y` copy
   and `E` export. Report only — no migration SQL.
+
+
+## 2026-08-09 — DDL export to file, single table and whole database (issue #44)
+
+- New [design/ddl-export](design/ddl-export.md): `E` on the DDL tab
+  writes the cached `TableDDL` output verbatim to a `.sql` file,
+  bypassing the streaming export worker entirely — a `CREATE TABLE`
+  statement is small enough to write synchronously in the `tea.Cmd`
+  closure. `E` on the Tables panel (`[3]`) exports every relation of the
+  browsed database into one `.sql` file, `-- table: name` per relation,
+  ordered by the new `db.DDLOrder` (`internal/db/ddlorder.go`): Kahn's
+  algorithm with an alphabetical tie-break at every step, self-references
+  and out-of-set foreign keys dropped before ordering, and a genuine
+  cycle falling back to a fully alphabetical order with a note in the
+  file header rather than failing. A relation whose DDL cannot be read
+  does not abort the run — it is noted inline and tallied in the final
+  command-log line. Guarded by `Model.dbDDLExport` (`dbDDLExportState`),
+  mirroring `exportState`: `running` for the one-at-a-time guard, `id`
+  so a stale reply cannot clobber a run started since, `cancel` for
+  `resetBrowse` to call when the connection the scan reads through is
+  closing — but no `X` binding, since the round trip count is one pair
+  of calls per relation, not an unbounded row count. The cold-cache path
+  of the DDL-tab export now defers through a dedicated `actExportDDL`
+  rather than reusing `actExportTable`, so leaving the DDL tab while its
+  metadata fetch is still in flight cannot make the deferred replay open
+  the plain CSV/JSON/SQL export prompt instead.

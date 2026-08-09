@@ -240,18 +240,18 @@ func TestVimAppendColumn(t *testing.T) {
 
 // ---------- the mode layer over the panel ----------
 
-// editorAt focuses panel [5] in normal mode with the given script and the
+// editorAt focuses panel [4] in normal mode with the given script and the
 // cursor driven to the top.
 func editorAt(t *testing.T, script string) Model {
 	t.Helper()
 	m := sized(120, 40)
 	m.setScript(script)
-	m = send(t, m, press('5'))
+	m = send(t, m, press('4'))
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
 	if m.editor.editing {
-		t.Fatal("panel [5] gained focus in insert mode, want normal")
+		t.Fatal("panel [4] gained focus in insert mode, want normal")
 	}
 	return send(t, m, press('g'), press('g'))
 }
@@ -360,7 +360,7 @@ func TestDeleteCharUnderCursor(t *testing.T) {
 
 func TestPendingChordDoesNotSurviveLeavingThePanel(t *testing.T) {
 	m := editorAt(t, "one\ntwo")
-	m = send(t, m, press('d'), press('1'), press('5'), press('d'))
+	m = send(t, m, press('d'), press('1'), press('4'), press('d'))
 	if m.script() != "one\ntwo" {
 		t.Fatalf("a chord split across a panel detour deleted: %q", m.script())
 	}
@@ -406,7 +406,7 @@ func TestNormalModeHelpListsTheVimKeys(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("`?` for panel [5] is missing %q (has: %s)", want, joined)
+			t.Fatalf("`?` for panel [4] is missing %q (has: %s)", want, joined)
 		}
 	}
 }

@@ -14,7 +14,6 @@ const (
 	panelConnections panelID = iota
 	panelDatabases
 	panelTables
-	panelHistory
 	panelQuery
 	panelCount
 )
@@ -29,7 +28,6 @@ var panelTitles = [panelCount + 1]string{
 	"Connections",
 	"Databases",
 	"Tables",
-	"Query history",
 	"Query",
 	"Data",
 }

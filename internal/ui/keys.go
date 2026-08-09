@@ -48,17 +48,15 @@ type keyMap struct {
 	Actions        key.Binding
 	Filter         key.Binding
 	ToggleTab      key.Binding
-	LoadQuery      key.Binding
-	RunQuery       key.Binding
-	DeleteHistory  key.Binding
-	ClearHistory   key.Binding
 
-	// Query editor, panel [5]. EditQuery enters insert mode, where every
+	// Query editor, panel [4]. EditQuery enters insert mode, where every
 	// key that is not RunEditor, CancelQuery or Back types into the
-	// buffer; RunEditor executes it from either mode.
+	// buffer; RunEditor executes it from either mode. History opens the
+	// floating query-history pane from the editor's normal mode.
 	EditQuery  key.Binding
 	RunEditor  key.Binding
 	ClearQuery key.Binding
+	History    key.Binding
 
 	// Vim normal mode in the query editor. j/k/↑/↓ reuse Up and Down.
 	// The two-key commands (dd, yy, gg) are bound to their first key and
@@ -124,7 +122,7 @@ func newKeyMap() keyMap {
 		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "drill in")),
 		Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
-		Jump:      key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "jump to panel")),
+		Jump:      key.NewBinding(key.WithKeys("1", "2", "3", "4"), key.WithHelp("1-4", "jump to panel")),
 		NextPanel: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
 		PrevPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev panel")),
 
@@ -148,14 +146,11 @@ func newKeyMap() keyMap {
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
 		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
-		LoadQuery:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "load into editor")),
-		RunQuery:       key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "run query")),
-		DeleteHistory:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete entry")),
-		ClearHistory:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear history")),
 
 		EditQuery:  key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
 		RunEditor:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
+		History:    key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "query history")),
 
 		VimLeft:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
 		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
@@ -285,13 +280,10 @@ const (
 	actRefresh
 	actFilter
 	actToggleTab
-	actLoadQuery
-	actRunQuery
-	actDeleteHistory
-	actClearHistory
 	actEditQuery
 	actRunEditor
 	actClearQuery
+	actHistory
 	actColLeft
 	actColRight
 	actNextPage
@@ -355,19 +347,12 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actFilter, k.Filter},
 			{actToggleTab, k.ToggleTab},
 		}
-	case panelHistory:
-		return []action{
-			{actLoadQuery, k.LoadQuery},
-			{actRunQuery, k.RunQuery},
-			{actDeleteHistory, k.DeleteHistory},
-			{actClearHistory, k.ClearHistory},
-			{actFilter, k.Filter},
-		}
 	case panelQuery:
 		return []action{
 			{actEditQuery, k.EditQuery},
 			{actRunEditor, k.RunEditor},
 			{actClearQuery, k.ClearQuery},
+			{actHistory, k.History},
 		}
 	case panelMain:
 		return []action{
@@ -453,10 +438,10 @@ func (k *keyMap) slots() []bindingSlot {
 		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
 		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
-		{"toggle-tab", &k.ToggleTab}, {"load-query", &k.LoadQuery}, {"run-query", &k.RunQuery},
-		{"delete-history", &k.DeleteHistory}, {"clear-history", &k.ClearHistory},
+		{"toggle-tab", &k.ToggleTab},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor}, {"clear-query", &k.ClearQuery},
+		{"history", &k.History},
 
 		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},
 		{"vim-word-fwd", &k.VimWordFwd}, {"vim-word-back", &k.VimWordBack},

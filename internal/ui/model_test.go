@@ -119,7 +119,7 @@ func sized(w, h int) Model {
 
 func TestNumberKeysJumpToPanel(t *testing.T) {
 	m := sized(120, 40)
-	for i, r := range []rune{'2', '3', '4', '5', '1'} {
+	for i, r := range []rune{'2', '3', '4', '1'} {
 		m = send(t, m, press(r))
 		want := panelID(r - '1')
 		if m.focus != want {
@@ -472,11 +472,9 @@ func TestDrillInLogsAndRecordsHistory(t *testing.T) {
 	if m.focus != panelMain {
 		t.Fatalf("focus = %v, want the data grid", m.focus)
 	}
-	// The panel row is the timestamp plus the statement; the entry
-	// behind it holds the statement as it ran.
-	hist := m.panels[panelHistory].items
-	if len(hist) != 1 || !strings.Contains(hist[0], "SELECT * FROM ") {
-		t.Fatalf("history = %v, want one SELECT entry", hist)
+	// The entry holds the statement as it ran.
+	if len(m.history) != 1 || !strings.Contains(m.history[0].SQL, "SELECT * FROM ") {
+		t.Fatalf("history = %v, want one SELECT entry", m.history)
 	}
 	if !logContains(m, `SELECT * FROM "drill" LIMIT 100 OFFSET 0;`) {
 		t.Fatalf("command log = %v", m.commandLog)

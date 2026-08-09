@@ -265,13 +265,7 @@ func (m Model) mainContent(w, h int) string {
 	if m.focus == panelConnections {
 		return m.connectionDetail(w, h)
 	}
-	// Panel [4] shows the selected statement in full: the side column
-	// has room for one line of it and the engine and timestamp have to
-	// live somewhere.
-	if m.focus == panelHistory {
-		return m.historyDetail(w, h)
-	}
-	// Panel [5] edits here: the side column has room for a preview of the
+	// Panel [4] edits here: the side column has room for a preview of the
 	// buffer, not for typing in it.
 	if m.focus == panelQuery {
 		return m.queryContent(w, h)

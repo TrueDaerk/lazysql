@@ -97,6 +97,12 @@ type queryJob struct {
 	drv   db.Driver
 	stmts []string
 	ch    chan tea.Msg
+	// args are the bound parameters of a placeholder run. They only ever
+	// travel with a single statement — one value set cannot span a
+	// script — and display is then the statement as the user wrote it,
+	// placeholders and all, for the history and the Data tab.
+	args    []any
+	display string
 }
 
 // startQueryCmd launches the worker and blocks until its first message.
@@ -134,12 +140,15 @@ func (j queryJob) run() {
 			sql:   sql,
 			read:  db.ClassifyStatement(sql) == db.StatementRead,
 		}
+		if j.display != "" && len(j.stmts) == 1 {
+			out.sql = j.display
+		}
 		start := time.Now()
 		if out.read {
-			out.rs, out.truncated, out.err = j.drv.QueryLimit(j.ctx, sql, maxQueryRows)
+			out.rs, out.truncated, out.err = j.drv.QueryLimit(j.ctx, sql, maxQueryRows, j.args...)
 		} else {
 			var res db.ExecResult
-			res, out.err = j.drv.Exec(j.ctx, sql)
+			res, out.err = j.drv.Exec(j.ctx, sql, j.args...)
 			out.affected = res.RowsAffected
 		}
 		out.took = time.Since(start)
@@ -512,6 +521,36 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 		return logCmd("-- run query skipped: nothing to run")
 	}
 
+	// A single statement with placeholders — a positional `?` or a named
+	// `:name`, detected by the tokenizer so a `?` inside a string or a
+	// `::type` cast does not count — prompts for its values first and runs
+	// as a prepared statement with them bound as parameters. Multi-statement
+	// scripts skip the prompt: one value set cannot span statements, so
+	// they run as written.
+	if len(stmts) == 1 {
+		if phs := db.ExtractPlaceholders(m.driver.Engine(), stmts[0]); len(phs) > 0 {
+			stmt := stmts[0]
+			m.modal = newParamsModal(stmt, m.sqlDialect(), phs,
+				func(mm *Model, values []string) tea.Cmd {
+					bound, args, err := db.BindPlaceholders(
+						mm.driver.Dialect(), mm.driver.Engine(), stmt, values)
+					if err != nil {
+						return logCmd("-- run query FAILED: %v", err)
+					}
+					return mm.vetQuery([]string{bound}, args, stmt)
+				})
+			return nil
+		}
+	}
+	return m.vetQuery(stmts, nil, "")
+}
+
+// vetQuery is the tail of submitQuery once the statements and their bound
+// arguments are final: confirm an unguarded write, then start the worker.
+// display, when non-empty, is the statement as the user wrote it — with
+// its `?`/`:name` placeholders — which is what the history and the Data
+// tab show instead of the dialect-rewritten text.
+func (m *Model) vetQuery(stmts []string, args []any, display string) tea.Cmd {
 	// Ordinary DML/DDL — INSERT, CREATE TABLE, a DELETE or UPDATE that
 	// already carries WHERE or LIMIT — just runs: it is logged to the
 	// command log like any other statement, and asking every time only
@@ -520,13 +559,13 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	// every row in its table.
 	unguarded := db.FindUnguardedWrites(m.driver.Engine(), stmts)
 	if len(unguarded) == 0 {
-		return m.startQuery(stmts)
+		return m.startQuery(stmts, args, display)
 	}
 	m.modal = &confirmModal{
 		title:     unguardedWriteTitle(unguarded),
 		body:      unguardedWriteBody(unguarded, m.active),
 		danger:    true,
-		onConfirm: func(mm *Model) tea.Cmd { return mm.startQuery(stmts) },
+		onConfirm: func(mm *Model) tea.Cmd { return mm.startQuery(stmts, args, display) },
 	}
 	return nil
 }
@@ -562,7 +601,9 @@ func unguardedWriteBody(ws []db.UnguardedWrite, active string) string {
 }
 
 // startQuery launches the worker for an already-vetted statement list.
-func (m *Model) startQuery(stmts []string) tea.Cmd {
+// args, when non-nil, are the bound parameters of a single-statement run;
+// display is the statement as typed, for the history and the Data tab.
+func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	if m.driver == nil || len(stmts) == 0 {
 		return nil
 	}
@@ -580,7 +621,10 @@ func (m *Model) startQuery(stmts []string) tea.Cmd {
 	}
 	m.keys.CancelQuery.SetEnabled(true)
 
-	job := queryJob{id: m.run.id, ctx: ctx, drv: m.driver, stmts: stmts, ch: m.run.ch}
+	job := queryJob{
+		id: m.run.id, ctx: ctx, drv: m.driver, stmts: stmts, ch: m.run.ch,
+		args: args, display: display,
+	}
 	return tea.Batch(
 		logCmd("-- run %s on %s…", countStatements(len(stmts)), m.active),
 		startQueryCmd(job),
@@ -889,5 +933,5 @@ func (m Model) editorHint() string {
 	case m.editor.editing:
 		return "ctrl+r run · ctrl+space complete · esc normal mode"
 	}
-	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · D clear · esc back"
+	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · backspace history · D clear · esc back"
 }

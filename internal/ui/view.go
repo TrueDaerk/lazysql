@@ -153,6 +153,9 @@ func (m Model) mainContent(w, h int) string {
 		return m.connectionDetail(w, h)
 	}
 	if m.data.open() {
+		if m.tab.metadata() {
+			return m.metaContent(w, h)
+		}
 		return m.dataContent(w, h)
 	}
 	if m.focus >= panelCount {

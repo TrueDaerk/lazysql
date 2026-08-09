@@ -91,7 +91,62 @@ func (d sqliteDialect) tableColumns(ctx context.Context, q querier, database, ta
 			PrimaryKey: pk > 0,
 		})
 	}
-	return cols, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	markSQLiteAutoincrement(ctx, d, q, database, table, cols)
+	return cols, nil
+}
+
+// markSQLiteAutoincrement fills in the Extra note for an AUTOINCREMENT
+// primary key. PRAGMA table_info does not report the keyword at all —
+// it exists only in the stored CREATE TABLE text — so the DDL is read
+// back to find it. A failure here costs a display detail and nothing
+// else, so the error is dropped rather than failing the whole listing.
+func markSQLiteAutoincrement(ctx context.Context, d sqliteDialect, q querier, database, table string, cols []Column) {
+	ddl, err := d.tableDDL(ctx, q, database, table)
+	if err != nil || !strings.Contains(strings.ToUpper(ddl), "AUTOINCREMENT") {
+		return
+	}
+	// AUTOINCREMENT is only legal on a single INTEGER PRIMARY KEY.
+	for i := range cols {
+		if cols[i].PrimaryKey && strings.EqualFold(cols[i].DataType, "INTEGER") {
+			cols[i].Extra = "autoincrement"
+			return
+		}
+	}
+}
+
+func (d sqliteDialect) tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error) {
+	rows, err := q.QueryContext(ctx,
+		fmt.Sprintf(`PRAGMA %s.foreign_key_list(%s)`, sqliteSchema(d, database), d.QuoteIdent(table)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var fks []ForeignKey
+	for rows.Next() {
+		// id groups the columns of one constraint; seq is their order.
+		var id, seq int64
+		var refTable, from, onUpdate, onDelete, match string
+		var to *string
+		if err := rows.Scan(&id, &seq, &refTable, &from, &to, &onUpdate, &onDelete, &match); err != nil {
+			return nil, err
+		}
+		// PRAGMA foreign_key_list never reports a constraint name, so
+		// the id doubles as one and as the grouping key.
+		fk := ForeignKey{
+			Name:     fmt.Sprintf("fk_%d", id),
+			RefTable: refTable,
+			OnUpdate: onUpdate,
+			OnDelete: onDelete,
+		}
+		// A NULL "to" means the reference targets the referenced
+		// table's primary key implicitly.
+		fks = appendFKColumn(fks, fk, from, derefOr(to, ""))
+	}
+	return fks, rows.Err()
 }
 
 func (d sqliteDialect) tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error) {

@@ -166,6 +166,10 @@ func countRowsCmd(drv db.Driver, d dataView, req int) tea.Cmd {
 // sort belong to the relation that was open, so they do not carry over.
 func (m *Model) openTable(name string) tea.Cmd {
 	m.table = name
+	// The metadata described the relation being closed. The selected
+	// tab survives — walking a table list with Structure open is the
+	// point of the tabs — but its contents and scroll positions do not.
+	m.resetMeta()
 	if m.driver == nil {
 		m.data = dataView{}
 		return logCmd("-- open %s skipped: not connected", name)
@@ -176,7 +180,9 @@ func (m *Model) openTable(name string) tea.Cmd {
 		table:    name,
 		req:      m.data.req,
 	}
-	return m.reloadPage()
+	// The Data tab always loads: it backs the row count in the status
+	// line and is where `esc`-and-back lands.
+	return tea.Batch(m.reloadPage(), m.ensureMeta())
 }
 
 // reloadPage re-runs the page query and the count for the current
@@ -290,10 +296,16 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.Down):
+		if m.tab.metadata() {
+			return m.updateMetaKeys(1)
+		}
 		m.data.row++
 		m.data.clampCursor()
 		return m, nil
 	case key.Matches(msg, k.Up):
+		if m.tab.metadata() {
+			return m.updateMetaKeys(-1)
+		}
 		m.data.row--
 		m.data.clampCursor()
 		return m, nil
@@ -301,8 +313,13 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focusBack()
 		return m, nil
 	case key.Matches(msg, k.Enter):
-		// enter re-runs the page: the relation is already open, so the
-		// only thing left to drill into is fresh data.
+		// enter re-runs whatever the visible tab shows: the relation is
+		// already open, so the only thing left to drill into is fresh
+		// data.
+		if m.tab.metadata() {
+			cmd := m.reloadMeta()
+			return m, cmd
+		}
 		cmd := m.reloadPage()
 		return m, cmd
 	case key.Matches(msg, k.Actions):

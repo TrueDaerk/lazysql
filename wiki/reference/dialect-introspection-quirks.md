@@ -26,6 +26,16 @@ sources:
   relation-kind column costs nothing.
 - Original DDL comes from `sqlite_master.sql` (NULL for auto-created
   indexes — filter `sql IS NOT NULL`).
+- `AUTOINCREMENT` is reported by **nothing**: not `table_info`, not
+  `index_list`. It exists only in the stored `sqlite_master.sql` text,
+  so `tableColumns` reads the DDL back and marks the single
+  `INTEGER PRIMARY KEY` column when the keyword appears. A failure
+  there is dropped — it costs a display note, not the column list.
+- `PRAGMA foreign_key_list` names no constraint: the columns are
+  `(id, seq, table, from, to, on_update, on_delete, match)`, `id`
+  groups the columns of one constraint and doubles as its display name.
+  `to` is NULL when the reference targets the referenced table's
+  primary key implicitly.
 - In-memory DSN: `:memory:`.
 
 ## DuckDB (`marcboeker/go-duckdb/v2`, driver name `duckdb`)
@@ -48,6 +58,12 @@ sources:
   — there is no catalog column to read the kind from. Each branch needs
   its own copy of the `database_name` argument.
 - `duckdb_tables().sql` / `duckdb_views().sql` hold reconstructed DDL.
+- Foreign keys come from `duckdb_constraints()` with
+  `constraint_type = 'FOREIGN KEY'`, but the **referenced** table and
+  columns are only spelled inside `constraint_text`
+  (`FOREIGN KEY (user_id) REFERENCES users(id)`) — and the catalog's
+  own reference columns have changed names between DuckDB versions, so
+  parsing that text is the version-independent route.
 
 ## PostgreSQL (`jackc/pgx/v5/stdlib`, driver name `pgx`)
 
@@ -57,7 +73,20 @@ sources:
   `VIEW`, `FOREIGN`, `LOCAL TEMPORARY` — match on "contains view"
   rather than equality.
 - No stored CREATE TABLE text; DDL is synthesized from
-  `information_schema.columns`.
+  `information_schema.columns` plus the introspected indexes and
+  foreign keys. It is a faithful description, not a byte-identical
+  replay of the original statement.
+- Foreign keys: `pg_constraint` with `contype = 'f'`. `conkey` and
+  `confkey` are positionally paired arrays, so unnest them **together**
+  — `JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY` — or the
+  column pairing is lost.
+- `confupdtype`/`confdeltype` are single chars (`a` no action,
+  `r` restrict, `c` cascade, `n` set null, `d` set default) of the
+  internal `"char"` type; cast them `::text` so the pgx decoder stays
+  on the plain-string path.
+- Column "extra": `is_identity` + `identity_generation` (PG 10+),
+  `is_generated` (PG 12+), and the older `serial` types, which show up
+  only as a `nextval(...)` column default.
 - Primary key / index columns via `pg_index` with
   `to_regclass($1)` on the quoted `schema.table` string — pass the
   qualified name as a **value**, quoting each part with `QuoteIdent`.
@@ -73,3 +102,15 @@ sources:
   different column set for views; scan positionally.
 - Primary key detection: `columns.column_key = 'PRI'`; the PK index in
   `statistics` is always named `PRIMARY`.
+- `information_schema.columns.extra` is where `auto_increment`,
+  `DEFAULT_GENERATED` and `STORED GENERATED` live.
+- Foreign keys need **two** tables: `key_column_usage` for the column
+  pairs in key order (`referenced_table_name IS NOT NULL` filters out
+  plain unique/primary rows) and `referential_constraints` for the
+  `update_rule`/`delete_rule`. Join on schema **and** constraint name;
+  the extra `table_name` predicate is defensive — InnoDB keeps foreign
+  key names unique per schema, but the join costs nothing and pins the
+  row to the table being introspected.
+- `key_column_usage.referenced_table_schema` is worth selecting: a
+  constraint may point at a table in another schema, and the UI shows
+  the qualified name only then.

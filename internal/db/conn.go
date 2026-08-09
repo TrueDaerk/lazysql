@@ -100,6 +100,14 @@ func (c *conn) TableIndexes(ctx context.Context, database, table string) ([]Inde
 	return c.dialect.tableIndexes(ctx, q, database, table)
 }
 
+func (c *conn) TableForeignKeys(ctx context.Context, database, table string) ([]ForeignKey, error) {
+	q, err := c.q()
+	if err != nil {
+		return nil, err
+	}
+	return c.dialect.tableForeignKeys(ctx, q, database, table)
+}
+
 func (c *conn) TableDDL(ctx context.Context, database, table string) (string, error) {
 	q, err := c.q()
 	if err != nil {

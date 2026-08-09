@@ -48,8 +48,10 @@ func scanRelations(ctx context.Context, q querier, query string, args ...any) ([
 }
 
 // synthesizeDDL builds a CREATE TABLE statement from introspected
-// columns, for engines that do not store the original DDL.
-func synthesizeDDL(d Dialect, database, table string, cols []Column) string {
+// metadata, for engines that do not store the original DDL. Indexes and
+// foreign keys may be nil; the primary-key index is skipped because the
+// PRIMARY KEY clause already carries it.
+func synthesizeDDL(d Dialect, database, table string, cols []Column, idx []Index, fks []ForeignKey) string {
 	var b strings.Builder
 	b.WriteString("CREATE TABLE ")
 	b.WriteString(qualifiedTable(d, database, table))
@@ -79,6 +81,85 @@ func synthesizeDDL(d Dialect, database, table string, cols []Column) string {
 		b.WriteString(strings.Join(pk, ", "))
 		b.WriteString(")")
 	}
+	for _, fk := range fks {
+		b.WriteString(",\n  ")
+		if fk.Name != "" {
+			b.WriteString("CONSTRAINT " + d.QuoteIdent(fk.Name) + " ")
+		}
+		b.WriteString("FOREIGN KEY (" + quoteAll(d, fk.Columns) + ")")
+		b.WriteString(" REFERENCES " + quoteQualified(d, fk.RefTable))
+		if len(fk.RefColumns) > 0 {
+			b.WriteString(" (" + quoteAll(d, fk.RefColumns) + ")")
+		}
+		if act := referentialAction(fk.OnDelete); act != "" {
+			b.WriteString(" ON DELETE " + act)
+		}
+		if act := referentialAction(fk.OnUpdate); act != "" {
+			b.WriteString(" ON UPDATE " + act)
+		}
+	}
 	b.WriteString("\n);")
+
+	// Secondary indexes are separate statements in every dialect that
+	// needs a synthesized DDL.
+	for _, ix := range idx {
+		if ix.Primary || len(ix.Columns) == 0 {
+			continue
+		}
+		b.WriteString("\n\nCREATE ")
+		if ix.Unique {
+			b.WriteString("UNIQUE ")
+		}
+		b.WriteString("INDEX " + d.QuoteIdent(ix.Name) + " ON ")
+		b.WriteString(qualifiedTable(d, database, table))
+		b.WriteString(" (" + quoteAll(d, ix.Columns) + ");")
+	}
 	return b.String()
+}
+
+// quoteAll quotes a column list for a parenthesized clause.
+func quoteAll(d Dialect, names []string) string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, d.QuoteIdent(n))
+	}
+	return strings.Join(out, ", ")
+}
+
+// quoteQualified quotes a possibly schema-qualified table name, so
+// "other.users" becomes two quoted parts rather than one odd identifier.
+func quoteQualified(d Dialect, name string) string {
+	parts := strings.Split(name, ".")
+	for i, p := range parts {
+		parts[i] = d.QuoteIdent(p)
+	}
+	return strings.Join(parts, ".")
+}
+
+// referentialAction normalizes an ON UPDATE/ON DELETE rule for display
+// and for generated DDL. The default rule contributes no clause.
+func referentialAction(rule string) string {
+	rule = strings.ToUpper(strings.TrimSpace(rule))
+	if rule == "" || rule == "NO ACTION" {
+		return ""
+	}
+	return rule
+}
+
+// appendFKColumn accumulates row-per-column foreign key listings: rows
+// arrive ordered by constraint and key position, so a row either
+// extends the constraint being built or starts a new one.
+func appendFKColumn(fks []ForeignKey, fk ForeignKey, col, refCol string) []ForeignKey {
+	if n := len(fks); n > 0 && fks[n-1].Name == fk.Name && fks[n-1].RefTable == fk.RefTable {
+		fks[n-1].Columns = append(fks[n-1].Columns, col)
+		if refCol != "" {
+			fks[n-1].RefColumns = append(fks[n-1].RefColumns, refCol)
+		}
+		return fks
+	}
+	fk.Columns = []string{col}
+	if refCol != "" {
+		fk.RefColumns = []string{refCol}
+	}
+	return append(fks, fk)
 }

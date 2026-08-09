@@ -138,7 +138,7 @@ func rowWindow(n, cursor, rows int) (start, end int) {
 // dataContent renders the main view's Data tab into a w x h content box.
 func (m Model) dataContent(w, h int) string {
 	d := m.data
-	lines := []string{m.dataTitle(w)}
+	lines := []string{m.mainTabBar(w)}
 
 	// header (2 lines) + status (1 line) + the title already written
 	bodyRows := h - 4
@@ -178,20 +178,6 @@ func (m Model) dataContent(w, h int) string {
 		body += strings.Repeat("\n", pad)
 	}
 	return body + "\n" + truncate(m.dataStatus(), w)
-}
-
-// dataTitle is the tab strip of the main view plus the relation and its
-// load state.
-func (m Model) dataTitle(w int) string {
-	title := m.style.titleFocused.Render("Data")
-	if m.focus != panelMain {
-		title = m.style.title.Render("Data")
-	}
-	line := title + m.style.muted.Render(" — "+displayDatabase(m.data.database)+".") + m.data.table
-	if m.data.loading {
-		line += " " + m.style.pending.Render("loading…")
-	}
-	return truncate(line, w)
 }
 
 // gridHeader renders the column names and, under them, their types.

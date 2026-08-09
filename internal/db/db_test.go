@@ -36,6 +36,11 @@ func seed(t *testing.T, drv Driver) {
 		)`,
 		`CREATE INDEX idx_users_name ON users (name)`,
 		`CREATE VIEW named_users AS SELECT id, name FROM users`,
+		// orders exists so the Indexes tab has a foreign key to show.
+		`CREATE TABLE orders (
+			id INTEGER PRIMARY KEY,
+			user_id INTEGER NOT NULL REFERENCES users (id)
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := drv.Exec(ctx, s); err != nil {
@@ -146,6 +151,39 @@ func engineSuite(t *testing.T, engine Engine, dsn string) {
 		}
 		if !found {
 			t.Fatalf("idx_users_name not in %+v", idx)
+		}
+	})
+
+	// The Indexes tab lists foreign keys under the indexes, so every
+	// engine has to report the referenced table and columns.
+	t.Run("TableForeignKeys", func(t *testing.T) {
+		fks, err := drv.TableForeignKeys(ctx, "", "orders")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(fks) != 1 {
+			t.Fatalf("got %d foreign keys, want 1: %+v", len(fks), fks)
+		}
+		fk := fks[0]
+		if !slices.Equal(fk.Columns, []string{"user_id"}) {
+			t.Errorf("columns = %v, want [user_id]", fk.Columns)
+		}
+		if fk.RefTable != "users" {
+			t.Errorf("referenced table = %q, want users", fk.RefTable)
+		}
+		if !slices.Equal(fk.RefColumns, []string{"id"}) {
+			t.Errorf("referenced columns = %v, want [id]", fk.RefColumns)
+		}
+	})
+
+	// A table without foreign keys reports none rather than failing.
+	t.Run("TableForeignKeysNone", func(t *testing.T) {
+		fks, err := drv.TableForeignKeys(ctx, "", "users")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(fks) != 0 {
+			t.Fatalf("got %+v, want no foreign keys", fks)
 		}
 	})
 

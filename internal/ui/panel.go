@@ -15,6 +15,7 @@ const (
 	panelDatabases
 	panelTables
 	panelHistory
+	panelQuery
 	panelCount
 )
 
@@ -29,6 +30,7 @@ var panelTitles = [panelCount + 1]string{
 	"Databases",
 	"Tables",
 	"Query history",
+	"Query",
 	"Data",
 }
 

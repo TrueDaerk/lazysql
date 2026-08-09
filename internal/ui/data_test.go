@@ -372,13 +372,13 @@ func TestStalePageReplyIsIgnored(t *testing.T) {
 	}
 }
 
-// With a relation open the grid joins the tab cycle after [4]; without
+// With a relation open the grid joins the tab cycle after [5]; without
 // one, tab skips it.
 func TestTabCycleIncludesTheGridWhenOpen(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('4'), special(tea.KeyTab, 0))
+	m = send(t, m, press('5'), special(tea.KeyTab, 0))
 	if m.focus != panelMain {
-		t.Fatalf("focus = %v, want the grid after [4]", m.focus)
+		t.Fatalf("focus = %v, want the grid after [5]", m.focus)
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
 	if m.focus != panelConnections {
@@ -390,7 +390,7 @@ func TestTabCycleIncludesTheGridWhenOpen(t *testing.T) {
 	}
 
 	m.data = dataView{}
-	m.focus = panelHistory
+	m.focus = panelQuery
 	m = send(t, m, special(tea.KeyTab, 0))
 	if m.focus != panelConnections {
 		t.Fatalf("focus = %v, want tab to skip a closed grid", m.focus)

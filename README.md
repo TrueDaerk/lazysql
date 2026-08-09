@@ -33,15 +33,17 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 │ ▸ users          ││                                           │
 │   orders         │├─Command log───────────────────────────────┤
 ├─[4] Query history┤│ SELECT * FROM users LIMIT 100;            │
+├─[5] Query────────┤│                                           │
+│ SELECT * FROM u… ││                                           │
 └──────────────────┘└───────────────────────────────────────────┘
- 1-4 jump  tab cycle  enter open  e edit  d delete  ? help  q quit
+ 1-5 jump  tab cycle  enter open  e edit  d delete  ? help  q quit
 ```
 
 ## Key bindings (core)
 
 | Key | Action |
 |-----|--------|
-| `1`–`4` | Jump to panel |
+| `1`–`5` | Jump to panel |
 | `tab` / `shift+tab` | Cycle panels |
 | `j`/`k`, `↑`/`↓` | Move within panel |
 | `enter` | Drill in / open |
@@ -50,7 +52,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 | `d` | Delete row (confirm) |
 | `n` | New (connection/row, context-sensitive) |
 | `y` | Copy (cell/row/table submenu) |
-| `:` | Open SQL query editor |
+| `:` | Focus the SQL query editor, panel `[5]` |
 | `c` | Commit staged changes |
 | `?` | Help / all bindings |
 | `q` | Quit |
@@ -65,14 +67,29 @@ In the data grid (`enter` on a table, `esc` back):
 | `f` | Quick `WHERE` filter |
 | `v` | Show the full cell value (JSON pretty-printed) |
 
-In the query editor (`:` from anywhere):
+The query editor is panel `[5]`, not a popup: it stays in the layout, and
+running a script never closes it or clears the buffer. It has two modes.
+In normal mode the panel's own keys apply:
 
 | Key | Action |
 |-----|--------|
-| `ctrl+r` | Run the script |
-| `enter` | New line |
-| `esc` | Close, keeping the draft |
+| `i` / `enter` | Start editing (insert mode) |
+| `ctrl+r` | Run the buffer |
+| `D` | Clear the buffer (confirms first) |
+| `j`/`k` | Move the cursor between lines |
+| `esc` | Back to the previous panel, buffer kept |
+
+In insert mode every key types into the buffer except:
+
+| Key | Action |
+|-----|--------|
+| `ctrl+r` | Run the buffer (returns to normal mode) |
+| `esc` | Back to normal mode, buffer kept |
 | `ctrl+c` | Cancel the running query |
+
+With a query result on screen the grid's own keys (paging, `v`, the tabs)
+work straight from the editor panel in normal mode, so iterating on a
+statement never costs the editor its focus.
 
 Several statements separated by `;` run in order; the result of the last
 `SELECT` is what the Data tab shows, and anything that changes data asks

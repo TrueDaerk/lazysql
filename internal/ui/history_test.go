@@ -43,15 +43,15 @@ func TestHistoryPanelListsNewestFirst(t *testing.T) {
 func TestHistoryEnterLoadsIntoTheEditor(t *testing.T) {
 	m := withHistory(t)
 	m = send(t, m, press('j'), special(tea.KeyEnter, 0))
-	qm, ok := m.modal.(*queryModal)
-	if !ok {
-		t.Fatalf("enter opened %T, want the query editor", m.modal)
+	if m.focus != panelQuery {
+		t.Fatalf("enter left focus on %v, want the query panel", m.focus)
 	}
-	if qm.area.Value() != "UPDATE t SET a = 1" {
-		t.Fatalf("editor holds %q, want the selected entry", qm.area.Value())
+	if m.script() != "UPDATE t SET a = 1" {
+		t.Fatalf("editor holds %q, want the selected entry", m.script())
 	}
-	if m.draft != "UPDATE t SET a = 1" {
-		t.Fatalf("draft = %q, want the loaded statement", m.draft)
+	// A recalled statement is meant to be run, not typed over.
+	if m.editor.editing {
+		t.Fatal("loading a statement started insert mode")
 	}
 	// Loading is not running.
 	if logContains(m, "rows affected") {

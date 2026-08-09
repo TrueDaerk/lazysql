@@ -37,41 +37,168 @@ func queryable(t *testing.T) Model {
 	return m
 }
 
-// runQuery types a script into the editor and runs it.
+// runQuery types a script into the editor panel and runs it.
 func runQuery(t *testing.T, m Model, script string) Model {
 	t.Helper()
 	m = send(t, m, press(':'))
-	qm, ok := m.modal.(*queryModal)
-	if !ok {
-		t.Fatalf("`:` opened %T, want the query editor", m.modal)
+	if m.focus != panelQuery || !m.editor.editing {
+		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [5]",
+			m.focus, m.editor.editing)
 	}
-	qm.area.SetValue(script)
+	m.setScript(script)
 	return send(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
 }
 
-func TestColonOpensTheQueryEditorWithTheDraft(t *testing.T) {
+func TestColonFocusesTheEditorPanelWithTheBuffer(t *testing.T) {
 	m := sized(120, 40)
-	m.draft = "SELECT 1"
+	m.setScript("SELECT 1")
 	m = send(t, m, press(':'))
-	qm, ok := m.modal.(*queryModal)
-	if !ok {
-		t.Fatalf("`:` opened %T, want *queryModal", m.modal)
+	if m.modal != nil {
+		t.Fatalf("`:` opened %T, want the persistent panel", m.modal)
 	}
-	if qm.area.Value() != "SELECT 1" {
-		t.Fatalf("editor opened on %q, want the kept draft", qm.area.Value())
+	if m.focus != panelQuery {
+		t.Fatalf("focus = %v, want the query panel", m.focus)
+	}
+	if !m.editor.editing {
+		t.Fatal("`:` did not start insert mode")
+	}
+	if m.script() != "SELECT 1" {
+		t.Fatalf("editor holds %q, want the kept buffer", m.script())
 	}
 }
 
-func TestEscKeepsTheDraft(t *testing.T) {
+func TestDigitFiveFocusesTheEditorPanel(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('5'))
+	if m.focus != panelQuery {
+		t.Fatalf("focus = %v, want the query panel", m.focus)
+	}
+	// `5` jumps to the panel, it does not start typing: the panel's own
+	// keys have to stay reachable.
+	if m.editor.editing {
+		t.Fatal("`5` started insert mode")
+	}
+	if out := m.View().Content; !strings.Contains(out, "[5] Query") {
+		t.Fatalf("the layout has no [5] Query panel:\n%s", out)
+	}
+}
+
+func TestEscLeavesInsertModeAndKeepsTheBuffer(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'))
-	m.modal.(*queryModal).area.SetValue("SELECT 42")
-	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.modal != nil {
-		t.Fatalf("esc left %T open", m.modal)
+	m = send(t, m, press('S'), press('E'), press('L'))
+	if m.script() != "SEL" {
+		t.Fatalf("buffer = %q, want the typed text", m.script())
 	}
-	if m.draft != "SELECT 42" {
-		t.Fatalf("draft = %q, want the text esc was pressed on", m.draft)
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.editor.editing {
+		t.Fatal("esc did not leave insert mode")
+	}
+	if m.focus != panelQuery {
+		t.Fatalf("focus = %v, want to stay on the panel", m.focus)
+	}
+	if m.script() != "SEL" {
+		t.Fatalf("buffer = %q, want esc to keep it", m.script())
+	}
+	// A second esc backs out of the panel, still without losing the text.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.focus == panelQuery {
+		t.Fatal("esc in normal mode did not back out of the panel")
+	}
+	if m.script() != "SEL" {
+		t.Fatalf("buffer = %q, want it to survive leaving the panel", m.script())
+	}
+}
+
+// Insert mode has to swallow the keys that would otherwise quit, jump or
+// open a modal — they are ordinary characters in a statement.
+func TestInsertModeSwallowsGlobalKeys(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press(':'))
+	m = send(t, m, press('q'), press('?'), press('2'))
+	if m.script() != "q?2" {
+		t.Fatalf("buffer = %q, want the global keys typed into it", m.script())
+	}
+	if m.modal != nil {
+		t.Fatalf("a key typed into the buffer opened %T", m.modal)
+	}
+	if m.focus != panelQuery {
+		t.Fatalf("focus = %v, want the query panel", m.focus)
+	}
+}
+
+func TestRunKeepsTheEditorOpenWithItsContent(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id FROM q ORDER BY id")
+	if m.script() != "SELECT id FROM q ORDER BY id" {
+		t.Fatalf("buffer = %q, want it unchanged by the run", m.script())
+	}
+	if m.focus != panelQuery {
+		t.Fatalf("focus = %v, want to stay in the editor", m.focus)
+	}
+	// The run ends insert mode so the result is navigable straight away.
+	if m.editor.editing {
+		t.Fatal("ctrl+r stayed in insert mode")
+	}
+	if !m.data.isQuery() || len(m.data.rows) != 3 {
+		t.Fatalf("the result did not land in the main view: %#v", m.data)
+	}
+	// The main view shows both the buffer and the result.
+	out := m.mainContent(100, 24)
+	if !strings.Contains(out, "SELECT id FROM q") {
+		t.Fatalf("the editor is missing from the main view:\n%s", out)
+	}
+	if !strings.Contains(out, "id") {
+		t.Fatalf("the result is missing from the main view:\n%s", out)
+	}
+}
+
+// Running from the history panel must not overwrite what is being
+// written in the editor.
+func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {
+	m := queryable(t)
+	m.setScript("SELECT 1")
+	m = runQuery(t, m, "SELECT id FROM q")
+	m = send(t, m, press('4'), press('x'))
+	if m.script() != "SELECT id FROM q" {
+		t.Fatalf("buffer = %q, want the history run to leave it alone", m.script())
+	}
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the grid for a run started outside the editor", m.focus)
+	}
+}
+
+// `D` on the editor panel asks before it throws work away.
+func TestClearBufferAsksFirst(t *testing.T) {
+	m := sized(120, 40)
+	m.setScript("SELECT 1")
+	m = send(t, m, press('5'), press('D'))
+	if _, ok := m.modal.(*confirmModal); !ok {
+		t.Fatalf("D opened %T, want a confirm modal", m.modal)
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.script() != "SELECT 1" {
+		t.Fatalf("buffer = %q, want the declined clear to keep it", m.script())
+	}
+	m = send(t, m, press('D'), special(tea.KeyEnter, 0))
+	if m.script() != "" {
+		t.Fatalf("buffer = %q, want it cleared", m.script())
+	}
+}
+
+// Every key the editor panel advertises is documented in `?`, in both
+// modes.
+func TestEditorKeysAreDocumented(t *testing.T) {
+	k := newKeyMap()
+	documented := map[string]bool{}
+	for _, group := range k.helpGroups(panelQuery) {
+		for _, b := range group {
+			documented[b.Help().Key] = true
+		}
+	}
+	for _, b := range append(k.optionsBarBindings(panelQuery), k.editorInsert()...) {
+		if !documented[b.Help().Key] {
+			t.Errorf("the options bar shows %q which `?` omits", b.Help().Key)
+		}
 	}
 }
 

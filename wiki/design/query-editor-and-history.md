@@ -12,12 +12,16 @@ generated:
 
 ## Decision
 
-`:` opens a centered modal holding a Bubbles `textarea`. `ctrl+r` (and
-`ctrl+enter`, for the terminals that send it) runs the script, `esc`
-closes it and keeps the draft on the model, and `ctrl+c` aborts a run.
-Results land in the existing main-view **Data** tab, next to the browsing
-pages, and every executed statement is appended to `[4] Query history`,
-which is backed by a file so it survives a restart.
+`ctrl+r` runs the script the editor holds, `ctrl+c` aborts a run, and
+results land in the existing main-view **Data** tab, next to the browsing
+pages. Every executed statement is appended to `[4] Query history`, which
+is backed by a file so it survives a restart.
+
+> The editor itself was a centered modal when this was written. It is now
+> the permanent panel `[5] Query`, with a normal/insert mode split and no
+> open/close plumbing at all — see
+> [query-editor-panel](query-editor-panel.md). Everything below is about
+> what a *run* does, which the move did not change.
 
 Four things about the flow needed a decision.
 
@@ -185,8 +189,10 @@ while a `/` filter is active.
   Data tab instead of cycling to tabs with nothing behind them.
 - The copy menu still offers cell and row scopes on a query result; the
   `INSERT` and table scopes need a table and are hidden.
-- A result yanks focus to the main view. It is what the user asked to
-  look at, and `esc` walks back through the focus stack.
+- A result takes focus to the main view when the run started outside the
+  editor panel, and `esc` walks back through the focus stack. A run
+  started in `[5]` keeps its focus there —
+  [query-editor-panel](query-editor-panel.md) §3.
 - Adding `QueryLimit` widened the `Driver` interface. There is one
   implementation (`db.conn`) and no fakes, so the cost was a single
   method; a `Query`-plus-manual-truncation approach would have
@@ -202,3 +208,5 @@ while a `/` filter is active.
   one mirrors, and the one place it diverges.
 - [tui-shell-architecture](tui-shell-architecture.md) — the update
   routing order the `ctrl+c` case slots into.
+- [query-editor-panel](query-editor-panel.md) — where the editor lives
+  now, its two modes, and who owns focus after a run.

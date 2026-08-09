@@ -564,3 +564,21 @@ Chronological history of wiki changes, newest last.
   a `keyMap.editorInsert()` entry for insert mode, so the options bar and
   `?` document it in both. Saving does not end insert mode. `s` on a
   history entry saves it under a prompted name.
+- Added [design/explain-view](design/explain-view.md) and
+  [reference/explain-per-dialect](reference/explain-per-dialect.md) with the
+  `ctrl+e` query plan view (issue #46): a new `Driver.Explain` delegating to an
+  unexported `Dialect.explain`, and one `db.Plan` carrying whichever of three
+  renderings its engine produces — node tree (PostgreSQL/MySQL JSON, SQLite
+  id/parent rows), grid (MySQL's tabular fallback) or preformatted text
+  (DuckDB's ASCII diagram) — so no UI code branches on the engine.
+- `ANALYZE` is never sent: it executes the statement, so `ctrl+e` on a `DELETE`
+  is as safe as on a `SELECT` and needs no confirm modal. MySQL's `FORMAT=JSON`
+  (not PostgreSQL's `(FORMAT JSON)`) falls back to the tabular form on servers
+  without it, and its JSON is walked with an order-preserving `json.Decoder`
+  token pass — `map[string]any` would sort `access_type` above `table_name`.
+- The plan takes over the main view while panel `[5]` keeps the focus (the
+  shape the schema diff already uses over panel `[1]`), so `esc` is a free trip
+  back to an untouched buffer. `db.SplitStatementSpans`/`db.StatementAt` pick
+  the statement under the caret in a multi-statement buffer; `rowsScanner`
+  gained `Columns()` for the result shapes EXPLAIN does not know ahead of time.
+

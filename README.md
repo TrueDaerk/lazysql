@@ -137,6 +137,7 @@ vim-style modes; the panel gains focus in normal mode:
 | `dd` / `yy` | Delete / yank the line |
 | `p` | Paste (a yanked line below, characters after the cursor) |
 | `ctrl+r` | Run the buffer |
+| `ctrl+e` | Explain the statement under the cursor |
 | `ctrl+s` | Save the buffer as a named snippet |
 | `D` | Clear the buffer (confirms first) |
 | `esc` | Back to the previous panel, buffer kept |
@@ -146,6 +147,7 @@ In insert mode every key types into the buffer except:
 | Key | Action |
 |-----|--------|
 | `ctrl+r` | Run the buffer (returns to normal mode) |
+| `ctrl+e` | Explain the statement under the cursor (returns to normal mode) |
 | `ctrl+s` | Save the buffer as a named snippet (insert mode is kept) |
 | `ctrl+space` / `tab` | Complete the word under the cursor |
 | `esc` | Back to normal mode, buffer kept |
@@ -180,6 +182,24 @@ it as a floating pane: `enter` runs the selected entry — a statement with
 `?` or `:name` placeholders first prompts for their values and executes
 as a prepared statement, with the values bound as parameters — `e` loads
 it into the editor, `d` deletes it and `s` keeps it as a named snippet.
+
+### Query plans
+
+`ctrl+e` shows how the server would run the statement the cursor is in —
+the plan replaces the editor in the main view, `j`/`k` and `ctrl+f`/`ctrl+b`
+scroll it, `y` copies it, and `esc` puts the editor back with the buffer,
+cursor and mode untouched. Each engine's own form is used: PostgreSQL's
+`EXPLAIN (FORMAT JSON)` and MySQL/MariaDB's `EXPLAIN FORMAT=JSON` render as
+an indented tree with the node's cost and row estimate (MySQL falls back to
+the tabular `EXPLAIN` on servers without the JSON format), SQLite's
+`EXPLAIN QUERY PLAN` as its id/parent tree, and DuckDB's `EXPLAIN` diagram
+as it comes.
+
+`ANALYZE` is never added, so nothing is executed: explaining a `DELETE` is
+as safe as explaining a `SELECT`. A statement with `?`/`:name` placeholders
+has no values to plan with and is refused; run it with `ctrl+r` to bind
+them. The `EXPLAIN` itself is appended to the command log like any other
+statement.
 
 ### Snippets
 

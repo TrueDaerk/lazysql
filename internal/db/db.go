@@ -200,6 +200,12 @@ type Driver interface {
 	ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, error)
 	// Query runs an arbitrary SQL query with parameters.
 	Query(ctx context.Context, query string, args ...any) (*ResultSet, error)
+	// Explain returns the engine's query plan for one statement. It never
+	// adds ANALYZE, so the statement is not executed and explaining a
+	// write is safe. The Plan carries whichever rendering the dialect
+	// produces; UI code asks it for lines rather than branching on the
+	// engine.
+	Explain(ctx context.Context, sql string) (*Plan, error)
 	// QueryLimit is Query with a cap on how many rows it materializes;
 	// max <= 0 means unlimited. The second result reports that the
 	// server had more rows than the cap, so a capped result is never
@@ -239,6 +245,9 @@ type Dialect interface {
 	tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error)
 	tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error)
 	tableDDL(ctx context.Context, q querier, database, table string) (string, error)
+	// explain runs the dialect's EXPLAIN prefix over one statement and
+	// shapes the answer into a Plan.
+	explain(ctx context.Context, q querier, sql string) (*Plan, error)
 }
 
 // querier is the subset of *sql.DB the dialects need.
@@ -248,6 +257,9 @@ type querier interface {
 
 // rowsScanner abstracts *sql.Rows for dialect introspection code.
 type rowsScanner interface {
+	// Columns names the result's columns. Introspection knows them
+	// ahead of time; EXPLAIN does not, so it reads them here.
+	Columns() ([]string, error)
 	Next() bool
 	Scan(dest ...any) error
 	Err() error

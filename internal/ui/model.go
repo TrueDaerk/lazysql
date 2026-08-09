@@ -197,6 +197,11 @@ type Model struct {
 	// none. It dials its own connections, so it survives disconnects.
 	diff *diffView
 
+	// plan is the EXPLAIN result on screen, nil when none. It replaces
+	// the editor in the main view while panel [5] keeps the focus, and
+	// `esc` dismisses it with the buffer untouched.
+	plan *planView
+
 	// history is the persistent query history behind panel [4], newest
 	// first. editor is panel [5] — the buffer and its mode, which outlive
 	// every focus change — and run is the script currently executing, if
@@ -338,6 +343,8 @@ func (m *Model) resetBrowse() {
 	if m.run.running && m.run.cancel != nil {
 		m.run.cancel()
 	}
+	// A plan describes a statement against the connection being left.
+	m.plan = nil
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
@@ -514,6 +521,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := m.finishQuery(msg)
+		return m, cmd
+
+	case explainDoneMsg:
+		// Bind the command first: finishExplain mutates the view on m,
+		// and Go may otherwise copy the pre-call model into the return.
+		cmd := m.finishExplain(msg)
 		return m, cmd
 
 	case schemaColumnsMsg:
@@ -1063,6 +1076,10 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 
 	case actRunEditor:
 		cmd := m.submitQuery(m.script())
+		return m, cmd
+
+	case actExplainQuery:
+		cmd := m.explainQuery()
 		return m, cmd
 
 	case actClearQuery:

@@ -225,6 +225,9 @@ func (m *Model) setEditing(on bool) {
 	// first j/k to a column the user left minutes ago.
 	m.editor.want = -1
 	if on {
+		// Typing means the editor is wanted back on screen; the plan is
+		// what was covering it.
+		m.plan = nil
 		m.editor.area.Focus()
 		return
 	}
@@ -312,6 +315,14 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.closeCompletion()
 		m.setEditing(false)
 		cmd := m.submitQuery(m.script())
+		return m, cmd
+
+	case key.Matches(msg, k.ExplainQuery):
+		// Explaining ends insert mode for the same reason a run does: the
+		// plan is the thing to scroll now. The buffer is untouched and
+		// esc brings it straight back.
+		m.closeCompletion()
+		cmd := m.explainQuery()
 		return m, cmd
 
 	case key.Matches(msg, k.SaveSnippet):
@@ -403,6 +414,14 @@ func (m *Model) vimInsertAt(b vimBuffer, col int, changed bool) {
 // inspecting a result never costs the editor its focus.
 func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+	// An open plan covers the editor in the main view, so it answers the
+	// scroll keys and esc first. Anything it does not claim — `i`,
+	// ctrl+r — falls through and puts the editor back on screen.
+	if m.plan != nil {
+		if mm, cmd, handled := m.updatePlanKeys(msg); handled {
+			return mm, cmd
+		}
+	}
 	// A started dd/yy/gg chord claims this key: its double completes the
 	// command, anything else cancels the chord and acts as itself.
 	if p := m.editor.pending; p != 0 {
@@ -615,8 +634,10 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 		return nil
 	}
 	// A new result replaces whatever the tab showed; the notice and the
-	// old rows belong to the previous run.
+	// old rows belong to the previous run. An open plan goes too — the
+	// result is what the run was for.
 	m.data.notice = ""
+	m.plan = nil
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.run = queryRun{
@@ -938,7 +959,7 @@ func (m Model) editorHint() string {
 	case m.completion.open:
 		return "↑/↓ select · enter/tab accept · esc close the popup"
 	case m.editor.editing:
-		return "ctrl+r run · ctrl+space complete · esc normal mode"
+		return "ctrl+r run · ctrl+e explain · ctrl+space complete · esc normal mode"
 	}
-	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · backspace history · D clear · esc back"
+	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · ctrl+e explain · backspace history · D clear · esc back"
 }

@@ -19,10 +19,11 @@ const (
 	mainTabStructure
 	mainTabIndexes
 	mainTabDDL
+	mainTabRelations
 	mainTabCount
 )
 
-var mainTabNames = [mainTabCount]string{"Data", "Structure", "Indexes", "DDL"}
+var mainTabNames = [mainTabCount]string{"Data", "Structure", "Indexes", "DDL", "Relations"}
 
 // metadata reports whether the tab is served by the metadata fetch
 // rather than by the paged data query.
@@ -133,14 +134,26 @@ func (m *Model) resetMeta() {
 // ensureMeta starts the metadata fetch when the selected tab needs it
 // and nothing has loaded it yet. It is a no-op on the Data tab, on an
 // in-flight load and on already-loaded metadata.
+//
+// The Relations tab needs a second source — the namespace-wide scan that
+// answers "who references me" — so it is started from here too: every
+// path that opens a relation already calls ensureMeta, and that keeps
+// the two fetches from needing separate wiring at each call site.
 func (m *Model) ensureMeta() tea.Cmd {
 	if !m.tab.metadata() || m.driver == nil || !m.data.browsing() {
 		return nil
 	}
-	if m.meta.loaded || m.meta.loading {
+	var cmds []tea.Cmd
+	if m.tab == mainTabRelations {
+		cmds = append(cmds, m.ensureNamespaceFKs())
+	}
+	if !m.meta.loaded && !m.meta.loading {
+		cmds = append(cmds, m.startMetaLoad())
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
-	return m.startMetaLoad()
+	return tea.Batch(cmds...)
 }
 
 // startMetaLoad fires the fetch unconditionally. Callers decide whether
@@ -165,6 +178,11 @@ func (m *Model) startMetaLoad() tea.Cmd {
 func (m *Model) reloadMeta() tea.Cmd {
 	m.meta.loaded = false
 	m.meta.loading = false
+	// `R` means "read it again from the server", so the cached incoming
+	// references of the namespace go with it.
+	if m.tab == mainTabRelations {
+		delete(m.refsCache, m.namespaceFKKey())
+	}
 	return m.ensureMeta()
 }
 
@@ -271,6 +289,8 @@ func (m Model) metaRowCount() int {
 		return len(m.meta.indexes) + len(m.meta.fks)
 	case mainTabDDL:
 		return len(strings.Split(m.meta.ddl, "\n"))
+	case mainTabRelations:
+		return len(m.relationEdges())
 	}
 	return 0
 }

@@ -473,3 +473,22 @@ Chronological history of wiki changes, newest last.
   deletion strikes the whole list through), and `v` on a field opens the
   existing cell detail popup rather than a second renderer. Updated
   [design/data-grid](design/data-grid.md) to point at the new concept.
+
+## 2026-08-09 — Relations tab (issue #42)
+
+- New [design/relations-tab](design/relations-tab.md): the fifth main-view
+  tab (`internal/ui/relations.go`) renders one relation's foreign keys as
+  a hub — outgoing above a box with the table's name, incoming below,
+  both in `column → table.column` notation. The outgoing half comes free
+  with the metadata fetch; the incoming half reuses the namespace scan
+  and the `refsCache` behind `G`, so the two features pay for each other,
+  and `ensureMeta` now starts both instead of every call site batching
+  them. `j`/`k` move one cursor over both halves and `enter` opens the
+  selected table with the tab still selected — a schema walk, unfiltered,
+  pushed onto the same `browseStack` `esc`/`ctrl+o` unwind. Below 56
+  columns the box art is dropped for a plain list. A full-schema ERD is
+  explicitly out of scope. Updated
+  [design/main-view-tabs](design/main-view-tabs.md) and
+  [design/foreign-key-navigation](design/foreign-key-navigation.md) to
+  point at it.
+

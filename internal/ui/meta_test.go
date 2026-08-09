@@ -74,25 +74,28 @@ func fakeSpill(t *testing.T) *string {
 	return &got
 }
 
-// `]` walks Data → Structure → Indexes → DDL and wraps; `[` walks back.
+// `]` walks Data → Structure → Indexes → DDL → Relations and wraps;
+// `[` walks back.
 func TestMainTabCycling(t *testing.T) {
 	m := metaBrowsing(t)
 	if m.tab != mainTabData {
 		t.Fatalf("initial tab = %v, want Data", m.tab)
 	}
-	for _, want := range []mainTab{mainTabStructure, mainTabIndexes, mainTabDDL, mainTabData} {
+	for _, want := range []mainTab{
+		mainTabStructure, mainTabIndexes, mainTabDDL, mainTabRelations, mainTabData,
+	} {
 		m = send(t, m, press(']'))
 		if m.tab != want {
 			t.Fatalf("after ] tab = %v, want %v", m.tab, want)
 		}
 	}
 	m = send(t, m, press('['))
-	if m.tab != mainTabDDL {
-		t.Fatalf("after [ tab = %v, want DDL", m.tab)
+	if m.tab != mainTabRelations {
+		t.Fatalf("after [ tab = %v, want Relations", m.tab)
 	}
 }
 
-// The tab bar names all four tabs whatever the selected one is.
+// The tab bar names every tab whatever the selected one is.
 func TestTabBarRendersEveryTab(t *testing.T) {
 	m := metaBrowsing(t)
 	for range int(mainTabCount) {

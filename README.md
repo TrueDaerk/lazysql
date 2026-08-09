@@ -14,6 +14,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Browse** — databases/schemas, tables and views, with fuzzy filtering.
 - **Data view** — paginated rows, column sorting, quick `WHERE` filters.
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.
+- **Relations view** — a per-table map of incoming and outgoing foreign keys, walkable with `enter`.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
 - **Query editor** — free-form SQL with dialect-aware syntax highlighting, schema-aware autocomplete, history, result tabs, and cancellation.
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file.
@@ -70,6 +71,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
+| `[` / `]` | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
 `/` opens the filter modal on the column under the cursor: pick a column,
 an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,
@@ -92,6 +94,16 @@ the tables that reference the row under the cursor. Both directions push
 the page they came from onto a jump history that `ctrl+o` — or `esc`,
 before it leaves the grid — walks back, restoring the table, its filter,
 its sort and the cell cursor.
+
+The `Relations` tab (`]` from the grid, four times) is the same
+information one table at a time: the constraints the open relation
+declares above it, the tables that reference it below it, both written
+`column → table.column`. `j`/`k` pick a related table and `enter` opens
+it with the tab still selected — no row filter, so repeated `enter`
+walks the schema; `esc` unwinds the walk. The incoming half needs the
+foreign keys of every table in the namespace, so it is scanned in the
+background (the tab says `scanning…` meanwhile) and cached per database,
+shared with `G`. It is a per-table hub, not a full ERD.
 
 The query editor is panel `[4]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two

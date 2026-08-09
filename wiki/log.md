@@ -16,3 +16,11 @@ Chronological history of wiki changes, newest last.
   discovered while debugging a side column that ended six rows short of the main
   column — lipgloss v2 `Style.Width`/`Height` are total block dimensions,
   contrary to v1 guidance.
+- Added [design/db-driver-abstraction](design/db-driver-abstraction.md) with the
+  `internal/db` package (issue #2): one generic `conn` over `database/sql`
+  delegating to per-engine `Dialect` values; MariaDB shares the MySQL dialect;
+  result cells normalized to nil/string/int64/float64/bool/time.Time.
+- Added [reference/dialect-introspection-quirks](reference/dialect-introspection-quirks.md):
+  PRAGMA takes no placeholders, `duckdb_constraints()` lists need server-side
+  `unnest()`, Postgres DDL must be synthesized, `SHOW CREATE TABLE` scans
+  positionally.

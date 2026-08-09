@@ -6,11 +6,19 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"net"
 	"sort"
 	"strings"
 	"time"
 )
+
+// DialFunc replaces a driver's own TCP transport. lazysql uses it to send a
+// connection through an SSH tunnel: the sshtunnel package supplies one and
+// this package hands it to the concrete driver, which is the only place that
+// knows how to accept one.
+type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 
 // Engine identifies a supported database engine.
 type Engine string
@@ -210,6 +218,11 @@ type Dialect interface {
 	// driverName is the database/sql registration name; unexported so
 	// only this package can open concrete connections.
 	driverName() string
+	// openDB opens the database/sql handle for a DSN. dial, when non-nil,
+	// replaces the driver's transport; engines that are not reached over
+	// the network reject one. The returned func undoes whatever per-handle
+	// registration the driver needed and must run on Close.
+	openDB(dsn string, dial DialFunc) (*sql.DB, func(), error)
 
 	// QuoteIdent quotes a single identifier (never a dotted path).
 	QuoteIdent(ident string) string
@@ -267,13 +280,22 @@ func DialectFor(engine Engine) (Dialect, error) {
 }
 
 // Open creates an unconnected Driver for the engine. Call Connect on it.
-func Open(engine Engine) (Driver, error) {
+func Open(engine Engine) (Driver, error) { return OpenWith(engine, nil) }
+
+// OpenWith is Open with a custom transport — an SSH tunnel's DialContext.
+// Passing a dial function to a file-based engine fails at Connect, not here.
+func OpenWith(engine Engine, dial DialFunc) (Driver, error) {
 	d, err := DialectFor(engine)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{dialect: d, logger: NewLogger()}, nil
+	return &conn{dialect: d, logger: NewLogger(), dial: dial}, nil
 }
+
+// Tunnelled reports whether an engine can be reached through an SSH tunnel.
+// The file-based engines cannot, which is why the form hides their SSH
+// section entirely.
+func Tunnelled(engine Engine) bool { return !FileBased(engine) }
 
 // FormatValue renders a normalized cell value for display. NULL renders
 // as the given null marker.

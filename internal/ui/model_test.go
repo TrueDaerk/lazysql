@@ -416,7 +416,7 @@ func TestAskOnConnectOpensPasswordPrompt(t *testing.T) {
 	if !ok {
 		t.Fatalf("modal = %T, want the password prompt", m.modal)
 	}
-	if f.field("password").kind != fieldPassword {
+	if f.field("secret").kind != fieldPassword {
 		t.Fatal("prompt field is not masked")
 	}
 }

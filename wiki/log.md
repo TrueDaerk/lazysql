@@ -204,3 +204,41 @@ Chronological history of wiki changes, newest last.
   like every other modal — modals render from their own state, not the live
   `Model`, so a statement logged while it is open needs a close/reopen to
   show up.
+- Added [design/ssh-tunnels](design/ssh-tunnels.md) with SSH tunnel support
+  (issue #12): `internal/sshtunnel` opens the bastion connection and hands out
+  forwarded `net.Conn`s; `internal/db` grew a `DialFunc` seam (`OpenWith`, a
+  per-`Dialect` `openDB`) that injects it into the concrete driver —
+  `mysql.RegisterDialContext` plus a DSN net rewrite for MySQL,
+  `pgx.ConnConfig.DialFunc` behind `stdlib.RegisterConnConfig` for PostgreSQL,
+  refused outright for SQLite/DuckDB. No local forwarded port is ever bound.
+  Both driver registrations are process-global maps, so each connection takes a
+  unique `lazysql-tunnel-<n>` name and drops it in `conn.Close`; pgx also gets a
+  `LookupFunc` that passes the hostname through unresolved, since resolution
+  belongs on the far side of the tunnel.
+- Host keys are checked against `known_hosts` and never silently accepted: an
+  unknown key is an `*UnknownHostKeyError` the UI turns into a fingerprint
+  confirm modal (accept appends to `known_hosts`, then redials), a changed key
+  is a `*HostKeyMismatchError` whose modal deliberately has no confirm action.
+  `ssh.NewClientConn` wraps the callback's error, so the callback records its
+  own and `Open` returns that — otherwise the UI would only see "handshake
+  failed" and could not prompt.
+- The SSH password and key passphrase share one keyring slot,
+  `secrets.SSHKey(name)` (`<name>#ssh`); `secrets.Rename` and the new
+  `secrets.Forget` move and remove both slots together. `config.Connection`
+  gained an `SSH` table (with the same pointer-`Port` encoding shim the database
+  port uses) and `UsesSSH`/`NeedsSSHSecret` predicates.
+- `Model.tunnel` lives beside `Model.driver` and the two are torn down together
+  by `closeSessionCmd`, driver first. Quit calls `closeSession()`
+  *synchronously*: `tea.Quit` can stop the program before a batched `tea.Cmd`
+  runs, which would leak the SSH connection.
+- Added [reference/ssh-config-resolution](reference/ssh-config-resolution.md):
+  only `HostName`/`User`/`Port`/`IdentityFile` are honoured, the profile wins
+  except that `HostName` always overrides (an alias is not a resolvable name),
+  and `(*ssh_config.Config).Get` must be used rather than the package-level
+  `Get`, which would invent a `22`/`~/.ssh/identity` default for every host.
+- Added `internal/sshtunnel/sshtest`, a real in-process SSH server used by both
+  the tunnel tests and the `internal/db` end-to-end tests, where a minimal
+  MySQL and PostgreSQL server behind the tunnel answers the first client packet
+  with a protocol error — so the assertion is that the server's own message
+  comes back through the tunnel. `TestCloseLeavesNoLeaks` covers the
+  no-goroutine/socket-leak acceptance criterion.

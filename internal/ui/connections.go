@@ -14,6 +14,7 @@ import (
 	"lazysql/internal/config"
 	"lazysql/internal/db"
 	"lazysql/internal/secrets"
+	"lazysql/internal/sshtunnel"
 )
 
 // dialTimeout bounds every connect/test attempt so a black-holed host cannot
@@ -36,16 +37,20 @@ type connTestedMsg struct {
 	name string
 	dsn  string
 	took time.Duration
+	req  dialRequest
 	err  error
 }
 
 // connectedMsg reports the outcome of `enter` (connect), carrying the live
-// driver and the namespaces it exposes.
+// driver, the tunnel it runs through (nil when direct) and the namespaces it
+// exposes.
 type connectedMsg struct {
 	name      string
 	driver    db.Driver
+	tunnel    *sshtunnel.Tunnel
 	databases []string
 	dsn       string
+	req       dialRequest
 	err       error
 }
 
@@ -58,6 +63,23 @@ type connPersistedMsg struct {
 }
 
 // ---------- password resolution ----------
+
+// dialRequest is everything one dial attempt needs. It travels back in the
+// result message so an attempt that stopped on a prompt — an unknown SSH host
+// key, a missing key passphrase — can be repeated verbatim once the user has
+// answered.
+type dialRequest struct {
+	conn config.Connection
+	test bool
+
+	password    string
+	hasPassword bool
+
+	// sshSecret is the jump host password or key passphrase. It is only set
+	// when a prompt supplied one; otherwise the keyring is consulted.
+	sshSecret    string
+	hasSSHSecret bool
+}
 
 // resolvePassword picks the password for a dial attempt: an explicitly
 // prompted one wins, otherwise the keyring is consulted. A missing keyring
@@ -72,7 +94,25 @@ func resolvePassword(c config.Connection, explicit string, hasExplicit bool) (st
 	if c.AskPassword {
 		return "", nil
 	}
-	pw, err := secrets.Get(c.Name)
+	return keyringSecret(c.Name)
+}
+
+// resolveSSHSecret is resolvePassword for the jump host: the SSH password or
+// the private key passphrase, kept in its own keyring slot.
+func resolveSSHSecret(req dialRequest) (string, error) {
+	if !req.conn.NeedsSSHSecret() {
+		return "", nil
+	}
+	if req.hasSSHSecret {
+		return req.sshSecret, nil
+	}
+	return keyringSecret(secrets.SSHKey(req.conn.Name))
+}
+
+// keyringSecret reads one keyring entry, treating "nothing stored" and "no
+// keyring on this machine" as an empty secret rather than a failure.
+func keyringSecret(key string) (string, error) {
+	pw, err := secrets.Get(key)
 	switch {
 	case err == nil:
 		return pw, nil
@@ -87,109 +127,181 @@ func resolvePassword(c config.Connection, explicit string, hasExplicit bool) (st
 
 // testConnCmd dials and immediately closes. All work happens off the update
 // loop; the result comes back as a message.
-func testConnCmd(c config.Connection, explicit string, hasExplicit bool) tea.Cmd {
+func testConnCmd(req dialRequest) tea.Cmd {
+	req.test = true
 	return func() tea.Msg {
 		start := time.Now()
-		drv, dsn, err := dial(c, explicit, hasExplicit)
+		drv, tunnel, dsn, err := dial(req)
 		if drv != nil {
 			drv.Close()
 		}
-		return connTestedMsg{name: c.Name, dsn: dsn, took: time.Since(start), err: err}
+		if tunnel != nil {
+			tunnel.Close()
+		}
+		return connTestedMsg{name: req.conn.Name, dsn: dsn, took: time.Since(start), req: req, err: err}
 	}
 }
 
 // connectCmd dials and, on success, lists the namespaces so the [2] Databases
 // panel can be filled in the same round trip.
-func connectCmd(c config.Connection, explicit string, hasExplicit bool) tea.Cmd {
+func connectCmd(req dialRequest) tea.Cmd {
+	req.test = false
 	return func() tea.Msg {
-		drv, dsn, err := dial(c, explicit, hasExplicit)
+		drv, tunnel, dsn, err := dial(req)
 		if err != nil {
-			return connectedMsg{name: c.Name, dsn: dsn, err: err}
+			return connectedMsg{name: req.conn.Name, dsn: dsn, req: req, err: err}
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 		defer cancel()
 		dbs, err := drv.ListDatabases(ctx)
 		if err != nil {
 			drv.Close()
-			return connectedMsg{name: c.Name, dsn: dsn, err: err}
+			if tunnel != nil {
+				tunnel.Close()
+			}
+			return connectedMsg{name: req.conn.Name, dsn: dsn, req: req, err: err}
 		}
-		return connectedMsg{name: c.Name, driver: drv, databases: dbs, dsn: dsn}
+		return connectedMsg{
+			name: req.conn.Name, driver: drv, tunnel: tunnel,
+			databases: dbs, dsn: dsn, req: req,
+		}
 	}
 }
 
-// dial resolves the password, builds the DSN and opens the driver. The
-// returned DSN is always redacted — it ends up in the command log.
-func dial(c config.Connection, explicit string, hasExplicit bool) (db.Driver, string, error) {
-	password, err := resolvePassword(c, explicit, hasExplicit)
+// dial resolves the secrets, opens the SSH tunnel when the profile asks for
+// one, builds the DSN and opens the driver. The returned DSN is always
+// redacted — it ends up in the command log. On any failure past the tunnel,
+// the tunnel is closed here: a caller only ever receives one it must close.
+func dial(req dialRequest) (db.Driver, *sshtunnel.Tunnel, string, error) {
+	c := req.conn
+	password, err := resolvePassword(c, req.password, req.hasPassword)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	params := c.Params(password)
 	redacted, err := db.RedactDSN(c.Engine, params)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	dsn, err := db.BuildDSN(c.Engine, params)
 	if err != nil {
-		return nil, redacted, err
+		return nil, nil, redacted, err
 	}
-	drv, err := db.Open(c.Engine)
+
+	var (
+		tunnel *sshtunnel.Tunnel
+		dialFn db.DialFunc
+	)
+	if c.UsesSSH() {
+		tunnel, err = openTunnel(req)
+		if err != nil {
+			return nil, nil, redacted, err
+		}
+		dialFn = tunnel.DialContext
+		redacted += " " + tunnelSuffix(c)
+	}
+
+	drv, err := db.OpenWith(c.Engine, dialFn)
 	if err != nil {
-		return nil, redacted, err
+		closeTunnel(tunnel)
+		return nil, nil, redacted, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
 	defer cancel()
 	if err := drv.Connect(ctx, dsn); err != nil {
 		drv.Close()
-		return nil, redacted, err
+		closeTunnel(tunnel)
+		return nil, nil, redacted, err
 	}
-	return drv, redacted, nil
+	return drv, tunnel, redacted, nil
 }
 
-// closeDriverCmd closes a superseded driver without blocking Update.
-func closeDriverCmd(d db.Driver) tea.Cmd {
-	if d == nil {
+// openTunnel builds the transport config and dials the jump host.
+func openTunnel(req dialRequest) (*sshtunnel.Tunnel, error) {
+	secret, err := resolveSSHSecret(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dialTimeout)
+	defer cancel()
+	return sshtunnel.Open(ctx, req.conn.TunnelConfig(secret))
+}
+
+func closeTunnel(t *sshtunnel.Tunnel) {
+	if t != nil {
+		t.Close()
+	}
+}
+
+// closeSessionCmd tears a connection down off the update loop: the driver
+// first, so its handles are gone before the transport under them is, then the
+// tunnel that carried it.
+func closeSessionCmd(d db.Driver, t *sshtunnel.Tunnel) tea.Cmd {
+	if d == nil && t == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		d.Close()
+		if d != nil {
+			d.Close()
+		}
+		closeTunnel(t)
 		return nil
 	}
 }
 
-// persistCmd writes the config file and, when the form supplied one, the
-// keyring entry. The config is cloned by the caller so the goroutine never
+// formSecrets is what the connection form wants written to the keyring. A
+// secret is only touched when its field was typed into: an untouched password
+// leaves the stored one alone.
+type formSecrets struct {
+	password    string
+	setPassword bool
+	ssh         string
+	setSSH      bool
+}
+
+// persistCmd writes the config file and, when the form supplied them, the
+// keyring entries. The config is cloned by the caller so the goroutine never
 // races the model.
-func persistCmd(cfg *config.Config, oldName, name, password string, setPassword bool) tea.Cmd {
+func persistCmd(cfg *config.Config, oldName, name string, sec formSecrets) tea.Cmd {
 	return func() tea.Msg {
+		fail := func(err error) tea.Msg {
+			return connPersistedMsg{verb: "save", name: name, err: err}
+		}
 		if oldName != "" && oldName != name {
 			if err := secrets.Rename(oldName, name); err != nil && !errors.Is(err, secrets.ErrUnsupported) {
-				return connPersistedMsg{verb: "save", name: name, err: err}
+				return fail(err)
 			}
 		}
-		if setPassword {
-			var err error
-			if password == "" {
-				err = secrets.Delete(name)
-			} else {
-				err = secrets.Set(name, password)
+		if sec.setPassword {
+			if err := storeSecret(name, sec.password); err != nil {
+				return fail(err)
 			}
-			if err != nil {
-				return connPersistedMsg{verb: "save", name: name, err: err}
+		}
+		if sec.setSSH {
+			if err := storeSecret(secrets.SSHKey(name), sec.ssh); err != nil {
+				return fail(err)
 			}
 		}
 		if err := cfg.Save(); err != nil {
-			return connPersistedMsg{verb: "save", name: name, err: err}
+			return fail(err)
 		}
 		return connPersistedMsg{verb: "save", name: name}
 	}
 }
 
-// forgetCmd removes a deleted connection's config entry and its keyring
-// secret together, so no orphan password survives the delete.
+// storeSecret writes a keyring entry, or removes it when the value is empty.
+func storeSecret(key, value string) error {
+	if value == "" {
+		return secrets.Delete(key)
+	}
+	return secrets.Set(key, value)
+}
+
+// forgetCmd removes a deleted connection's config entry and both of its
+// keyring secrets together, so no orphan password or passphrase survives.
 func forgetCmd(cfg *config.Config, name string) tea.Cmd {
 	return func() tea.Msg {
-		if err := secrets.Delete(name); err != nil && !errors.Is(err, secrets.ErrUnsupported) {
+		if err := secrets.Forget(name); err != nil && !errors.Is(err, secrets.ErrUnsupported) {
 			return connPersistedMsg{verb: "remove", name: name, err: err}
 		}
 		if err := cfg.Save(); err != nil {
@@ -293,9 +405,10 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 			withVisible(isServerEngine),
 		newTextField("options", "Options", formatOptions(c.Options), "sslmode=disable, k=v"),
 	}
+	fields = append(fields, sshFields(c, oldName)...)
 
 	return newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
-		conn, password, setPassword, err := f.toConnection()
+		conn, sec, err := f.toConnection()
 		if err != nil {
 			f.err = err.Error()
 			return false, nil
@@ -307,7 +420,7 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 		m.renameConnState(oldName, conn.Name)
 		m.refreshConnections(conn.Name)
 		return true, tea.Batch(
-			persistCmd(m.cfg.Clone(), oldName, conn.Name, password, setPassword),
+			persistCmd(m.cfg.Clone(), oldName, conn.Name, sec),
 			logCmd("-- save connection %s (%s)", conn.Name, conn.Engine),
 		)
 	})
@@ -321,8 +434,9 @@ func passwordPlaceholder(c config.Connection, oldName string) string {
 }
 
 // toConnection validates the form and turns it into a profile plus the
-// password to file in the keyring.
-func (f *formModal) toConnection() (config.Connection, string, bool, error) {
+// secrets to file in the keyring.
+func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
+	var sec formSecrets
 	engine := db.Engine(f.rawValue("engine"))
 	c := config.Connection{
 		Name:   strings.TrimSpace(f.rawValue("name")),
@@ -338,38 +452,54 @@ func (f *formModal) toConnection() (config.Connection, string, bool, error) {
 		if p := f.value("port"); p != "" {
 			n, err := strconv.Atoi(p)
 			if err != nil {
-				return c, "", false, fmt.Errorf("port %q is not a number", p)
+				return c, sec, fmt.Errorf("port %q is not a number", p)
 			}
 			if n < 1 || n > 65535 {
-				return c, "", false, fmt.Errorf("port %d out of range 1-65535", n)
+				return c, sec, fmt.Errorf("port %d out of range 1-65535", n)
 			}
 			c.Port = n
 		} else {
 			c.Port = db.DefaultPort(engine)
 		}
+		ssh, err := f.toSSH()
+		if err != nil {
+			return c, sec, err
+		}
+		c.SSH = ssh
 	}
 	opts, err := parseOptions(f.rawValue("options"))
 	if err != nil {
-		return c, "", false, err
+		return c, sec, err
 	}
 	c.Options = opts
 	if err := c.Validate(); err != nil {
-		return c, "", false, err
+		return c, sec, err
 	}
-	// An untouched password field leaves the keyring entry alone.
-	password := f.value("password")
-	return c, password, password != "", nil
+	// An untouched secret field leaves its keyring entry alone.
+	sec.password = f.value("password")
+	sec.setPassword = sec.password != ""
+	sec.ssh = f.value("ssh_secret")
+	sec.setSSH = sec.ssh != ""
+	return c, sec, nil
 }
 
-// newPasswordPrompt is the "ask on connect" fallback: a one-field form that
-// hands the typed password straight to the dial command.
-func newPasswordPrompt(c config.Connection, then func(pw string) tea.Cmd) *formModal {
+// newSecretPrompt is the one-field popup every dial-time secret goes through:
+// the "ask on connect" database password and the SSH password/passphrase
+// alike. The typed value is handed straight to the dial command and never
+// stored.
+func newSecretPrompt(title string, then func(secret string) tea.Cmd) *formModal {
 	fields := []*formField{
-		newPasswordField("password", "Password", ""),
+		newPasswordField("secret", "Password", ""),
 	}
-	f := newFormModal(fmt.Sprintf("Password for %s", c.Name), fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
-		return true, then(f.rawValue("password"))
+	f := newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
+		return true, then(f.rawValue("secret"))
 	})
 	f.footer = "enter connect · esc cancel"
 	return f
+}
+
+// newPasswordPrompt is the "ask on connect" fallback for the database
+// password.
+func newPasswordPrompt(c config.Connection, then func(pw string) tea.Cmd) *formModal {
+	return newSecretPrompt(fmt.Sprintf("Password for %s", c.Name), then)
 }

@@ -19,6 +19,14 @@ var ErrNotFound = keyring.ErrNotFound
 // ErrUnsupported reports that this machine has no usable keyring backend.
 var ErrUnsupported = errors.New("secrets: no OS keyring available")
 
+// SSHSuffix distinguishes a connection's SSH secret — the jump host password
+// or private key passphrase — from its database password. Both are filed under
+// the same service, so the keyring user carries the suffix.
+const SSHSuffix = "#ssh"
+
+// SSHKey is the keyring user a connection's SSH secret is stored under.
+func SSHKey(name string) string { return name + SSHSuffix }
+
 // Get returns the stored password for a connection. It returns ErrNotFound
 // when nothing is stored, which callers treat as "no password", not a failure.
 func Get(name string) (string, error) {
@@ -47,12 +55,19 @@ func Delete(name string) error {
 	return wrap(err, name)
 }
 
-// Rename moves a stored password to a new connection name. It is a no-op when
-// no password is stored under the old name.
+// Rename moves a connection's stored secrets — both the database password and
+// the SSH secret — to a new name. It is a no-op for entries that do not exist.
 func Rename(oldName, newName string) error {
 	if oldName == newName {
 		return nil
 	}
+	if err := renameOne(oldName, newName); err != nil {
+		return err
+	}
+	return renameOne(SSHKey(oldName), SSHKey(newName))
+}
+
+func renameOne(oldName, newName string) error {
 	pw, err := Get(oldName)
 	if errors.Is(err, ErrNotFound) {
 		return nil
@@ -64,6 +79,15 @@ func Rename(oldName, newName string) error {
 		return err
 	}
 	return Delete(oldName)
+}
+
+// Forget removes every secret a connection owns, so deleting a profile leaves
+// no orphan password or passphrase behind.
+func Forget(name string) error {
+	if err := Delete(name); err != nil {
+		return err
+	}
+	return Delete(SSHKey(name))
 }
 
 func wrap(err error, name string) error {

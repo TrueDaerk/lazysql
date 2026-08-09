@@ -16,6 +16,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"lazysql/internal/db"
+	"lazysql/internal/sshtunnel"
 )
 
 const (
@@ -42,6 +43,60 @@ type Connection struct {
 	AskPassword bool `toml:"ask_password,omitempty"`
 
 	Options map[string]string `toml:"options,omitempty"`
+
+	// SSH is the optional jump host this connection is tunnelled through.
+	// nil means a direct connection; it is a nested table, so it comes last.
+	SSH *SSH `toml:"ssh,omitempty"`
+}
+
+// SSH is the jump host section of a connection profile. Like the database
+// password, the SSH password or key passphrase is never stored here: it lives
+// in the OS keyring under the connection's SSH secret name.
+type SSH struct {
+	Enabled bool   `toml:"enabled,omitempty"`
+	Host    string `toml:"host,omitempty"`
+	Port    int    `toml:"port,omitempty"`
+	User    string `toml:"user,omitempty"`
+	// Auth is "agent", "key" or "password".
+	Auth    string `toml:"auth,omitempty"`
+	KeyFile string `toml:"key_file,omitempty"`
+}
+
+// TunnelConfig turns the profile's SSH section into the transport config.
+// secret is the password or passphrase resolved for this dial.
+func (c Connection) TunnelConfig(secret string) sshtunnel.Config {
+	if c.SSH == nil {
+		return sshtunnel.Config{}
+	}
+	return sshtunnel.Config{
+		Enabled: c.UsesSSH(),
+		Host:    c.SSH.Host,
+		Port:    c.SSH.Port,
+		User:    c.SSH.User,
+		Auth:    sshtunnel.AuthMethod(c.SSH.Auth),
+		KeyFile: c.SSH.KeyFile,
+		Secret:  secret,
+	}
+}
+
+// UsesSSH reports whether this profile dials through a jump host. A file-based
+// engine never does, even if a stale SSH section survived an engine change.
+func (c Connection) UsesSSH() bool {
+	return c.SSH != nil && c.SSH.Enabled && db.Tunnelled(c.Engine)
+}
+
+// NeedsSSHSecret reports whether the SSH auth method needs a secret that could
+// be stored in the keyring: a password, or a passphrase for an encrypted key.
+// Agent auth never does.
+func (c Connection) NeedsSSHSecret() bool {
+	if !c.UsesSSH() {
+		return false
+	}
+	switch sshtunnel.AuthMethod(c.SSH.Auth) {
+	case sshtunnel.AuthPassword, sshtunnel.AuthKey:
+		return true
+	}
+	return false
 }
 
 // Config is the whole config file.
@@ -87,6 +142,27 @@ func (c Connection) Validate() error {
 	if c.Port < 0 || c.Port > 65535 {
 		return fmt.Errorf("port %d out of range 1-65535", c.Port)
 	}
+	return c.validateSSH()
+}
+
+func (c Connection) validateSSH() error {
+	if c.SSH == nil || !c.SSH.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(c.SSH.Host) == "" {
+		return errors.New("SSH host is required when the tunnel is enabled")
+	}
+	if c.SSH.Port < 0 || c.SSH.Port > 65535 {
+		return fmt.Errorf("SSH port %d out of range 1-65535", c.SSH.Port)
+	}
+	switch sshtunnel.AuthMethod(c.SSH.Auth) {
+	case sshtunnel.AuthAgent, sshtunnel.AuthPassword:
+	case sshtunnel.AuthKey:
+		// An empty key file is allowed: ~/.ssh/config may name an
+		// IdentityFile for the host alias.
+	default:
+		return fmt.Errorf("unknown SSH auth method %q", c.SSH.Auth)
+	}
 	return nil
 }
 
@@ -110,6 +186,19 @@ type connectionFile struct {
 	AskPassword bool `toml:"ask_password,omitempty"`
 
 	Options map[string]string `toml:"options,omitempty"`
+
+	SSH *sshFile `toml:"ssh,omitempty"`
+}
+
+// sshFile is the SSH section with the same pointer-Port trick, so a tunnel on
+// the default port does not write `port = 0`.
+type sshFile struct {
+	Enabled bool   `toml:"enabled,omitempty"`
+	Host    string `toml:"host,omitempty"`
+	Port    *int   `toml:"port,omitempty"`
+	User    string `toml:"user,omitempty"`
+	Auth    string `toml:"auth,omitempty"`
+	KeyFile string `toml:"key_file,omitempty"`
 }
 
 type configFile struct {
@@ -132,6 +221,20 @@ func (c *Config) forEncoding() configFile {
 		if conn.Port != 0 {
 			port := conn.Port
 			e.Port = &port
+		}
+		if conn.SSH != nil {
+			s := &sshFile{
+				Enabled: conn.SSH.Enabled,
+				Host:    conn.SSH.Host,
+				User:    conn.SSH.User,
+				Auth:    conn.SSH.Auth,
+				KeyFile: conn.SSH.KeyFile,
+			}
+			if conn.SSH.Port != 0 {
+				port := conn.SSH.Port
+				s.Port = &port
+			}
+			e.SSH = s
 		}
 		out.Connections[i] = e
 	}
@@ -290,6 +393,10 @@ func (c *Config) Clone() *Config {
 	out := &Config{Connections: make([]Connection, len(c.Connections))}
 	copy(out.Connections, c.Connections)
 	for i, conn := range c.Connections {
+		if conn.SSH != nil {
+			ssh := *conn.SSH
+			out.Connections[i].SSH = &ssh
+		}
 		if conn.Options == nil {
 			continue
 		}

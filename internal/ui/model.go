@@ -13,6 +13,7 @@ import (
 	"lazysql/internal/config"
 	"lazysql/internal/db"
 	"lazysql/internal/history"
+	"lazysql/internal/sshtunnel"
 )
 
 // Minimum usable terminal. Below this the layout math produces negative
@@ -142,6 +143,10 @@ type Model struct {
 	connState map[string]connState
 	driver    db.Driver
 	active    string // name of the connected profile, "" when none
+	// tunnel is the SSH tunnel the active driver runs through, nil for a
+	// direct connection. Its lifetime is the connection's: it is closed
+	// whenever driver is, including on quit.
+	tunnel *sshtunnel.Tunnel
 
 	// Browsing state: the namespace panel [3] currently shows, the
 	// relations it was filled from (both kinds, one round trip) and which
@@ -430,6 +435,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connTestedMsg:
 		if msg.err != nil {
 			m.setConnStatus(msg.name, statusError, msg.err.Error())
+			// An SSH failure the user can answer — unknown host key,
+			// missing passphrase — becomes a prompt that redials.
+			if mod := sshFailureModal(msg.req, msg.err); mod != nil {
+				m.modal = mod
+			}
 			return m, logCmd("-- test %s FAILED: %v", msg.name, msg.err)
 		}
 		// A successful test does not make the profile the active connection:
@@ -442,24 +452,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connectedMsg:
 		if msg.err != nil {
 			m.setConnStatus(msg.name, statusError, msg.err.Error())
-			m.modal = &confirmModal{
-				title:  "Connection failed",
-				body:   fmt.Sprintf("%s: %v", msg.name, msg.err),
-				danger: true,
+			if mod := sshFailureModal(msg.req, msg.err); mod != nil {
+				m.modal = mod
+			} else {
+				m.modal = &confirmModal{
+					title:  "Connection failed",
+					body:   fmt.Sprintf("%s: %v", msg.name, msg.err),
+					danger: true,
+				}
 			}
 			return m, logCmd("-- connect %s FAILED: %v", msg.name, msg.err)
 		}
-		prev := m.driver
+		prevDriver, prevTunnel := m.driver, m.tunnel
 		if m.active != "" && m.active != msg.name {
 			m.setConnStatus(m.active, statusIdle, "")
 		}
 		m.driver = msg.driver
+		m.tunnel = msg.tunnel
 		m.active = msg.name
 		m.setConnStatus(msg.name, statusOK, "")
 		m.resetBrowse()
 		m.panels[panelDatabases].setItems(namespaceList(msg.driver.Engine(), msg.databases))
 		cmds := []tea.Cmd{
-			closeDriverCmd(prev),
+			closeSessionCmd(prevDriver, prevTunnel),
 			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
 		}
 		// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
@@ -651,6 +666,10 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case key.Matches(msg, k.Quit):
+		// Torn down here rather than in a tea.Cmd: tea.Quit can stop the
+		// program before a batched command ever runs, which would leave the
+		// SSH connection and its forwarded sockets to the OS.
+		m.closeSession()
 		return true, m, tea.Quit
 
 	case key.Matches(msg, k.Help):
@@ -808,8 +827,8 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 					}
 					var closeCmd tea.Cmd
 					if m.active == name {
-						closeCmd = closeDriverCmd(m.driver)
-						m.driver, m.active = nil, ""
+						closeCmd = closeSessionCmd(m.driver, m.tunnel)
+						m.driver, m.tunnel, m.active = nil, nil, ""
 						m.resetBrowse()
 					}
 					delete(m.connState, name)
@@ -876,20 +895,33 @@ func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	run := func(pw string, hasPW bool) tea.Cmd {
-		if test {
-			return tea.Batch(logCmd("-- test %s …", c.Name), testConnCmd(c, pw, hasPW))
-		}
-		return tea.Batch(logCmd("-- connecting %s …", c.Name), connectCmd(c, pw, hasPW))
-	}
+	req := dialRequest{conn: c, test: test}
 	if c.NeedsPassword() && c.AskPassword {
-		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd { return run(pw, true) })
+		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
+			next := req
+			next.password, next.hasPassword = pw, true
+			return redialCmd(next)
+		})
 		return m, nil
 	}
 	if !test {
 		m.setConnStatus(c.Name, statusPending, "")
 	}
-	return m, run("", false)
+	return m, redialCmd(req)
+}
+
+// closeSession tears down the active driver and its tunnel synchronously.
+// Used on quit, where a tea.Cmd is not guaranteed to run.
+func (m *Model) closeSession() {
+	if m.driver != nil {
+		m.driver.Close()
+		m.driver = nil
+	}
+	if m.tunnel != nil {
+		m.tunnel.Close()
+		m.tunnel = nil
+	}
+	m.active = ""
 }
 
 // drillIn is `enter`: move one step deeper in the connection → database →

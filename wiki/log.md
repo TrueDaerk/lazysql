@@ -372,3 +372,14 @@ Chronological history of wiki changes, newest last.
   `WHERE` inside a subquery does not guard the statement around it. The modal
   names the affected table (best-effort, from the same token scan) and warns
   once for the whole multi-statement buffer if any statement matches.
+- Extended [design/data-grid](design/data-grid.md) with table borders (issue
+  #32): the result grid now draws a `│` separator between columns and a
+  `─`/`┼` rule under the header, per row rather than via lipgloss's `Table`
+  component, since the grid's own paging and per-cell state (cursor, NULL,
+  staged edit, pending delete/insert) do not fit that component's model. New
+  style `gridSeparator` reuses `colorMuted` rather than a dedicated palette
+  slot, so it already tracks `[theme]`'s `border-blurred` on both presets.
+  `gridHeader` grew from two lines to three (name, type, rule) and
+  `dataContent`'s `bodyRows` budget shrank by one to match; `colGap`'s width
+  math was untouched since the separator fills the same one cell the old gap
+  did.

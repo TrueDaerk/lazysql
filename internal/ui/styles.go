@@ -58,6 +58,7 @@ type styles struct {
 	// so the cell cursor stays readable inside the highlighted row.
 	gridHeader       lipgloss.Style
 	gridHeaderCursor lipgloss.Style
+	gridSeparator    lipgloss.Style
 	rowCursor        lipgloss.Style
 	cellCursor       lipgloss.Style
 
@@ -109,6 +110,7 @@ func newStyles() styles {
 
 		gridHeader:       lipgloss.NewStyle().Bold(true),
 		gridHeaderCursor: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),
+		gridSeparator:    lipgloss.NewStyle().Foreground(colorMuted),
 		rowCursor:        lipgloss.NewStyle().Background(colorRowCursorBg),
 		cellCursor:       lipgloss.NewStyle().Background(colorCellCursorBg).Bold(true),
 

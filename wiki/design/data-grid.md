@@ -66,6 +66,32 @@ pretty-prints it when it is a JSON object or array.
 `NULL` renders as a dim `NULL`, which is what distinguishes it from the
 string `"NULL"`.
 
+### Borders are drawn per row, not a lipgloss `Table`
+
+Columns are separated by a `│` and the header is set off from the data by
+a `─`/`┼` rule (`internal/ui/datagrid.go`, `gridHeader`/`gridRow`). Both
+are rendered by hand, one row at a time, rather than adopting lipgloss's
+`Table` component: the grid already has its own paging (`rowWindow`,
+`columnWindow`) and per-cell state (cursor, NULL, staged edit, pending
+delete/insert) that `Table` does not model, and `Table` renders its whole
+body from a data matrix up front rather than a window of already-styled
+strings.
+
+The separator occupies exactly the `colGap` cell that used to be a plain
+space, so column width math (`minColWidth`/`maxColWidth`, `columnWindow`)
+needed no change. `gridHeader` grew from two lines (name, type) to three
+(name, type, rule); `dataContent`'s `bodyRows` budget shrank by one line
+to match.
+
+Both the separator and the rule are styled with `gridSeparator`, which
+resolves to `colorMuted` — the same dim tone as a blurred panel border —
+so they recede behind the data. Reusing `colorMuted` rather than adding a
+dedicated palette slot means the separator already tracks the `[theme]`
+config's `border-blurred` override and looks right in both the `default`
+and `light` presets with no extra configuration. The cursor row's
+separator is wrapped in `rowCursor` instead, the same way the old space
+gap was, so the row's background tint stays contiguous under the bar.
+
 ### The main view is a focus target
 
 Focus is still a single `panelID`, but the enum gained

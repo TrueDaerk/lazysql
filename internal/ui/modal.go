@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -201,55 +199,92 @@ func (p *promptModal) view(s styles, maxW, maxH int) string {
 
 // ---------- cell ----------
 
-// cellModal shows one cell's full value, which the grid can only show
-// truncated. JSON is pretty-printed, because a JSON column is exactly
-// the case where the truncated grid text is useless.
+// cellModal is `v`: the full, scrollable value of the cell under the
+// cursor, which the grid can only show truncated at maxColWidth. Content
+// decides its own rendering — classifyCell picks pretty-printed JSON, a
+// hex dump for invalid UTF-8 (a BLOB), or the raw text otherwise — but
+// `y` always copies the untransformed value, never the rendered form.
 type cellModal struct {
 	title  string
 	lines  []string
 	offset int
+
+	rawText      string // exactly what `y` copies
+	copySubject  string
+	copyFilename string
 }
 
-func newCellModal(column string, value any) *cellModal {
-	title := "Cell"
-	if column != "" {
-		title = "Cell — " + column
+// newCellModal builds the popup for one cell. subject is the table (or
+// "query") and column names it, the way the copy menu's log lines do;
+// colType is the column's declared SQL type and falls back to the
+// detected content kind when the driver did not report one (a free-form
+// query result can leave DatabaseTypeName empty).
+func newCellModal(subject, column string, colType string, value any) *cellModal {
+	label := column
+	if subject != "" && column != "" {
+		label = subject + "." + column
+	} else if subject != "" {
+		label = subject
 	}
-	text := db.FormatValue(value, nullText)
+	if label == "" {
+		label = "cell"
+	}
+	copySubject := "cell " + label
+	copyFilename := label + ".txt"
+
 	if value == nil {
-		text = nullText
-	} else if pretty, ok := prettyJSON(text); ok {
-		text = pretty
-		title += " (json)"
+		return &cellModal{
+			title:        label + " — NULL",
+			lines:        []string{nullText},
+			copySubject:  copySubject + " (NULL → empty)",
+			copyFilename: copyFilename,
+		}
 	}
-	return &cellModal{title: title, lines: strings.Split(text, "\n")}
-}
 
-// prettyJSON re-indents s when it is a JSON object or array. Scalars
-// are left alone: re-indenting a bare number or string gains nothing.
-func prettyJSON(s string) (string, bool) {
-	trimmed := strings.TrimSpace(s)
-	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
-		return "", false
+	raw := db.FormatValue(value, nullText)
+	var text, kindLabel string
+	switch classifyCell(raw) {
+	case cellJSON:
+		text, kindLabel = prettyJSON(raw), "json"
+	case cellBinary:
+		text, kindLabel = strings.Join(hexDumpLines(raw), "\n"), "binary"
+	default:
+		text, kindLabel = raw, "text"
 	}
-	var buf bytes.Buffer
-	if err := json.Indent(&buf, []byte(trimmed), "", "  "); err != nil {
-		return "", false
+	typ := colType
+	if typ == "" {
+		typ = kindLabel
 	}
-	return buf.String(), true
+	title := fmt.Sprintf("%s — %s, %s", label, typ, byteCount(len(raw)))
+	// The declared column type (e.g. "text", "blob") does not always say
+	// what the bytes actually hold; the detected kind is worth a second
+	// word whenever it adds information the type did not already give.
+	if kindLabel == "json" || kindLabel == "binary" {
+		title += " (" + kindLabel + ")"
+	}
+
+	return &cellModal{
+		title:        title,
+		lines:        strings.Split(text, "\n"),
+		rawText:      raw,
+		copySubject:  copySubject,
+		copyFilename: copyFilename,
+	}
 }
 
 func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "enter", "v":
 		return true, nil
+	case "y":
+		return false, copyTextCmd(c.copySubject, c.copyFilename, c.rawText)
 	case "down", "j":
 		c.offset++
 	case "up", "k":
 		c.offset--
-	case "pgdown", "ctrl+f":
+	case "ctrl+d", "pgdown", "ctrl+f":
 		c.offset += 10
-	case "pgup", "ctrl+b":
+	case "ctrl+u", "pgup", "ctrl+b":
 		c.offset -= 10
 	case "g", "home":
 		c.offset = 0
@@ -260,7 +295,7 @@ func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 }
 
 func (c *cellModal) view(s styles, maxW, maxH int) string {
-	width := min(maxW-8, 80)
+	width := min(maxW-8, 100)
 	if width < 8 {
 		width = 8
 	}
@@ -283,9 +318,9 @@ func (c *cellModal) view(s styles, maxW, maxH int) string {
 	for _, line := range c.lines[c.offset : c.offset+rows] {
 		b.WriteString(truncate(line, width) + "\n")
 	}
-	footer := "esc close"
+	footer := "y copy · esc close"
 	if len(c.lines) > rows {
-		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · esc close",
+		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · y copy · esc close",
 			c.offset+1, c.offset+rows, len(c.lines))
 	}
 	b.WriteString("\n" + s.muted.Render(footer))

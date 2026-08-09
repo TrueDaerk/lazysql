@@ -60,8 +60,9 @@ then following the cursor.
 Column widths come from the *whole page*, not the visible rows, so
 scrolling vertically never makes the grid jitter sideways. Widths are
 clamped to `[4, 32]` cells and over-long cells are truncated with an
-ellipsis; `v` opens the untruncated value in a scrollable modal, which
-pretty-prints it when it is a JSON object or array.
+ellipsis; `v` opens the untruncated value in a scrollable modal — see
+[cell-detail-popup](cell-detail-popup.md) for how it picks between
+pretty-printed JSON, a hex dump and plain text.
 
 `NULL` renders as a dim `NULL`, which is what distinguishes it from the
 string `"NULL"`.
@@ -198,6 +199,8 @@ the statement it is about, so it cannot scroll out of sight above it.
 
 ## See also
 
+- [cell-detail-popup](cell-detail-popup.md) — what `v` renders and how
+  it decides.
 - [catalog-browsing](catalog-browsing.md) — how the relation reaches the
   grid in the first place.
 - [db-driver-abstraction](db-driver-abstraction.md) — the `Driver` and

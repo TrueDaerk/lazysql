@@ -69,6 +69,12 @@ cd lazysql
 go build .
 ```
 
+### Build requirements
+
+- **CGO is required** for DuckDB support: `github.com/marcboeker/go-duckdb` bundles the DuckDB C++ engine, so you need a working C/C++ toolchain (`clang` or `gcc`) and `CGO_ENABLED=1` (the default when a toolchain is present).
+- SQLite uses the pure-Go `modernc.org/sqlite` — no CGO needed for it.
+- All other drivers (MySQL/MariaDB, PostgreSQL) are pure Go.
+
 ## Status
 
 Early development. See the [issue tracker](https://github.com/TrueDaerk/lazysql/issues) for the roadmap.

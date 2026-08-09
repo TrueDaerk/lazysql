@@ -60,3 +60,57 @@ func TestRenameMovesTheSecret(t *testing.T) {
 		t.Fatalf("Rename without a stored secret = %v, want nil", err)
 	}
 }
+
+// A connection owns two secrets: the database password and the SSH one. They
+// live in separate keyring slots and must move and disappear together.
+func TestSSHSecretIsSeparateFromThePassword(t *testing.T) {
+	const name = "with-tunnel"
+	if err := Set(name, "db-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(SSHKey(name), "ssh-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(name); got != "db-pw" {
+		t.Fatalf("password = %q, want db-pw", got)
+	}
+	if got, _ := Get(SSHKey(name)); got != "ssh-pw" {
+		t.Fatalf("ssh secret = %q, want ssh-pw", got)
+	}
+	if err := Delete(name); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get(SSHKey(name)); got != "ssh-pw" {
+		t.Fatal("deleting the password took the SSH secret with it")
+	}
+	if err := Forget(name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Get(SSHKey(name)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get after Forget = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRenameMovesBothSecrets(t *testing.T) {
+	if err := Set("old", "db-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(SSHKey("old"), "ssh-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Rename("old", "new"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get("new"); got != "db-pw" {
+		t.Fatalf("password after rename = %q", got)
+	}
+	if got, _ := Get(SSHKey("new")); got != "ssh-pw" {
+		t.Fatalf("ssh secret after rename = %q", got)
+	}
+	if _, err := Get(SSHKey("old")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the old SSH slot survived the rename: %v", err)
+	}
+	if err := Forget("new"); err != nil {
+		t.Fatal(err)
+	}
+}

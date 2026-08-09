@@ -16,6 +16,11 @@ type conn struct {
 	dialect Dialect
 	db      *sql.DB
 	logger  *Logger
+
+	// dial is the SSH tunnel's transport, nil for a direct connection.
+	// release undoes the driver-side registration dial needed.
+	dial    DialFunc
+	release func()
 }
 
 func (c *conn) Logger() *Logger { return c.logger }
@@ -26,15 +31,18 @@ func (c *conn) Connect(ctx context.Context, dsn string) error {
 	if c.db != nil {
 		return errors.New("db: already connected")
 	}
-	sqlDB, err := sql.Open(c.dialect.driverName(), dsn)
+	sqlDB, release, err := c.dialect.openDB(dsn, c.dial)
 	if err != nil {
 		return fmt.Errorf("db: open %s: %w", c.dialect.DisplayName(), err)
 	}
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
+		if release != nil {
+			release()
+		}
 		return fmt.Errorf("db: connect %s: %w", c.dialect.DisplayName(), err)
 	}
-	c.db = sqlDB
+	c.db, c.release = sqlDB, release
 	return nil
 }
 
@@ -44,6 +52,12 @@ func (c *conn) Close() error {
 	}
 	err := c.db.Close()
 	c.db = nil
+	// The driver-side registration outlives the handle, so it is dropped
+	// only here — a tunnel that reconnects gets a fresh one.
+	if c.release != nil {
+		c.release()
+		c.release = nil
+	}
 	return err
 }
 

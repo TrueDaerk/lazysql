@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,235 @@ import (
 // comparisons whose *values* can travel as bound parameters. Only a
 // fragment it cannot recognise stays verbatim, and it is flagged so the
 // UI can warn about it.
+
+// FilterOp is one comparison the structured filter modal offers. The
+// values are the SQL spelling, so an operator needs no translation on
+// its way into a statement — every supported engine accepts all of
+// them.
+type FilterOp string
+
+const (
+	OpEq        FilterOp = "="
+	OpNe        FilterOp = "!="
+	OpLt        FilterOp = "<"
+	OpGt        FilterOp = ">"
+	OpLe        FilterOp = "<="
+	OpGe        FilterOp = ">="
+	OpLike      FilterOp = "LIKE"
+	OpIsNull    FilterOp = "IS NULL"
+	OpIsNotNull FilterOp = "IS NOT NULL"
+)
+
+// FilterOps lists the operators in the order the modal cycles them.
+func FilterOps() []FilterOp {
+	return []FilterOp{
+		OpEq, OpNe, OpLt, OpGt, OpLe, OpGe, OpLike, OpIsNull, OpIsNotNull,
+	}
+}
+
+// NeedsValue reports whether the operator compares against a value. The
+// two NULL tests do not, which is why the modal hides its value field
+// for them.
+func (op FilterOp) NeedsValue() bool {
+	return op != OpIsNull && op != OpIsNotNull
+}
+
+// FilterCond is one condition of a structured filter: the column, the
+// operator and the value exactly as the user typed it. Type is the
+// column's declared data type when the caller knows it — it decides
+// whether the value binds as a number, a boolean or a string, which is
+// what keeps `intcol = $1` from reaching PostgreSQL with a text
+// parameter.
+type FilterCond struct {
+	Column string
+	Op     FilterOp
+	Value  string
+	Type   string
+}
+
+// BuildFilter turns structured conditions into a parameterized Filter.
+// Identifiers go through Dialect.QuoteIdent and every value becomes a
+// Dialect.Placeholder bound as a query parameter, so a value containing
+// quotes or wildcards is data and can never be SQL. Conditions are
+// joined with AND. No conditions yields nil, meaning "no filter".
+func BuildFilter(d Dialect, conds []FilterCond) (*Filter, error) {
+	if len(conds) == 0 {
+		return nil, nil
+	}
+	exprs := make([]string, 0, len(conds))
+	raws := make([]string, 0, len(conds))
+	var args []any
+	for _, c := range conds {
+		if strings.TrimSpace(c.Column) == "" {
+			return nil, fmt.Errorf("filter: no column selected")
+		}
+		if !validOp(c.Op) {
+			return nil, fmt.Errorf("filter: unknown operator %q", string(c.Op))
+		}
+		expr := d.QuoteIdent(c.Column) + " " + string(c.Op)
+		if c.Op.NeedsValue() {
+			v, err := bindValue(c)
+			if err != nil {
+				return nil, err
+			}
+			args = append(args, v)
+			expr += " " + d.Placeholder(len(args))
+		}
+		exprs = append(exprs, expr)
+		raws = append(raws, c.String())
+	}
+	return &Filter{
+		Expr: strings.Join(exprs, " AND "),
+		Args: args,
+		Raw:  strings.Join(raws, " AND "),
+	}, nil
+}
+
+// String renders the condition the way the status line shows it. The
+// quoting is display only — the statement itself binds the value — and
+// follows what the value binds as, so a number reads as a number.
+func (c FilterCond) String() string {
+	if !c.Op.NeedsValue() {
+		return c.Column + " " + string(c.Op)
+	}
+	shown := "'" + strings.ReplaceAll(c.Value, "'", "''") + "'"
+	if v, err := bindValue(c); err == nil {
+		if _, isText := v.(string); !isText {
+			shown = strings.TrimSpace(c.Value)
+		}
+	}
+	return c.Column + " " + string(c.Op) + " " + shown
+}
+
+func validOp(op FilterOp) bool {
+	for _, o := range FilterOps() {
+		if o == op {
+			return true
+		}
+	}
+	return false
+}
+
+// bindValue decides what Go type the value travels as. A LIKE pattern is
+// always text — `id LIKE '1%'` is a string match even on an integer
+// column. Otherwise the column's declared type decides, and an
+// unparseable value is an error the modal reports inline rather than a
+// statement the engine rejects later.
+func bindValue(c FilterCond) (any, error) {
+	v := c.Value
+	if c.Op == OpLike {
+		return v, nil
+	}
+	switch typeClass(c.Type) {
+	case classInt:
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			// A float typed against an integer column is still a number
+			// the engine can compare, so it is bound rather than refused.
+			if f, ferr := strconv.ParseFloat(strings.TrimSpace(v), 64); ferr == nil {
+				return f, nil
+			}
+			return nil, fmt.Errorf("%s: %q is not a number", c.Column, v)
+		}
+		return n, nil
+	case classFloat:
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %q is not a number", c.Column, v)
+		}
+		return f, nil
+	case classBool:
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %q is not true or false", c.Column, v)
+		}
+		return b, nil
+	case classText:
+		return v, nil
+	}
+	// Type unknown: sniff a number, because a bare integer bound as text
+	// is what PostgreSQL rejects. Booleans are not sniffed — "true" is a
+	// plausible text value and no engine needs the hint.
+	s := strings.TrimSpace(v)
+	if intRe.MatchString(s) {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n, nil
+		}
+	}
+	if floatRe.MatchString(s) {
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return f, nil
+		}
+	}
+	return v, nil
+}
+
+type valueClass int
+
+const (
+	classUnknown valueClass = iota
+	classInt
+	classFloat
+	classBool
+	classText
+)
+
+// intTypes and floatTypes are the numeric type names of the four
+// supported engines, MySQL's unsigned spellings and DuckDB's own widths
+// included. The name is matched whole, after the length/precision and
+// any trailing modifier are cut off, so PostgreSQL's `point` and
+// `interval` are not mistaken for integers by a substring test.
+var intTypes = map[string]bool{
+	"int": true, "int2": true, "int4": true, "int8": true, "integer": true,
+	"bigint": true, "smallint": true, "mediumint": true, "tinyint": true,
+	"hugeint": true, "utinyint": true, "usmallint": true, "uinteger": true,
+	"ubigint": true, "uhugeint": true,
+	"serial": true, "serial2": true, "serial4": true, "serial8": true,
+	"smallserial": true, "bigserial": true,
+}
+
+var floatTypes = map[string]bool{
+	"float": true, "float4": true, "float8": true, "real": true,
+	"double": true, "decimal": true, "numeric": true, "dec": true, "fixed": true,
+}
+
+var boolTypes = map[string]bool{"bool": true, "boolean": true}
+
+var textTypes = map[string]bool{
+	"char": true, "varchar": true, "text": true, "tinytext": true,
+	"mediumtext": true, "longtext": true, "bpchar": true, "character": true,
+	"varying": true, "string": true, "uuid": true, "json": true, "jsonb": true,
+	"name": true, "citext": true, "clob": true, "nvarchar": true, "nchar": true,
+}
+
+// typeClass maps a declared column type to what its values bind as.
+func typeClass(t string) valueClass {
+	base := baseTypeName(t)
+	switch {
+	case base == "":
+		return classUnknown
+	case intTypes[base]:
+		return classInt
+	case floatTypes[base]:
+		return classFloat
+	case boolTypes[base]:
+		return classBool
+	case textTypes[base]:
+		return classText
+	}
+	return classUnknown
+}
+
+// baseTypeName reduces a declared type to its leading word without its
+// length: `VARCHAR(20)` → `varchar`, `DOUBLE PRECISION` → `double`,
+// `INT UNSIGNED` → `int`.
+func baseTypeName(t string) string {
+	t = strings.ToLower(strings.TrimSpace(t))
+	if i := strings.IndexAny(t, "( \t"); i >= 0 {
+		t = t[:i]
+	}
+	return t
+}
 
 // comparisonRe matches one `column <op> <literal>` term. The column is a
 // bare, double-quoted or backtick-quoted identifier; the literal is

@@ -108,9 +108,7 @@ func TestExportRespectsFilter(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "filtered.csv")
 
-	m := send(t, copyBrowsing(t), press('f'))
-	m = send(t, m, press('i'), press('d'), press(' '), press('>'), press(' '), press('1'),
-		special(tea.KeyEnter, 0))
+	m := applyColumnFilter(t, copyBrowsing(t), "id", db.OpGt, "1")
 	m = send(t, m, press('E'))
 	m = typePath(t, m, path)
 

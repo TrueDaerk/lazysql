@@ -3,3 +3,4 @@ lazysql
 *.sqlite
 .DS_Store
 .issue-work/
+dist/

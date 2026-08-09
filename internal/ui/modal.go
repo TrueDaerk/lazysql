@@ -50,7 +50,7 @@ func (c *confirmModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 func (c *confirmModal) view(s styles, maxW, maxH int) string {
 	box := s.modal
 	if c.danger {
-		box = box.BorderForeground(colorRed)
+		box = box.BorderForeground(colorDeleted)
 	}
 	body := lipgloss.NewStyle().Width(min(maxW-6, 60)).Render(c.body)
 	return box.Render(lipgloss.JoinVertical(lipgloss.Left,

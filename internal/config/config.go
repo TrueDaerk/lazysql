@@ -102,6 +102,19 @@ func (c Connection) NeedsSSHSecret() bool {
 // Config is the whole config file.
 type Config struct {
 	Connections []Connection `toml:"connections"`
+
+	// Keys is the `[keys]` section: action name (kebab-case, e.g.
+	// "edit-cell") to a comma-separated key override (e.g. "e" or
+	// "down,j"). Unknown action names are a startup error — the valid set
+	// is defined by internal/ui's keyMap, which this package does not
+	// import, so validation happens there.
+	Keys map[string]string `toml:"keys,omitempty"`
+
+	// Theme is the `[theme]` section: an optional "theme" key selecting a
+	// built-in preset ("default" or "light"), plus any number of named
+	// color overrides (e.g. "border-focused"). Like Keys, the valid names
+	// and color parsing live in internal/ui.
+	Theme map[string]string `toml:"theme,omitempty"`
 }
 
 // Params converts a profile into the driver-agnostic connection parameters.
@@ -202,11 +215,17 @@ type sshFile struct {
 }
 
 type configFile struct {
-	Connections []connectionFile `toml:"connections"`
+	Connections []connectionFile  `toml:"connections"`
+	Keys        map[string]string `toml:"keys,omitempty"`
+	Theme       map[string]string `toml:"theme,omitempty"`
 }
 
 func (c *Config) forEncoding() configFile {
-	out := configFile{Connections: make([]connectionFile, len(c.Connections))}
+	out := configFile{
+		Connections: make([]connectionFile, len(c.Connections)),
+		Keys:        c.Keys,
+		Theme:       c.Theme,
+	}
 	for i, conn := range c.Connections {
 		e := connectionFile{
 			Name:        conn.Name,
@@ -392,6 +411,18 @@ func (c *Config) Remove(name string) bool {
 func (c *Config) Clone() *Config {
 	out := &Config{Connections: make([]Connection, len(c.Connections))}
 	copy(out.Connections, c.Connections)
+	if c.Keys != nil {
+		out.Keys = make(map[string]string, len(c.Keys))
+		for k, v := range c.Keys {
+			out.Keys[k] = v
+		}
+	}
+	if c.Theme != nil {
+		out.Theme = make(map[string]string, len(c.Theme))
+		for k, v := range c.Theme {
+			out.Theme[k] = v
+		}
+	}
 	for i, conn := range c.Connections {
 		if conn.SSH != nil {
 			ssh := *conn.SSH

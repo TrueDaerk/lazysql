@@ -242,3 +242,27 @@ Chronological history of wiki changes, newest last.
   with a protocol error — so the assertion is that the server's own message
   comes back through the tunnel. `TestCloseLeavesNoLeaks` covers the
   no-goroutine/socket-leak acceptance criterion.
+- Added [design/configurable-keys-and-theme](design/configurable-keys-and-theme.md)
+  with `[keys]`/`[theme]` config support (issue #13): `config.Config` gained
+  `Keys`/`Theme` (`map[string]string`); `internal/ui/keys.go` gained
+  `keyMap.slots()`/`applyKeyOverrides` and `internal/ui/theme.go` gained
+  `palette`/`presets`/`resolveColor`/`resolvePalette`/`applyPalette`, since the
+  valid action/color names are `internal/ui`'s to define, not
+  `internal/config`'s. `ui.New()` now returns `(Model, error)` — an unknown
+  action name or an invalid color is a startup error (`main.go` prints it and
+  exits 1) rather than the silent-degrade treatment a broken connections list
+  gets.
+- Split the single `colorRed` into `colorDeleted` (dropped/staged-for-delete
+  rows, the danger-confirm modal border) and `colorError` (error text,
+  `statusError`) so `[theme]` can retint them independently; the two grid
+  background shades and the list-selection background became
+  `colorRowCursorBg`/`colorCellCursorBg`/`colorSelectionBg` for the same
+  reason. `default` keeps the original low ANSI indexes; `light` hardcodes
+  hex/256 values, since low ANSI indexes are whatever the terminal defines
+  and cannot be trusted to stay readable on a white background.
+- Fixed two bugs found while wiring this up: `Config.Clone()` only
+  deep-copied `Connections`, so a saved clone shared its `Keys`/`Theme` maps
+  with the original; and `configFile` (the TOML-encoding shadow struct)
+  didn't carry `Keys`/`Theme` at all, so saving a connection through the UI
+  would have silently dropped a hand-edited `[keys]`/`[theme]` section from
+  disk. `TestSavingConnectionsPreservesKeysAndTheme` covers the round trip.

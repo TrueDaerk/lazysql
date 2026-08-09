@@ -1,0 +1,16 @@
+version: 2
+
+project_name: lazysql
+
+builds:
+  - id: lazysql
+    main: .
+    binary: lazysql
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X lazysql/internal/version.Version={{ .Tag }}

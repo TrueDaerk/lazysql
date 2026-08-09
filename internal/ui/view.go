@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/db"
+	"lazysql/internal/version"
 )
 
 const appName = "lazysql"
@@ -296,9 +297,9 @@ func (m Model) renderCommandLog(w, h int) string {
 // renderOptionsBar shows the focused panel's bindings — same slices as `?`.
 func (m Model) renderOptionsBar() string {
 	h := m.help
-	h.SetWidth(maxInt(m.width-len(appName)-len(screenModeNames[m.screen])-6, 10))
+	h.SetWidth(maxInt(m.width-len(appName)-len(screenModeNames[m.screen])-len(version.Version)-9, 10))
 	left := h.ShortHelpView(m.keys.optionsBarBindings(m.focus))
-	right := fmt.Sprintf("%s · %s", screenModeNames[m.screen], appName)
+	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

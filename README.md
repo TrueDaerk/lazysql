@@ -126,6 +126,9 @@ Named colors: `border-focused`, `border-blurred`, `accent`, `staged`,
 
 ## Install
 
+Download a prebuilt binary (darwin/linux, amd64/arm64) from the
+[releases page](https://github.com/TrueDaerk/lazysql/releases), or:
+
 ```sh
 go install github.com/TrueDaerk/lazysql@latest
 ```

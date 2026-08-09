@@ -21,6 +21,7 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 - [design/command-log-panel](design/command-log-panel.md) — Design Decision — a single `Driver.Logger()` choke point in `internal/db` replaces per-callsite SQL echoing, merged with the UI's own status notes into one feed for the slim panel and the `@` expanded, scrollable view.
 - [design/ssh-tunnels](design/ssh-tunnels.md) — Design Decision — a tunnel is a transport injected under the driver as a `DialFunc`, not a local forwarded port; host keys prompt or refuse but are never silently accepted; the tunnel's lifetime is the connection's, including a synchronous teardown on quit.
 - [design/configurable-keys-and-theme](design/configurable-keys-and-theme.md) — Design Decision — `[keys]`/`[theme]` validate in `internal/ui` (not `internal/config`) and turn into a hard startup error via `ui.New() (Model, error)`; name registries for actions and colors back the "list every valid name" error messages; `Config.Clone`/`configFile` gained the deep-copy and round-trip they were missing.
+- [design/ci-and-release-pipeline](design/ci-and-release-pipeline.md) — Design Decision — CI runs natively on Linux and macOS; release binaries build per-target on native runners (including a hosted arm64 Linux runner) instead of CGO cross-compiling, so DuckDB needs no build-tag gating; `goreleaser build --single-target` plus `softprops/action-gh-release` replace `goreleaser release`, which can't split a build across runners on the OSS tier.
 
 ## reference
 

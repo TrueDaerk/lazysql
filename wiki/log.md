@@ -266,3 +266,18 @@ Chronological history of wiki changes, newest last.
   didn't carry `Keys`/`Theme` at all, so saving a connection through the UI
   would have silently dropped a hand-edited `[keys]`/`[theme]` section from
   disk. `TestSavingConnectionsPreservesKeysAndTheme` covers the round trip.
+- Added [design/ci-and-release-pipeline](design/ci-and-release-pipeline.md)
+  with `ci.yml`/`release.yml`/`.goreleaser.yaml` (issue #14): CI runs
+  `go vet`/`go build`/`go test` natively on `ubuntu-latest` and `macos-latest`.
+  Release builds all four `darwin`/`linux` × `amd64`/`arm64` targets each on a
+  runner whose native OS/arch matches, including GitHub's hosted
+  `ubuntu-24.04-arm` runner for `linux/arm64` — so DuckDB's CGO requirement
+  never needs cross-compiling and never needs the build-tag gating the issue
+  anticipated. `goreleaser build --single-target` (not `goreleaser release`,
+  which cannot split a build across runners on the OSS tier) produces each
+  binary with `internal/version.Version` stamped via `-ldflags` from the
+  pushed tag; the workflow archives/checksums each leg with plain
+  `tar`/`shasum` and `softprops/action-gh-release` assembles the one GitHub
+  release with GitHub-generated notes. `internal/version.Version` (default
+  `"dev"`) now also renders in the options bar next to the screen mode and
+  app name, and `lazysql --version` prints it.

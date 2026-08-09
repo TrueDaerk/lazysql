@@ -469,10 +469,46 @@ func TestQueryRunIsCancellable(t *testing.T) {
 	if m.driver == nil {
 		t.Fatal("cancelling a query closed the connection")
 	}
+	// The cancelled outcome names itself distinctly from a plain error,
+	// with the elapsed time rather than a statement count.
+	if !logContains(m, "-- query cancelled after ") {
+		t.Fatalf("no distinct cancelled-outcome log line: %v", m.commandLog)
+	}
+	if logContains(m, "FAILED") {
+		t.Fatalf("a cancellation was logged as an error: %v", m.commandLog)
+	}
 	// The app is still usable: a plain query works afterwards.
 	m = runQuery(t, m, "SELECT 1")
 	if len(m.data.rows) != 1 {
 		t.Fatalf("the model did not recover from a cancellation: %#v", m.data)
+	}
+}
+
+func TestRunningIndicatorShowsWhileQueryRunsAndClearsAfter(t *testing.T) {
+	m := queryable(t)
+	if m.runningIndicator() != "" {
+		t.Fatalf("runningIndicator = %q with nothing running", m.runningIndicator())
+	}
+	script := "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 20000000) SELECT count(*) FROM n"
+	stmts := db.SplitStatements(m.driver.Engine(), script)
+	cmd := m.startQuery(stmts, nil, "")
+	if m.runningIndicator() == "" {
+		t.Fatal("runningIndicator is empty while a query runs")
+	}
+	if !strings.Contains(m.View().Content, m.spin.View()) {
+		t.Fatal("the options bar does not show the spinner while a query runs")
+	}
+	m.cancelQuery()
+	for _, msg := range drain(cmd) {
+		next, c := m.Update(msg)
+		m = next.(Model)
+		for _, msg := range drain(c) {
+			next, _ := m.Update(msg)
+			m = next.(Model)
+		}
+	}
+	if m.runningIndicator() != "" {
+		t.Fatalf("runningIndicator = %q after the run finished", m.runningIndicator())
 	}
 }
 

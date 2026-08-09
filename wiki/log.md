@@ -582,3 +582,45 @@ Chronological history of wiki changes, newest last.
   the statement under the caret in a multi-statement buffer; `rowsScanner`
   gained `Columns()` for the result shapes EXPLAIN does not know ahead of time.
 
+## 2026-08-09 — Cancel running queries from the UI (issue #47)
+
+- Added [reference/query-cancellation-per-dialect](reference/query-cancellation-per-dialect.md):
+  most of the cancel plumbing (`ctrl+c` → `queryRun.cancel`, the
+  `context.Canceled` outcome distinguished from a real error in the command
+  log, the `TestWorkerAbortsAStatementInFlight`/`TestQueryRunIsCancellable`
+  tests against a recursive CTE) already existed from
+  [design/query-editor-and-history](design/query-editor-and-history.md). What
+  this issue added was reading each driver's source to confirm *how* it
+  reacts: SQLite (`modernc.org/sqlite`) and DuckDB (`marcboeker/go-duckdb/v2`)
+  both interrupt the engine in-process (`sqlite3_interrupt` /
+  `mapping.Interrupt` over DuckDB's pending-result API) with no network hop;
+  PostgreSQL (`pgx`) sends a real `CancelRequest` on a second connection, the
+  same thing `psql`'s own `ctrl+c` does; MySQL
+  (`go-sql-driver/mysql`) does *not* send a server-side `KILL QUERY` — it
+  drops the client connection, so the UI is just as responsive but the
+  statement can keep running server-side briefly until MySQL's own dead-socket
+  detection catches it.
+- Found and fixed a bug while verifying the acceptance criteria:
+  `finishQuery`'s cancelled-outcome log line
+  (`internal/ui/query.go`) formatted `msg.ran` through `countStatements`
+  ("query cancelled after 1 statement") instead of the elapsed wall time the
+  issue asked for ("query cancelled after N s"). `queryRun` gained a
+  `startedAt` field so the line — and the new running indicator — can compute
+  real elapsed time.
+- Added the running indicator the issue also asked for: a `spinner.Model`
+  (`charm.land/bubbles/v2/spinner`) on `Model.spin`, ticked by a
+  `spinner.TickMsg` case in `Update` that drops the tick (and so stops the
+  chain) once `m.run.running` goes false — no separate stop message needed.
+  `Model.runningIndicator()` renders the spinner frame plus
+  `formatElapsed(time.Since(m.run.startedAt))` and is empty when nothing
+  runs; it leads the options bar's right-hand segment
+  (`renderOptionsBar`) and replaced panel `[5]`'s static "running…" text.
+- `loadPageCmd`/`countRowsCmd` (`internal/ui/data.go`) were checked against
+  the same ask and use their own `context.WithTimeout` — they are not part of
+  `queryRun` and have no cancel key of their own. Left as a follow-up rather
+  than folded in here: wiring `ctrl+c` to them would mean giving page loads
+  and row counts their own `queryRun`-shaped state (a `running` flag, a
+  `cancel` field, options-bar wiring) for a round trip that is already capped
+  at 30s, which is a bigger change than this issue's keybinding-and-feedback
+  scope.
+

@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
 	"lazysql/internal/config"
@@ -226,6 +227,11 @@ type Model struct {
 	keys  keyMap
 	help  help.Model
 	style styles
+
+	// spin animates the running indicator in the options bar. It ticks
+	// only while a query runs — the message handler drops any tick that
+	// outlives its run — so it costs nothing the rest of the time.
+	spin spinner.Model
 }
 
 // New builds the shell and loads the saved connections. A broken or missing
@@ -263,6 +269,7 @@ func New() (Model, error) {
 		cfg:       cfg,
 		editor:    newQueryEditor(),
 	}
+	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {
 		m.startupErr = cfgErr.Error()
 	}
@@ -521,6 +528,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		cmd := m.finishQuery(msg)
+		return m, cmd
+
+	case spinner.TickMsg:
+		// A tick that outlives its run is dropped rather than chained:
+		// that is what stops the spinner without a separate "stop" message.
+		if !m.run.running {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
 		return m, cmd
 
 	case explainDoneMsg:

@@ -51,6 +51,9 @@ type queryRun struct {
 	id     int
 	total  int
 	cancel context.CancelFunc
+	// startedAt is when the run began, for the elapsed time the options
+	// bar and the cancelled/finished log lines report.
+	startedAt time.Time
 	// ch carries one message per finished statement plus the final
 	// outcome. Unbuffered, like the export channel: a UI that stopped
 	// reading should block the worker rather than let it run ahead.
@@ -641,11 +644,12 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.run = queryRun{
-		running: true,
-		id:      m.run.id + 1,
-		total:   len(stmts),
-		cancel:  cancel,
-		ch:      make(chan tea.Msg),
+		running:   true,
+		id:        m.run.id + 1,
+		total:     len(stmts),
+		cancel:    cancel,
+		ch:        make(chan tea.Msg),
+		startedAt: time.Now(),
 	}
 	m.keys.CancelQuery.SetEnabled(true)
 
@@ -656,6 +660,7 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	return tea.Batch(
 		logCmd("-- run %s on %s…", countStatements(len(stmts)), m.active),
 		startQueryCmd(job),
+		m.spin.Tick,
 	)
 }
 
@@ -737,7 +742,7 @@ func (m *Model) finishQuery(msg queryDoneMsg) tea.Cmd {
 
 	switch {
 	case errors.Is(msg.err, context.Canceled):
-		return logCmd("-- query cancelled after %s", countStatements(msg.ran))
+		return logCmd("-- query cancelled after %s", formatTook(time.Since(m.run.startedAt)))
 	case msg.err != nil:
 		// The per-statement message already named the error; this line
 		// says how much of the script got as far as running.
@@ -818,6 +823,22 @@ func formatTook(d time.Duration) string {
 	return d.Round(time.Millisecond).String()
 }
 
+// formatElapsed renders how long a run has been going, in whole seconds:
+// a live counter reads at a glance, not to statement precision.
+func formatElapsed(d time.Duration) string {
+	return fmt.Sprintf("%ds", int(d.Round(time.Second)/time.Second))
+}
+
+// runningIndicator is the spinner frame plus elapsed time shown while a
+// query runs, in the options bar and panel [5]'s preview. Empty when
+// nothing is running, so callers can append it unconditionally.
+func (m Model) runningIndicator() string {
+	if !m.run.running {
+		return ""
+	}
+	return m.spin.View() + " " + formatElapsed(time.Since(m.run.startedAt))
+}
+
 // countStatements spells "1 statement" / "3 statements".
 func countStatements(n int) string {
 	if n == 1 {
@@ -862,7 +883,7 @@ func (m Model) queryPanelBody(w, h int) string {
 	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(panelQuery)+1, panelTitles[panelQuery]))
 	switch {
 	case m.run.running:
-		line += " " + s.pending.Render("running…")
+		line += " " + s.pending.Render("running "+m.runningIndicator())
 	case focused && m.editor.editing:
 		line += " " + s.keyHint.Render("insert")
 	case focused:

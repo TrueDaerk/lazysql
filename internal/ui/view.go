@@ -431,6 +431,9 @@ func (m Model) renderOptionsBar() string {
 	}
 	left := h.ShortHelpView(bindings)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
+	if m.run.running {
+		right = m.runningIndicator() + " · " + right
+	}
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {

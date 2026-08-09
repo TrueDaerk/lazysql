@@ -267,25 +267,15 @@ func TestQueryResultPaginatesInMemory(t *testing.T) {
 	}
 }
 
-func TestDMLAsksBeforeItRuns(t *testing.T) {
+func TestGuardedDMLRunsWithoutAsking(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "DELETE FROM q WHERE id = 3")
 
-	cm, ok := m.modal.(*confirmModal)
-	if !ok {
-		t.Fatalf("DML opened %T, want a confirm modal", m.modal)
+	if m.modal != nil {
+		t.Fatalf("a DELETE with a WHERE clause opened %T, want no modal", m.modal)
 	}
-	if !cm.danger || !strings.Contains(cm.body, "DELETE FROM q WHERE id = 3") {
-		t.Fatalf("the confirm modal does not show the statement: %#v", cm)
-	}
-	// Nothing ran yet.
-	if logContains(m, "rows affected") {
-		t.Fatalf("the statement executed before the confirmation: %v", m.commandLog)
-	}
-
-	m = send(t, m, special(tea.KeyEnter, 0))
 	if !logContains(m, "1 row affected") {
-		t.Fatalf("the confirmed DELETE did not report its row count: %v", m.commandLog)
+		t.Fatalf("the guarded DELETE did not report its row count: %v", m.commandLog)
 	}
 	if m.data.notice == "" || !strings.Contains(m.data.notice, "1 row affected") {
 		t.Fatalf("data notice = %q, want the affected-row count", m.data.notice)
@@ -295,7 +285,32 @@ func TestDMLAsksBeforeItRuns(t *testing.T) {
 	}
 }
 
-func TestCancelledDMLDoesNotRun(t *testing.T) {
+func TestUnguardedDMLAsksBeforeItRuns(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "DELETE FROM q")
+
+	cm, ok := m.modal.(*confirmModal)
+	if !ok {
+		t.Fatalf("DELETE without WHERE opened %T, want a confirm modal", m.modal)
+	}
+	if !cm.danger || !strings.Contains(cm.body, "DELETE FROM q") || !strings.Contains(cm.title, "q") {
+		t.Fatalf("the confirm modal does not name the table: %#v", cm)
+	}
+	// Nothing ran yet.
+	if logContains(m, "rows affected") {
+		t.Fatalf("the statement executed before the confirmation: %v", m.commandLog)
+	}
+
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if !logContains(m, "3 rows affected") {
+		t.Fatalf("the confirmed DELETE did not report its row count: %v", m.commandLog)
+	}
+	if !logContains(m, "DELETE FROM q;") {
+		t.Fatalf("the statement is missing from the command log: %v", m.commandLog)
+	}
+}
+
+func TestCancelledUnguardedDMLDoesNotRun(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "DELETE FROM q")
 	m = send(t, m, special(tea.KeyEscape, 0))
@@ -307,12 +322,27 @@ func TestCancelledDMLDoesNotRun(t *testing.T) {
 	}
 }
 
+func TestInsertNeverAsks(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "INSERT INTO q (id, name) VALUES (9, 'x')")
+
+	if m.modal != nil {
+		t.Fatalf("INSERT opened %T, want no modal", m.modal)
+	}
+	if !logContains(m, "1 row affected") {
+		t.Fatalf("the INSERT did not report its row count: %v", m.commandLog)
+	}
+}
+
 func TestMultipleStatementsRunInOrderAndAllAreLogged(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m,
 		"UPDATE q SET name = 'a' WHERE id = 1;\nSELECT id FROM q WHERE id = 1;\nSELECT name FROM q WHERE id = 1;")
-	m = send(t, m, special(tea.KeyEnter, 0)) // confirm the UPDATE
 
+	// The UPDATE carries a WHERE clause, so it runs without a confirm modal.
+	if m.modal != nil {
+		t.Fatalf("guarded UPDATE opened %T, want none", m.modal)
+	}
 	for _, want := range []string{
 		"UPDATE q SET name = 'a' WHERE id = 1;",
 		"SELECT id FROM q WHERE id = 1;",

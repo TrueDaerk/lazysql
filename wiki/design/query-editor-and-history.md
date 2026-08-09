@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Query editor, result routing and the persistent history
-description: Why free-form results are materialized and paged in memory instead of rewritten with LIMIT/OFFSET, how a script is split and classified without a parser, why DML from the editor is confirmed but never staged, how a run is cancelled, and why the history is JSON Lines under XDG_STATE_HOME.
+description: Why free-form results are materialized and paged in memory instead of rewritten with LIMIT/OFFSET, how a script is split and classified without a parser, why DML from the editor runs unstaged and is confirmed only when a DELETE/UPDATE has no WHERE or LIMIT, how a run is cancelled, and why the history is JSON Lines under XDG_STATE_HOME.
 tags: [tui, query, sql, history, cancellation, persistence, xdg]
 generated:
   by: claude-code/opus-5
@@ -97,15 +97,49 @@ cases are not decided by the leading keyword alone:
 as a write would put a confirm modal in front of the most common
 read-only debugging tool; the narrower case is documented here instead.
 
-## 3. Editor DML is confirmed, never staged
+## 3. Editor DML runs unstaged; only an unguarded DELETE/UPDATE is confirmed
 
 The changeset ([staged-changeset](staged-changeset.md)) exists because
 lazysql refuses to guess row identity. A statement the user wrote already
 *is* the identity — there is nothing to stage and nothing to reconstruct.
-So editor DML/DDL bypasses the changeset entirely and instead goes
-through a `confirmModal` that prints the exact write statements, says how
-many of the script's statements they are, and says plainly that they run
-immediately and cannot be rolled back.
+So editor DML/DDL always bypasses the changeset entirely.
+
+An earlier version of this decision put a confirm modal in front of
+*every* write — "this executes immediately, there is nothing to roll
+back." That fired for an `INSERT` exactly as often as for a `DELETE`
+with no `WHERE`, which trained blind dismissal rather than caution, so it
+was dropped ([issue #31](https://github.com/TrueDaerk/lazysql/issues/31)).
+Ordinary DML/DDL now just runs — it is still logged, still not staged,
+and the command log is the record of what happened. The one shape still
+worth stopping for is a `DELETE` or `UPDATE` with **neither a `WHERE` nor
+a `LIMIT`**: unlike every other statement the editor accepts, it touches
+every row in its table by construction, not by a typo the log will show
+after the fact.
+
+`db.FindUnguardedWrites(engine, stmts)` (`internal/db/dml_guard.go`)
+decides this per statement, not by substring search: `DELETE FROM t --
+where` and `UPDATE t SET c = 'where'` must not read as guarded, and a
+`WHERE` inside a parenthesized subquery must not guard the statement
+around it. Both rule out `strings.Contains`, so detection tokenizes with
+`internal/sqlhl` (dialect via `sqlhl.For(string(engine))`) and walks the
+token stream: `WHERE`/`LIMIT` keywords only count at paren depth 0, and
+depth is tracked by scanning every `(`/`)` rune inside `Operator` tokens
+rather than comparing whole tokens — the scanner merges adjacent
+operator runes into one token (`()`, `),`), so a whole-token match would
+miss them. The same pass makes a best-effort read of the target table
+(the identifier after `UPDATE`, or after `DELETE`'s `FROM`) for the
+modal's title; getting that wrong is a display-only concern, not a
+guard-detection one. `LIMIT` on `UPDATE`/`DELETE` is MySQL/MariaDB
+syntax, but the check treats it as "has a limiter" on every engine —
+harmless where the clause could never appear, since no statement there
+will ever carry one.
+
+`submitQuery` runs `FindUnguardedWrites` over the whole split script, not
+just the statements about to execute; a script with three `SELECT`s and
+one unguarded `DELETE` still stops. Confirming runs the entire buffer, in
+order, the same as any other multi-statement run; `esc` cancels it, so
+nothing in the buffer executes, not just the flagged statement — a script
+is one unit once `ctrl+r` is pressed.
 
 A run stops at the first failing statement. A script is written top to
 bottom; continuing past an error would apply changes the user never got

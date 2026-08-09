@@ -46,6 +46,14 @@ type styles struct {
 	danger     lipgloss.Style
 	pending    lipgloss.Style
 
+	// The schema diff report: added green, removed red, changed yellow
+	// — the staged-changes color language, applied to schema objects.
+	// plain is the unstyled fallback for context lines.
+	plain      lipgloss.Style
+	diffAdd    lipgloss.Style
+	diffDel    lipgloss.Style
+	diffChange lipgloss.Style
+
 	// The completion popup. It borrows the accent for its border rather
 	// than the modal's green: it is not a modal — it claims five keys and
 	// lets everything else keep typing — and a second green box on screen
@@ -101,6 +109,11 @@ func newStyles() styles {
 		modalTitle: lipgloss.NewStyle().Bold(true).Foreground(colorGreen),
 		danger:     lipgloss.NewStyle().Foreground(colorError),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
+
+		plain:      lipgloss.NewStyle(),
+		diffAdd:    lipgloss.NewStyle().Foreground(colorGreen),
+		diffDel:    lipgloss.NewStyle().Foreground(colorDeleted),
+		diffChange: lipgloss.NewStyle().Foreground(colorYellow),
 
 		popup: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

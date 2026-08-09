@@ -518,7 +518,7 @@ func TestOpeningAnotherTableResetsQueryShape(t *testing.T) {
 // first page and the count sees the same rows.
 func TestFilterModalBindsStructuredCondition(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, ctrl('f')) // page 2, so applying has to return to page 1
+	m = send(t, m, ctrl('f'))  // page 2, so applying has to return to page 1
 	m = send(t, m, press('l')) // cursor onto `name`
 
 	m2 := send(t, m, press('/'))

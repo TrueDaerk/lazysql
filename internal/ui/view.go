@@ -263,6 +263,11 @@ func placePopup(anchorX, anchorY, w, h, screenW, screenH int) (x, y int) {
 // summary of what the focused panel points at.
 func (m Model) mainContent(w, h int) string {
 	if m.focus == panelConnections {
+		// An open schema diff replaces the profile detail until esc
+		// dismisses it.
+		if m.diff != nil {
+			return m.diffContent(w, h)
+		}
 		return m.connectionDetail(w, h)
 	}
 	// Panel [4] edits here: the side column has room for a preview of the

@@ -43,6 +43,7 @@ type keyMap struct {
 	EditConnection key.Binding
 	DropConnection key.Binding
 	TestConnection key.Binding
+	SchemaDiff     key.Binding
 	Connect        key.Binding
 	Refresh        key.Binding
 	Actions        key.Binding
@@ -151,6 +152,7 @@ func newKeyMap() keyMap {
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
 		DropConnection: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove connection")),
 		TestConnection: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
+		SchemaDiff:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "schema diff vs…")),
 		Connect:        key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
 		Refresh:        key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
@@ -298,6 +300,7 @@ const (
 	actEditConnection
 	actDropConnection
 	actTestConnection
+	actSchemaDiff
 	actRefresh
 	actFilter
 	actToggleTab
@@ -361,6 +364,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actEditConnection, k.EditConnection},
 			{actDropConnection, k.DropConnection},
 			{actTestConnection, k.TestConnection},
+			{actSchemaDiff, k.SchemaDiff},
 		}
 	case panelDatabases:
 		return []action{
@@ -468,6 +472,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
 		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
+		{"schema-diff", &k.SchemaDiff},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"toggle-tab", &k.ToggleTab},
 

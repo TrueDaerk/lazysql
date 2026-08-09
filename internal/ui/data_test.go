@@ -311,6 +311,42 @@ func TestViewCellShowsNull(t *testing.T) {
 	}
 }
 
+// The header sets itself off from the data with a rule whose `┼`
+// junctions line up with the `│` separators in the name and type rows
+// above it.
+func TestGridHeaderRuleAndSeparators(t *testing.T) {
+	m := dataBrowsing(t)
+	cols, _ := m.buildGrid()
+	header := m.gridHeader(cols, 0, 200)
+	lines := strings.Split(header, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("header = %d lines, want name/type/rule", len(lines))
+	}
+	want := len(cols) - 1
+	if got := strings.Count(lines[0], colSepChar); got != want {
+		t.Fatalf("name row has %d separators, want %d", got, want)
+	}
+	if got := strings.Count(lines[1], colSepChar); got != want {
+		t.Fatalf("type row has %d separators, want %d", got, want)
+	}
+	if got := strings.Count(lines[2], ruleJunction); got != want {
+		t.Fatalf("rule has %d junctions, want %d", got, want)
+	}
+	if !strings.Contains(lines[2], ruleChar) {
+		t.Fatal("rule line has no horizontal rule characters")
+	}
+}
+
+// Data rows carry the same column separator as the header.
+func TestGridRowHasColumnSeparators(t *testing.T) {
+	m := dataBrowsing(t)
+	cols, kinds := m.buildGrid()
+	row := m.gridRow(cols, 0, 0, kinds[0], 200)
+	if want := len(cols) - 1; strings.Count(row, colSepChar) != want {
+		t.Fatalf("row has %d separators, want %d", strings.Count(row, colSepChar), want)
+	}
+}
+
 // A wide table scrolls sideways: the window follows the cursor and the
 // grid says which columns are on screen.
 func TestWideTableScrollsHorizontally(t *testing.T) {

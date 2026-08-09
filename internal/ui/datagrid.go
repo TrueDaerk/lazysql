@@ -11,11 +11,22 @@ import (
 
 // Grid geometry. Columns are sized to their content within these
 // bounds; anything wider is truncated with an ellipsis and can still be
-// read in full with `v`.
+// read in full with `v`. colGap is the width taken by the column
+// separator; it stays a plain int so the width math in columnWindow
+// does not care what glyph fills it.
 const (
 	minColWidth = 4
 	maxColWidth = 32
 	colGap      = 1
+)
+
+// Border glyphs for the grid: a vertical rule between columns and, under
+// the header, a horizontal rule with junctions lined up on the same column
+// boundaries.
+const (
+	colSepChar   = "│"
+	ruleChar     = "─"
+	ruleJunction = "┼"
 )
 
 // nullText is how SQL NULL reads in the grid. It is styled dim so it
@@ -214,8 +225,9 @@ func (m Model) dataContent(w, h int) string {
 	d := m.data
 	lines := []string{m.mainTabBar(w)}
 
-	// header (2 lines) + status (1 line) + the title already written
-	bodyRows := h - 4
+	// header (3 lines: name, type, rule) + status (1 line) + the title
+	// already written
+	bodyRows := h - 5
 	if bodyRows < 0 {
 		bodyRows = 0
 	}
@@ -258,13 +270,17 @@ func (m Model) dataContent(w, h int) string {
 	return body + "\n" + truncate(m.dataStatus(), w)
 }
 
-// gridHeader renders the column names and, under them, their types.
+// gridHeader renders the column names and, under them, their types, then a
+// rule that sets the header off from the data. The rule's `┼` junctions
+// line up with the `│` separators above and below it.
 func (m Model) gridHeader(cols []gridColumn, first, w int) string {
-	var names, types strings.Builder
+	var names, types, rule strings.Builder
 	for i, c := range cols {
 		if i > 0 {
-			names.WriteString(strings.Repeat(" ", colGap))
-			types.WriteString(strings.Repeat(" ", colGap))
+			sep := m.style.gridSeparator.Render(colSepChar)
+			names.WriteString(sep)
+			types.WriteString(sep)
+			rule.WriteString(ruleJunction)
 		}
 		style := m.style.gridHeader
 		if first+i == m.data.col && m.focus == panelMain {
@@ -272,8 +288,11 @@ func (m Model) gridHeader(cols []gridColumn, first, w int) string {
 		}
 		names.WriteString(style.Render(pad(truncate(c.header, c.width), c.width)))
 		types.WriteString(m.style.muted.Render(pad(truncate(c.typ, c.width), c.width)))
+		rule.WriteString(strings.Repeat(ruleChar, c.width))
 	}
-	return truncate(names.String(), w) + "\n" + truncate(types.String(), w)
+	return truncate(names.String(), w) + "\n" +
+		truncate(types.String(), w) + "\n" +
+		m.style.gridSeparator.Render(truncate(rule.String(), w))
 }
 
 // gridRow renders one row of the page, tinting the cursor row and, more
@@ -283,11 +302,11 @@ func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) str
 	onRow := r == m.data.row && m.focus == panelMain
 	for i, c := range cols {
 		if i > 0 {
-			gap := strings.Repeat(" ", colGap)
+			sep := m.style.gridSeparator.Render(colSepChar)
 			if onRow {
-				gap = m.style.rowCursor.Render(gap)
+				sep = m.style.rowCursor.Render(colSepChar)
 			}
-			b.WriteString(gap)
+			b.WriteString(sep)
 		}
 		text := ""
 		isNull, isStaged := false, false

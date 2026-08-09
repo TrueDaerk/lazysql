@@ -13,7 +13,7 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 - [design/connection-secrets](design/connection-secrets.md) — Design Decision — connections in TOML, passwords only in the OS keyring or a per-connect prompt.
 - [design/connection-form-modal](design/connection-form-modal.md) — Design Decision — one reusable multi-field modal with engine-driven field visibility.
 - [design/catalog-browsing](design/catalog-browsing.md) — Design Decision — async catalog loads, inline fuzzy filter, tables/views sub-tabs, pseudo-database for single-namespace engines.
-- [design/data-grid](design/data-grid.md) — Design Decision — one-page-at-a-time main view, derived scroll windows, the `panelMain` focus target, and the parse-first quick filter.
+- [design/data-grid](design/data-grid.md) — Design Decision — one-page-at-a-time main view, derived scroll windows, the `panelMain` focus target, the parse-first quick filter, and the per-row `│`/`─`/`┼` table borders.
 - [design/main-view-tabs](design/main-view-tabs.md) — Design Decision — Data/Structure/Indexes/DDL tabs behind one metadata fetch, `[`/`]` cycling instead of digits, and what survives a relation change.
 - [design/staged-changeset](design/staged-changeset.md) — Design Decision — cell edits, row deletes and row inserts stage into one engine-agnostic changeset, rows are identified only by their primary key, and the commit runs every statement in one transaction.
 - [design/copy-and-export](design/copy-and-export.md) — Design Decision — one incremental serializer package behind both the `y` copy menu and the `E` file export, why a clipboard copy is capped while a file export streams, how NULL is spelled per format, and how the export reports progress and cancels.

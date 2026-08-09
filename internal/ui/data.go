@@ -22,7 +22,8 @@ const dataPageSize = 100
 const queryTimeout = 30 * time.Second
 
 // dataView is the state of the main view's Data tab: one page of one
-// relation plus everything that shaped the query behind it.
+// relation, or one result of the query editor, plus everything that
+// shaped the query behind it.
 //
 // The cell cursor (row, col) is deliberately part of this state rather
 // than of the renderer: inline editing reuses it.
@@ -32,6 +33,22 @@ type dataView struct {
 	conn     string
 	database string
 	table    string
+
+	// query is the statement behind the page when the tab is showing a
+	// query-editor result instead of a relation; table is then empty.
+	// The two are mutually exclusive, which is what tells every
+	// table-only action (edit, insert, export, introspection) that it
+	// has nothing to work on.
+	query string
+	// all holds every row a query returned. A table page comes from the
+	// server one page at a time, but a free-form result cannot be
+	// re-queried by offset, so it is materialized once and paged here.
+	all [][]any
+	// truncated marks a result the row cap cut short.
+	truncated bool
+	// notice replaces the grid for a statement that returned no result
+	// set, e.g. "UPDATE — 3 rows affected".
+	notice string
 
 	cols []db.Column
 	rows [][]any
@@ -65,8 +82,36 @@ type dataView struct {
 	req int
 }
 
-// open reports whether a relation is being browsed at all.
-func (d dataView) open() bool { return d.table != "" }
+// open reports whether the Data tab has anything to show — a browsed
+// relation or a query result.
+func (d dataView) open() bool { return d.table != "" || d.query != "" || d.notice != "" }
+
+// browsing reports whether the page belongs to a relation. Everything
+// that needs a table to act on — editing, staging, introspection,
+// export, server-side filter and sort — asks this rather than open().
+func (d dataView) browsing() bool { return d.table != "" }
+
+// isQuery reports whether the page is a materialized query result.
+func (d dataView) isQuery() bool { return d.query != "" }
+
+// setPage cuts page p out of a materialized query result. Table pages
+// come from the server instead and never go through here.
+func (d *dataView) setPage(p int) {
+	if p < 0 {
+		p = 0
+	}
+	d.page = p
+	start := p * dataPageSize
+	if start > len(d.all) {
+		start = len(d.all)
+	}
+	end := start + dataPageSize
+	if end > len(d.all) {
+		end = len(d.all)
+	}
+	d.rows = d.all[start:end]
+	d.row = 0
+}
 
 // offset is the row offset of the current page in the full result.
 func (d dataView) offset() int { return d.page * dataPageSize }
@@ -198,7 +243,7 @@ func (m *Model) openTable(name string) tea.Cmd {
 // reloadPage re-runs the page query and the count for the current
 // filter/sort/page, and logs the exact SQL both of them execute.
 func (m *Model) reloadPage() tea.Cmd {
-	if m.driver == nil || !m.data.open() {
+	if m.driver == nil || !m.data.browsing() {
 		return nil
 	}
 	m.data.req++
@@ -220,7 +265,7 @@ func (m *Model) reloadPage() tea.Cmd {
 	cmds = append(cmds,
 		logCmd("%s", sqlLogLine(pageSQL, d.filter)),
 		logCmd("%s", sqlLogLine(countSQL, d.filter)),
-		func() tea.Msg { return historyEntryMsg{statement: pageSQL + ";"} },
+		historyCmd(pageSQL),
 		loadPageCmd(m.driver, d, m.data.req),
 		countRowsCmd(m.driver, d, m.data.req),
 	)
@@ -244,7 +289,7 @@ func (m Model) fresh(req int, conn, table string) bool {
 // setDataFilter applies a new WHERE fragment and returns to page one.
 // An empty fragment clears the filter.
 func (m *Model) setDataFilter(raw string) tea.Cmd {
-	if !m.data.open() || m.driver == nil {
+	if !m.data.browsing() || m.driver == nil {
 		return nil
 	}
 	m.data.filter = db.ParseFilter(m.driver.Dialect(), raw)
@@ -256,7 +301,7 @@ func (m *Model) setDataFilter(raw string) tea.Cmd {
 // toggleSort cycles the column under the cursor through ASC, DESC and
 // unsorted. The filter is untouched, so the two compose.
 func (m *Model) toggleSort() tea.Cmd {
-	if !m.data.open() || m.data.col >= len(m.data.cols) {
+	if !m.data.browsing() || m.data.col >= len(m.data.cols) {
 		return nil
 	}
 	name := m.data.cols[m.data.col].Name
@@ -282,6 +327,19 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 	}
 	next := m.data.page + delta
 	if next < 0 {
+		return nil
+	}
+	// A query result is already in memory: paging it is a slice, not a
+	// round trip.
+	if m.data.isQuery() {
+		if next > m.data.page && next*dataPageSize >= len(m.data.all) {
+			return logCmd("-- already on the last page")
+		}
+		if next == m.data.page {
+			return nil
+		}
+		m.data.setPage(next)
+		m.clampCursor()
 		return nil
 	}
 	if next > m.data.page {
@@ -328,6 +386,10 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// data.
 		if m.tab.metadata() {
 			cmd := m.reloadMeta()
+			return m, cmd
+		}
+		if m.data.isQuery() {
+			cmd := m.rerunQuery()
 			return m, cmd
 		}
 		cmd := m.reloadPage()

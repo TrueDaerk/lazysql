@@ -10,6 +10,7 @@ import (
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
+	"lazysql/internal/history"
 )
 
 // Minimum usable terminal. Below this the layout math produces negative
@@ -52,8 +53,17 @@ func focusCmd(id panelID) tea.Cmd {
 	return func() tea.Msg { return focusPanelMsg{id: id} }
 }
 
-// historyEntryMsg records a statement in the query history panel.
+// historyEntryMsg records a statement in the query history: panel [4]
+// and the on-disk history behind it. Everything lazysql executes emits
+// one — a browsing page, a committed changeset, a script from the
+// editor — so there is a single way into the history.
 type historyEntryMsg struct{ statement string }
+
+// historyCmd is the message as a command, for callers that only build
+// tea.Cmds.
+func historyCmd(statement string) tea.Cmd {
+	return func() tea.Msg { return historyEntryMsg{statement: statement} }
+}
 
 // ---------- root model ----------
 
@@ -104,6 +114,13 @@ type Model struct {
 	// a time; `X` cancels it.
 	export exportState
 
+	// history is the persistent query history behind panel [4], newest
+	// first. draft is the query editor's text, kept across closes, and
+	// run is the script currently executing, if any.
+	history []history.Entry
+	draft   string
+	run     queryRun
+
 	startupErr string
 
 	keys  keyMap
@@ -139,10 +156,11 @@ func New() Model {
 }
 
 func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{loadHistoryCmd()}
 	if m.startupErr != "" {
-		return logCmd("-- config error: %s", m.startupErr)
+		cmds = append(cmds, logCmd("-- config error: %s", m.startupErr))
 	}
-	return nil
+	return tea.Batch(cmds...)
 }
 
 // refreshConnections rebuilds the [1] Connections panel from the config plus
@@ -196,6 +214,10 @@ func (m *Model) resetBrowse() {
 	// An export reads through the driver that is about to be closed.
 	if m.export.running && m.export.cancel != nil {
 		m.export.cancel()
+	}
+	// So does a running script.
+	if m.run.running && m.run.cancel != nil {
+		m.run.cancel()
 	}
 	m.database = ""
 	m.table = ""
@@ -267,6 +289,9 @@ func (m *Model) reloadFocused() tea.Cmd {
 		if m.tab.metadata() {
 			return m.reloadMeta()
 		}
+		if m.data.isQuery() {
+			return m.rerunQuery()
+		}
 		return m.reloadPage()
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
@@ -305,9 +330,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case historyEntryMsg:
-		h := m.panels[panelHistory]
-		h.setItems(append(h.items, msg.statement))
+		cmd := m.recordHistory(msg.statement)
+		return m, cmd
+
+	case historyLoadedMsg:
+		if msg.err != nil {
+			// A broken history file costs the panel its contents and
+			// nothing else; the session keeps recording into it.
+			return m, logCmd("-- read query history FAILED: %v", msg.err)
+		}
+		m.history = msg.entries
+		m.refreshHistory()
 		return m, nil
+
+	case historyWrittenMsg:
+		if msg.err != nil {
+			return m, logCmd("-- write query history FAILED: %v", msg.err)
+		}
+		return m, nil
+
+	case queryStmtMsg:
+		if msg.id != m.run.id || !m.run.running {
+			return m, nil
+		}
+		// Bind the command first: applyQueryStmt mutates m, and Go may
+		// otherwise copy the pre-call model into the return value.
+		cmd := m.applyQueryStmt(msg)
+		return m, tea.Batch(cmd, waitQueryCmd(m.run.ch))
+
+	case queryDoneMsg:
+		if msg.id != m.run.id {
+			return m, nil
+		}
+		cmd := m.finishQuery(msg)
+		return m, cmd
 
 	case focusPanelMsg:
 		m.setFocus(msg.id)
@@ -449,7 +505,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			stmt := s
 			cmds = append(cmds,
 				logCmd("%s;  -- args %v", stmt.SQL, stmt.Args),
-				func() tea.Msg { return historyEntryMsg{statement: stmt.SQL + ";"} },
+				historyCmd(stmt.SQL),
 			)
 		}
 		m.changes.Clear()
@@ -521,6 +577,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	k := m.keys
 	switch {
+	// While a script runs, ctrl+c aborts it instead of quitting. The
+	// binding is disabled the rest of the time, so key.Matches only
+	// takes this branch during a run.
+	case key.Matches(msg, k.CancelQuery):
+		cmd := m.cancelQuery()
+		return true, m, cmd
+
+	case key.Matches(msg, k.OpenEditor):
+		cmd := m.openQueryEditor()
+		return true, m, cmd
+
 	case key.Matches(msg, k.Quit):
 		return true, m, tea.Quit
 
@@ -707,20 +774,32 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		m.panels[panelTables].clearFilter()
 		m.refreshRelations()
 
-	case actRunQuery:
-		if sel := m.panels[panelHistory].selected(); sel != "" {
-			return m, logCmd("%s", sel)
+	case actLoadQuery:
+		if e, ok := m.selectedHistory(); ok {
+			cmd := m.loadIntoEditor(e.SQL)
+			return m, cmd
 		}
 
+	case actRunQuery:
+		if e, ok := m.selectedHistory(); ok {
+			cmd := m.submitQuery(e.SQL)
+			return m, cmd
+		}
+
+	case actDeleteHistory:
+		cmd := m.deleteHistoryEntry()
+		return m, cmd
+
 	case actClearHistory:
+		if len(m.history) == 0 {
+			return m, logCmd("-- query history is already empty")
+		}
 		m.modal = &confirmModal{
-			title:  "Clear history",
-			body:   "Discard every entry in the query history?",
-			danger: true,
-			onConfirm: func(m *Model) tea.Cmd {
-				m.panels[panelHistory].setItems(nil)
-				return logCmd("-- clear query history")
-			},
+			title: "Clear history",
+			body: fmt.Sprintf(
+				"Discard all %d entries of the query history, on disk too?", len(m.history)),
+			danger:    true,
+			onConfirm: func(m *Model) tea.Cmd { return m.clearHistory() },
 		}
 	}
 	return m, nil
@@ -766,7 +845,12 @@ func (m *Model) drillIn() tea.Cmd {
 		// grid; `esc` there comes straight back here.
 		return tea.Batch(m.openTable(sel), focusCmd(panelMain))
 	case panelHistory:
-		return logCmd("%s", sel)
+		// `enter` loads the statement into the editor rather than
+		// running it: history is full of statements that were fine once
+		// and would be a surprise now. `x` runs it.
+		if e, ok := m.selectedHistory(); ok {
+			return m.loadIntoEditor(e.SQL)
+		}
 	}
 	return nil
 }

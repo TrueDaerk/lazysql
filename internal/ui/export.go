@@ -68,7 +68,7 @@ type exportDoneMsg struct {
 // pre-filled with a plausible name so the common case is one keystroke
 // plus enter.
 func (m *Model) startExport() tea.Cmd {
-	if !m.data.open() {
+	if !m.data.browsing() {
 		return logCmd("-- export skipped: no relation open")
 	}
 	if m.driver == nil {
@@ -113,7 +113,7 @@ func (m *Model) runExport(path string) tea.Cmd {
 	if err != nil {
 		return logCmd("-- export %s FAILED: %v", full, err)
 	}
-	if !m.data.open() || m.driver == nil {
+	if !m.data.browsing() || m.driver == nil {
 		return logCmd("-- export skipped: nothing open")
 	}
 

@@ -22,7 +22,7 @@ import (
 // stagedInserts are the pending INSERTs of the open table, in staging
 // order. The grid renders them after the last real row of the page.
 func (m Model) stagedInserts() []db.RowInsert {
-	if !m.data.open() {
+	if !m.data.browsing() {
 		return nil
 	}
 	return m.changes.InsertsFor(m.data.database, m.data.table)
@@ -58,7 +58,7 @@ func (m *Model) clampCursor() {
 // startDelete is `d` on the Data tab. Like `e` it needs the primary key
 // from the metadata, and waits for the fetch when nothing cached it yet.
 func (m *Model) startDelete() tea.Cmd {
-	if !m.data.open() || m.tab.metadata() || m.driver == nil {
+	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if m.onPhantomRow() {
@@ -102,7 +102,7 @@ func (m *Model) stageDeleteAtCursor() tea.Cmd {
 // Unlike delete, neither needs a primary key: a PK-less table can still
 // be inserted into.
 func (m *Model) startInsert(duplicate bool) tea.Cmd {
-	if !m.data.open() || m.tab.metadata() || m.driver == nil {
+	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if duplicate {

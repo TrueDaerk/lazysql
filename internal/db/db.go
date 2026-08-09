@@ -188,6 +188,13 @@ type Driver interface {
 	ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, error)
 	// Query runs an arbitrary SQL query with parameters.
 	Query(ctx context.Context, query string, args ...any) (*ResultSet, error)
+	// QueryLimit is Query with a cap on how many rows it materializes;
+	// max <= 0 means unlimited. The second result reports that the
+	// server had more rows than the cap, so a capped result is never
+	// mistaken for a complete one. Free-form queries from the editor go
+	// through it: an unbounded `SELECT *` on a large table would
+	// otherwise be read entirely into memory.
+	QueryLimit(ctx context.Context, query string, max int, args ...any) (*ResultSet, bool, error)
 }
 
 // Dialect captures everything engine-specific: identifier quoting,

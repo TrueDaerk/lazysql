@@ -225,6 +225,10 @@ func (m Model) dataContent(w, h int) string {
 		lines = append(lines, "", m.style.pending.Render("running query…"))
 	case d.err != "":
 		lines = append(lines, "", m.style.danger.Render(truncate(d.err, w)))
+	case len(d.cols) == 0 && d.notice != "":
+		// A statement that returns no result set: the affected-row
+		// count is the whole outcome.
+		lines = append(lines, "", m.style.pending.Render(truncate(d.notice, w)))
 	case len(d.cols) == 0:
 		lines = append(lines, "", m.style.muted.Render("no columns"))
 	default:
@@ -329,6 +333,10 @@ func (m Model) dataStatus() string {
 	d := m.data
 	var parts []string
 
+	if d.notice != "" && len(d.cols) == 0 {
+		return m.style.pending.Render(d.notice)
+	}
+
 	switch {
 	case len(d.rows) == 0 && d.hasTotal && d.total == 0:
 		parts = append(parts, "rows 0 of 0")
@@ -337,7 +345,14 @@ func (m Model) dataStatus() string {
 	default:
 		span := fmt.Sprintf("rows %d–%d", d.offset()+1, d.offset()+len(d.rows))
 		if d.hasTotal {
-			span += fmt.Sprintf(" of ~%d", d.total)
+			// A browsed table's total is a separate COUNT(*) round trip
+			// that may already be stale; a query result is fully in
+			// memory, so its total is exact.
+			if d.isQuery() {
+				span += fmt.Sprintf(" of %d", d.total)
+			} else {
+				span += fmt.Sprintf(" of ~%d", d.total)
+			}
 		}
 		parts = append(parts, span)
 	}
@@ -348,6 +363,11 @@ func (m Model) dataStatus() string {
 	parts = append(parts, page+")")
 
 	line := m.style.muted.Render(strings.Join(parts, " "))
+	if d.truncated {
+		// A capped result looks exactly like a complete one, so the
+		// status line has to say it is not.
+		line += m.style.danger.Render(fmt.Sprintf("  capped at %d rows", maxQueryRows))
+	}
 	if n := m.changes.Len(); n > 0 {
 		line += m.style.pending.Render("  " + countChanges(n))
 	}

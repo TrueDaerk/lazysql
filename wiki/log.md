@@ -325,3 +325,38 @@ Chronological history of wiki changes, newest last.
   `sql-string`, `sql-number`, `sql-comment`, `sql-placeholder`);
   identifiers and operators stay uncoloured on purpose, and delimited
   identifiers borrow `accent`.
+- Added [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)
+  with completion in the query editor (issue #30). The popup is a
+  `lipgloss` layer, not a `modal`: a modal takes every key, and a
+  completion list exists precisely *while* the user is typing, so it
+  claims four keys in `updateEditor` and lets everything else through.
+  Anchoring it cost the only real refactor — the compositor places by
+  absolute cell, so `sideWidth`, `mainColumnRect` and
+  `commandLogHeight` came out of `View`/`renderMainColumn` and
+  `renderEditor` now returns the caret's row and column inside the block
+  it draws, measured with `lipgloss.Width` because a wide rune is two
+  cells. `placePopup` (below, slid left, flipped above) is a pure
+  function and unit-tested as one: with the editor capped at half the
+  main view, the flip case is unreachable by resizing. Suggestions come
+  from a token scan rather than a parser — `sqlhl.Tokenize` already
+  reads half-written SQL, so matching its identifier tokens against the
+  relation list is enough to know which tables a statement touches, and
+  a string literal spelling a table name correctly does not count.
+  Ranking is prefix-before-substring, then schema-before-keywords: a
+  user knows `SELECT`, and does not remember whether the column is
+  `customer_name`. Two new exports on `internal/sqlhl` (`Keywords`,
+  `IsKeyword`) share one list between the highlighter and the popup, so
+  a dialect's keyword gains both at once and the per-driver difference
+  is free. The column cache is keyed by connection+database and
+  invalidates itself in `syncSchema` rather than trusting every caller
+  to clear it; a generation counter drops replies for a namespace the
+  user has left; a miss never blocks, and `restackCompletion` fills the
+  open popup in when the fetch lands, carrying the selection by name.
+  Quoting is `Dialect.QuoteIdent` but only where required, plus one
+  dialect rule worth remembering: PostgreSQL folds unquoted identifiers,
+  so a mixed-case name has to be quoted there and nowhere else. New
+  `[keys]` actions: `complete`, `complete-next`, `complete-prev`,
+  `accept-completion`, `close-completion`. One behaviour change to an
+  existing flow — `esc` now closes the popup before it leaves insert
+  mode — which is the issue's requirement and is asserted in
+  [design/query-editor-panel](design/query-editor-panel.md)'s tests.

@@ -46,6 +46,14 @@ type styles struct {
 	danger     lipgloss.Style
 	pending    lipgloss.Style
 
+	// The completion popup. It borrows the accent for its border rather
+	// than the modal's green: it is not a modal — it claims five keys and
+	// lets everything else keep typing — and a second green box on screen
+	// would read as one.
+	popup         lipgloss.Style
+	popupSelected lipgloss.Style
+	popupTag      lipgloss.Style
+
 	// Data grid. The row tint is deliberately weaker than the cell tint
 	// so the cell cursor stays readable inside the highlighted row.
 	gridHeader       lipgloss.Style
@@ -92,6 +100,12 @@ func newStyles() styles {
 		modalTitle: lipgloss.NewStyle().Bold(true).Foreground(colorGreen),
 		danger:     lipgloss.NewStyle().Foreground(colorError),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
+
+		popup: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(colorCyan),
+		popupSelected: lipgloss.NewStyle().Background(colorSelectionBg).Foreground(colorCyan),
+		popupTag:      lipgloss.NewStyle().Foreground(colorMuted),
 
 		gridHeader:       lipgloss.NewStyle().Bold(true),
 		gridHeaderCursor: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),

@@ -253,3 +253,61 @@ func TestForMapsEngineNames(t *testing.T) {
 		}
 	}
 }
+
+// Keywords is the highlighter's set, exported for the query editor's
+// completion popup: the two must never drift apart, which is why they
+// are one list.
+func TestKeywordsMatchesTheHighlightedSet(t *testing.T) {
+	for _, d := range []Dialect{Generic, MySQL, Postgres, SQLite, DuckDB} {
+		list := Keywords(d)
+		if len(list) == 0 {
+			t.Fatalf("Keywords(%q) is empty", d)
+		}
+		for i, w := range list {
+			if !IsKeyword(d, w) {
+				t.Errorf("Keywords(%q) offers %q, which the highlighter does not colour", d, w)
+			}
+			if i > 0 && list[i-1] >= w {
+				t.Errorf("Keywords(%q) is not sorted at %q", d, w)
+			}
+			if w != strings.ToUpper(w) {
+				t.Errorf("Keywords(%q) yields %q, want upper case", d, w)
+			}
+		}
+	}
+}
+
+func TestKeywordsDifferPerDialect(t *testing.T) {
+	cases := []struct {
+		dialect    Dialect
+		has, hasnt string
+	}{
+		{MySQL, "AUTO_INCREMENT", "QUALIFY"},
+		{Postgres, "ILIKE", "AUTOINCREMENT"},
+		{SQLite, "AUTOINCREMENT", "ILIKE"},
+		{DuckDB, "QUALIFY", "AUTO_INCREMENT"},
+		// The shared core is in every one of them.
+		{Generic, "SELECT", "QUALIFY"},
+	}
+	for _, c := range cases {
+		if !IsKeyword(c.dialect, c.has) {
+			t.Errorf("%q: %q is missing", c.dialect, c.has)
+		}
+		if IsKeyword(c.dialect, c.hasnt) {
+			t.Errorf("%q: %q belongs to another dialect", c.dialect, c.hasnt)
+		}
+	}
+}
+
+// IsKeyword ignores case: the completion popup asks it about identifiers
+// as the catalog spells them.
+func TestIsKeywordIgnoresCase(t *testing.T) {
+	for _, w := range []string{"order", "Order", "ORDER"} {
+		if !IsKeyword(SQLite, w) {
+			t.Errorf("IsKeyword(SQLite, %q) = false", w)
+		}
+	}
+	if IsKeyword(SQLite, "customers") {
+		t.Error("IsKeyword(SQLite, \"customers\") = true")
+	}
+}

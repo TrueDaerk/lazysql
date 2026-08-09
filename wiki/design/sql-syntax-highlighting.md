@@ -139,6 +139,12 @@ the next one. It truncates first and highlights the result: styling and
 token cut by the truncation is re-read on its own, which at worst loses
 the last word on a preview line its colour.
 
+The keyword sets have a second consumer since issue #30:
+`Keywords(dialect)` and `IsKeyword(dialect, word)` back the editor's
+completion popup, so a word worth colouring is a word worth offering and
+a new dialect keyword gains both at once —
+[schema-aware-autocomplete](schema-aware-autocomplete.md).
+
 See also
 [design/query-editor-panel](query-editor-panel.md) for the panel the
 editor lives in, and

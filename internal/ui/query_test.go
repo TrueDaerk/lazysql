@@ -90,6 +90,15 @@ func TestEscLeavesInsertModeAndKeepsTheBuffer(t *testing.T) {
 	if m.script() != "SEL" {
 		t.Fatalf("buffer = %q, want the typed text", m.script())
 	}
+	// Typing opened the completion popup, and the first esc is its: it
+	// closes the popup and leaves insert mode alone.
+	if !m.completion.open {
+		t.Fatal("typing SEL did not open the completion popup")
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if !m.editor.editing {
+		t.Fatal("esc left insert mode instead of only closing the popup")
+	}
 	m = send(t, m, special(tea.KeyEscape, 0))
 	if m.editor.editing {
 		t.Fatal("esc did not leave insert mode")

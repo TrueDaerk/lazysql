@@ -40,9 +40,13 @@ the follow-up vim-mode work extends:
   editing, `ctrl+r` runs, `D` clears (with a confirm), `j`/`k` move the
   buffer's cursor between lines, `esc` backs out of the panel. Every
   global key still works.
-- **insert** — everything types, except `ctrl+r` (run), `ctrl+c` (cancel
-  a running query, or leave insert mode when nothing runs) and `esc`
-  (leave insert mode, buffer kept).
+- **insert** — everything types, except `ctrl+r` (run), `ctrl+space`
+  (complete), `ctrl+c` (cancel a running query, or leave insert mode
+  when nothing runs) and `esc` (leave insert mode, buffer kept).
+
+With the completion popup open `esc` closes the popup first and insert
+mode survives it, so leaving the mode from there takes a second press —
+see [schema-aware-autocomplete](schema-aware-autocomplete.md).
 
 `Model.setEditing` keeps the textarea's own focus in step with the mode,
 so a blurred buffer cannot swallow a key even if one reached it.

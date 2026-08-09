@@ -22,6 +22,12 @@ var (
 	colorSelectionBg  = lipgloss.Color("237")
 	colorRowCursorBg  = lipgloss.Color("236")
 	colorCellCursorBg = lipgloss.Color("240")
+
+	colorSQLKeyword     = lipgloss.Color("5")
+	colorSQLString      = lipgloss.Color("2")
+	colorSQLNumber      = lipgloss.Color("6")
+	colorSQLComment     = lipgloss.Color("8")
+	colorSQLPlaceholder = lipgloss.Color("3")
 )
 
 type styles struct {
@@ -46,6 +52,24 @@ type styles struct {
 	gridHeaderCursor lipgloss.Style
 	rowCursor        lipgloss.Style
 	cellCursor       lipgloss.Style
+
+	// SQL syntax highlighting. sqlQuoted covers delimited identifiers,
+	// which are neither plain text nor literals; it borrows the accent so
+	// the theme keeps one knob for "this is a name the user quoted".
+	sqlKeyword     lipgloss.Style
+	sqlString      lipgloss.Style
+	sqlNumber      lipgloss.Style
+	sqlComment     lipgloss.Style
+	sqlPlaceholder lipgloss.Style
+	sqlQuoted      lipgloss.Style
+
+	// The editor's own cursor. Insert mode reverses the cell it sits on,
+	// the way a terminal block cursor does, so it stays legible over any
+	// token colour; normal mode only tints it, since nothing typed there
+	// lands in the buffer.
+	editorCursor     lipgloss.Style
+	editorCursorIdle lipgloss.Style
+	editorGutter     lipgloss.Style
 }
 
 func newStyles() styles {
@@ -73,6 +97,17 @@ func newStyles() styles {
 		gridHeaderCursor: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),
 		rowCursor:        lipgloss.NewStyle().Background(colorRowCursorBg),
 		cellCursor:       lipgloss.NewStyle().Background(colorCellCursorBg).Bold(true),
+
+		sqlKeyword:     lipgloss.NewStyle().Foreground(colorSQLKeyword).Bold(true),
+		sqlString:      lipgloss.NewStyle().Foreground(colorSQLString),
+		sqlNumber:      lipgloss.NewStyle().Foreground(colorSQLNumber),
+		sqlComment:     lipgloss.NewStyle().Foreground(colorSQLComment).Italic(true),
+		sqlPlaceholder: lipgloss.NewStyle().Foreground(colorSQLPlaceholder).Bold(true),
+		sqlQuoted:      lipgloss.NewStyle().Foreground(colorCyan),
+
+		editorCursor:     lipgloss.NewStyle().Reverse(true),
+		editorCursorIdle: lipgloss.NewStyle().Background(colorCellCursorBg),
+		editorGutter:     lipgloss.NewStyle().Foreground(colorMuted),
 	}
 }
 

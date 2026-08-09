@@ -170,9 +170,15 @@ type queryEditor struct {
 
 func newQueryEditor() queryEditor {
 	ta := textarea.New()
-	ta.Placeholder = "SELECT * FROM …"
-	ta.ShowLineNumbers = true
 	ta.CharLimit = 0
+	// The textarea is the input model only: internal/ui/highlight.go
+	// draws the buffer, its gutter and its cursor, so the component's own
+	// chrome is turned off and its width is pinned wide enough that it
+	// never soft-wraps — see the note at the top of that file for why the
+	// two must not both wrap.
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.SetWidth(editorWrapWidth)
 	return queryEditor{area: ta}
 }
 
@@ -606,7 +612,11 @@ func (m Model) queryPanelBody(w, h int) string {
 				fmt.Sprintf("… %d more lines", len(lines)-rows+1), w)))
 			break
 		}
-		b.WriteString("\n" + truncate(l, w))
+		// The preview truncates first and highlights the result: styling
+		// then cutting would slice an escape sequence in half. A token
+		// cut by the truncation is re-read on its own, which at worst
+		// costs the last word on the line its colour.
+		b.WriteString("\n" + highlightSQL(s, m.sqlDialect(), truncate(l, w)))
 	}
 	return b.String()
 }
@@ -619,7 +629,7 @@ func (m Model) queryContent(w, h int) string {
 	s := m.style
 	header := s.titleFocused.Render("Query editor") + s.muted.Render(" — "+m.editorMode())
 	if m.active != "" {
-		header += s.muted.Render(" · "+m.active+" / "+displayDatabase(m.database))
+		header += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
 	}
 	body := []string{truncate(header, w)}
 	rows := h - 1
@@ -627,16 +637,11 @@ func (m Model) queryContent(w, h int) string {
 		return clipHeight(strings.Join(body, "\n"), h)
 	}
 
-	editorH := min(m.editor.area.LineCount()+1, maxInt(rows/2, 3))
+	editorH := min(m.editorRows(w)+1, maxInt(rows/2, 3))
 	if editorH > rows {
 		editorH = rows
 	}
-	// The textarea is sized on a copy: View may not mutate the model, and
-	// the box the editor has to fit is only known here.
-	area := m.editor.area
-	area.SetWidth(w)
-	area.SetHeight(editorH)
-	rendered := area.View()
+	rendered := m.editorBlock(w, editorH)
 	body = append(body, rendered)
 	rows -= lipgloss.Height(rendered)
 	if rows <= 0 {

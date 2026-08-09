@@ -27,7 +27,7 @@ Key choices:
   narrow `querier` interface. Introspection differences stay in one
   file per engine; connection handling, scanning, paging and exec are
   written once.
-- **Dialect methods are unexported** (`listTables`, `tableDDL`, ...)
+- **Dialect methods are unexported** (`listRelations`, `tableDDL`, ...)
   and `driverName()` too, so outside packages can use quoting and
   placeholders but cannot bypass the Driver.
 - **MariaDB = MySQL dialect** with separate `Engine`/display name — the
@@ -38,6 +38,11 @@ Key choices:
 - **Cancellation** — every method takes `context.Context`; the row scan
   loop also checks `ctx.Err()` between rows so materialization aborts
   promptly.
+- **Relations carry their kind** — the dialect method is
+  `listRelations`, returning `[]Relation` (name + table/view). The
+  name-only `Driver.ListTables` is derived from it, so the `[3] Tables`
+  panel can split its sub-tabs from one query — see
+  [design/catalog-browsing](catalog-browsing.md).
 - **Namespaces** — `ListDatabases` means: databases (MySQL/MariaDB),
   schemas of the connected database (PostgreSQL, which cannot query
   across databases on one connection), attached databases (SQLite,

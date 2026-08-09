@@ -38,12 +38,30 @@ const (
 
 // sidePanel is a plain cursor-over-slice list. Bubbles' list component carries
 // filtering and pagination chrome we don't want in a lazygit-style column.
+//
+// all/allStatus hold everything the panel knows; items/status hold the rows
+// the current filter lets through and are what the cursor indexes into.
 type sidePanel struct {
-	id     panelID
-	items  []string
-	status []itemStatus // parallel to items; shorter means "idle" for the rest
-	cursor int
-	offset int // index of the first visible row, for scrolling
+	id        panelID
+	all       []string
+	allStatus []itemStatus // parallel to all; shorter means "idle" for the rest
+	items     []string
+	status    []itemStatus
+	cursor    int
+	offset    int // index of the first visible row, for scrolling
+
+	// filter is the fuzzy pattern narrowing the list; filtering reports
+	// whether `/` input mode is still capturing keys.
+	filter    string
+	filtering bool
+
+	// tabs are the sub-tab labels drawn next to the title ([3] Tables).
+	tabs []string
+	tab  int
+
+	// loading marks an in-flight reload: the previous content stays on
+	// screen with a "loading…" marker in the title.
+	loading bool
 }
 
 // statusAt reports the status of row i, defaulting to idle.
@@ -76,28 +94,80 @@ func (p *sidePanel) selected() string {
 }
 
 func (p *sidePanel) setItems(items []string) {
-	p.items = items
-	p.status = nil
-	p.move(0)
+	p.setItemsWithStatus(items, nil)
 }
 
-// setItemsWithStatus replaces the rows together with their tint.
+// setItemsWithStatus replaces the rows together with their tint. The filter
+// survives a reload, and so does the selection whenever the named row is
+// still present.
 func (p *sidePanel) setItemsWithStatus(items []string, status []itemStatus) {
-	p.items = items
-	p.status = status
+	keep := p.selected()
+	p.all = items
+	p.allStatus = status
+	p.applyFilter()
+	if keep == "" || !p.selectByName(keep) {
+		p.cursor, p.offset = 0, 0
+	}
+}
+
+// setFilter narrows the visible rows to the fuzzy matches of pattern.
+func (p *sidePanel) setFilter(pattern string) {
+	keep := p.selected()
+	p.filter = pattern
+	p.applyFilter()
+	if keep != "" {
+		p.selectByName(keep)
+	}
+}
+
+// clearFilter restores the full list and leaves `/` input mode.
+func (p *sidePanel) clearFilter() {
+	p.filtering = false
+	if p.filter == "" {
+		return
+	}
+	p.setFilter("")
+}
+
+// applyFilter recomputes items/status from all/allStatus.
+func (p *sidePanel) applyFilter() {
+	if p.filter == "" {
+		p.items, p.status = p.all, p.allStatus
+		p.move(0)
+		return
+	}
+	items := make([]string, 0, len(p.all))
+	var status []itemStatus
+	for i, it := range p.all {
+		if !fuzzyMatch(p.filter, it) {
+			continue
+		}
+		items = append(items, it)
+		if len(p.allStatus) > 0 {
+			st := statusIdle
+			if i < len(p.allStatus) {
+				st = p.allStatus[i]
+			}
+			status = append(status, st)
+		}
+	}
+	p.items, p.status = items, status
+	p.cursor, p.offset = 0, 0
 	p.move(0)
 }
 
-// selectByName moves the cursor onto the named row when it exists.
-func (p *sidePanel) selectByName(name string) {
+// selectByName moves the cursor onto the named row and reports whether the
+// row was there at all.
+func (p *sidePanel) selectByName(name string) bool {
 	for i, it := range p.items {
 		if it == name {
 			p.cursor = i
 			p.move(0)
-			return
+			return true
 		}
 	}
 	p.move(0)
+	return false
 }
 
 // visible returns the rows that fit in rows lines, scrolling the window so the
@@ -125,16 +195,57 @@ func (p *sidePanel) visible(rows int) []string {
 	return p.items[p.offset:end]
 }
 
-// render draws the panel body (title + rows) for a content box of w x h cells.
-func (p *sidePanel) render(s styles, focused bool, w, h int) string {
+// titleLine is the panel header: number, name, sub-tabs and load state.
+func (p *sidePanel) titleLine(s styles, focused bool) string {
 	titleStyle := s.title
 	if focused {
 		titleStyle = s.titleFocused
 	}
+	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(p.id)+1, panelTitles[p.id]))
+	if len(p.tabs) > 0 {
+		parts := make([]string, 0, len(p.tabs))
+		for i, t := range p.tabs {
+			if i == p.tab {
+				parts = append(parts, s.keyHint.Render(t))
+				continue
+			}
+			parts = append(parts, s.muted.Render(t))
+		}
+		line += " " + s.muted.Render("‹") + strings.Join(parts, s.muted.Render("|")) + s.muted.Render("›")
+	}
+	if p.loading {
+		line += " " + s.pending.Render("loading…")
+	}
+	return line
+}
+
+// filterLine is the inline `/` prompt; it only takes a row while a filter is
+// being typed or is still narrowing the list.
+func (p *sidePanel) filterLine(s styles) (string, bool) {
+	if !p.filtering && p.filter == "" {
+		return "", false
+	}
+	cursor := ""
+	if p.filtering {
+		cursor = "▏"
+	}
+	line := s.keyHint.Render("/"+p.filter) + cursor
+	if len(p.items) == 0 {
+		line += " " + s.danger.Render("no match")
+	}
+	return line, true
+}
+
+// render draws the panel body (title + rows) for a content box of w x h cells.
+func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(fmt.Sprintf("[%d] %s", int(p.id)+1, panelTitles[p.id])))
+	b.WriteString(truncate(p.titleLine(s, focused), w))
 
 	rows := h - 1 // title line
+	if line, ok := p.filterLine(s); ok && rows > 0 {
+		b.WriteString("\n" + truncate(line, w))
+		rows--
+	}
 	if rows <= 0 {
 		return b.String()
 	}
@@ -153,4 +264,23 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 		b.WriteString("\n" + style.Render(line))
 	}
 	return b.String()
+}
+
+// fuzzyMatch reports whether pattern occurs in s as a case-insensitive
+// subsequence — "usr" matches "users" and "user_roles". Cheap enough to run
+// on every keystroke, and no dependency needed.
+func fuzzyMatch(pattern, s string) bool {
+	if pattern == "" {
+		return true
+	}
+	pr := []rune(strings.ToLower(pattern))
+	i := 0
+	for _, c := range strings.ToLower(s) {
+		if c == pr[i] {
+			if i++; i == len(pr) {
+				return true
+			}
+		}
+	}
+	return false
 }

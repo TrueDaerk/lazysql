@@ -79,6 +79,14 @@ type Model struct {
 	driver    db.Driver
 	active    string // name of the connected profile, "" when none
 
+	// Browsing state: the namespace panel [3] currently shows, the
+	// relations it was filled from (both kinds, one round trip) and which
+	// sub-tab is selected.
+	database  string
+	relations []db.Relation
+	tableTab  relationTab
+	table     string // the relation the main view is showing
+
 	startupErr string
 
 	keys  keyMap
@@ -100,6 +108,7 @@ func New() Model {
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id}
 	}
+	m.panels[panelTables].tabs = relationTabNames[:]
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -159,6 +168,73 @@ func (m *Model) renameConnState(oldName, newName string) {
 	if m.active == oldName {
 		m.active = newName
 	}
+}
+
+// resetBrowse drops everything that belonged to the previous connection.
+func (m *Model) resetBrowse() {
+	m.database = ""
+	m.table = ""
+	m.relations = nil
+	m.tableTab = tabTables
+	for _, id := range []panelID{panelDatabases, panelTables} {
+		p := m.panels[id]
+		p.loading = false
+		p.clearFilter()
+		p.setItems(nil)
+	}
+	m.panels[panelTables].tab = int(m.tableTab)
+}
+
+// openDatabase makes name the browsed namespace and starts the table load.
+// The panel keeps its old rows until the reply lands.
+func (m *Model) openDatabase(name string) tea.Cmd {
+	m.database = databaseArg(name)
+	p := m.panels[panelTables]
+	p.clearFilter()
+	if m.driver == nil {
+		return nil
+	}
+	m.relations = nil
+	p.loading = true
+	return loadRelationsCmd(m.active, m.driver, m.database)
+}
+
+// refreshRelations repaints panel [3] from the cached relation list for the
+// selected sub-tab — switching tabs never hits the server.
+func (m *Model) refreshRelations() {
+	p := m.panels[panelTables]
+	p.tab = int(m.tableTab)
+	p.setItems(db.FilterRelations(m.relations, m.tableTab.kind()))
+}
+
+// reloadFocused re-runs the server query behind the focused panel.
+func (m *Model) reloadFocused() tea.Cmd {
+	if m.driver == nil {
+		return logCmd("-- reload %s skipped: not connected", panelTitles[m.focus])
+	}
+	switch m.focus {
+	case panelDatabases:
+		m.panels[panelDatabases].loading = true
+		return tea.Batch(
+			logCmd("-- reload databases of %s", m.active),
+			loadDatabasesCmd(m.active, m.driver),
+		)
+	case panelTables:
+		m.panels[panelTables].loading = true
+		return tea.Batch(
+			logCmd("-- reload tables of %s", displayDatabase(m.database)),
+			loadRelationsCmd(m.active, m.driver, m.database),
+		)
+	}
+	return logCmd("-- refresh %s", panelTitles[m.focus])
+}
+
+// displayDatabase names the browsed namespace for logs and the main view.
+func displayDatabase(database string) string {
+	if database == "" {
+		return pseudoDatabase
+	}
+	return database
 }
 
 // selectedConnection returns the profile under the cursor of panel [1].
@@ -223,13 +299,47 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.driver = msg.driver
 		m.active = msg.name
 		m.setConnStatus(msg.name, statusOK, "")
-		m.panels[panelDatabases].setItems(msg.databases)
-		m.panels[panelTables].setItems(nil)
-		return m, tea.Batch(
+		m.resetBrowse()
+		m.panels[panelDatabases].setItems(namespaceList(msg.driver.Engine(), msg.databases))
+		cmds := []tea.Cmd{
 			closeDriverCmd(prev),
 			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
-			focusCmd(panelDatabases),
-		)
+		}
+		// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
+		// go straight to their tables.
+		if dbs := m.panels[panelDatabases].items; len(dbs) == 1 {
+			cmds = append(cmds, m.openDatabase(dbs[0]), focusCmd(panelTables))
+		} else {
+			cmds = append(cmds, focusCmd(panelDatabases))
+		}
+		return m, tea.Batch(cmds...)
+
+	case databasesLoadedMsg:
+		// A reply for a connection that is no longer live is stale.
+		if msg.conn != m.active {
+			return m, nil
+		}
+		p := m.panels[panelDatabases]
+		p.loading = false
+		if msg.err != nil {
+			// The panel keeps its previous content; only the log knows.
+			return m, logCmd("-- list databases FAILED: %v", msg.err)
+		}
+		p.setItems(namespaceList(m.driver.Engine(), msg.databases))
+		return m, nil
+
+	case relationsLoadedMsg:
+		if msg.conn != m.active || msg.database != m.database {
+			return m, nil
+		}
+		p := m.panels[panelTables]
+		p.loading = false
+		if msg.err != nil {
+			return m, logCmd("-- list tables of %s FAILED: %v", displayDatabase(msg.database), msg.err)
+		}
+		m.relations = msg.relations
+		m.refreshRelations()
+		return m, nil
 
 	case connPersistedMsg:
 		if msg.err != nil {
@@ -248,11 +358,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, cmd
 		}
-		// 2. Global keys.
+		// 2. An open `/` filter captures every printable key, so digits
+		// and `q` type into the pattern instead of jumping or quitting.
+		if m.panels[m.focus].filtering {
+			return m.updateFilter(msg)
+		}
+		// 3. Global keys.
 		if handled, mm, cmd := m.updateGlobal(msg); handled {
 			return mm, cmd
 		}
-		// 3. Focused panel.
+		// 4. Focused panel.
 		return m.updateFocused(msg)
 	}
 	return m, nil
@@ -314,9 +429,18 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.focus == panelConnections {
 			return m.runAction(actConnect)
 		}
-		return m, m.drillIn()
+		// Bind the command first: drillIn mutates m and Go would
+		// otherwise copy the pre-call model into the return value.
+		cmd := m.drillIn()
+		return m, cmd
 
 	case key.Matches(msg, k.Back):
+		// esc first drops an active filter; only an unfiltered panel
+		// hands the key on to the focus stack.
+		if p.filter != "" {
+			p.clearFilter()
+			return m, nil
+		}
 		if n := len(m.prev); n > 0 {
 			back := m.prev[n-1]
 			m.prev = m.prev[:n-1]
@@ -336,6 +460,32 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	for _, a := range k.panelActions(m.focus) {
 		if key.Matches(msg, a.binding) {
 			return m.runAction(a.id)
+		}
+	}
+	return m, nil
+}
+
+// updateFilter is the inline `/` editor of the focused panel: every
+// keystroke re-narrows the list, esc restores it, enter keeps the filter and
+// hands the panel's normal keys back.
+func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	p := m.panels[m.focus]
+	switch msg.Code {
+	case tea.KeyEscape:
+		p.clearFilter()
+	case tea.KeyEnter:
+		p.filtering = false
+	case tea.KeyBackspace:
+		if r := []rune(p.filter); len(r) > 0 {
+			p.setFilter(string(r[:len(r)-1]))
+		}
+	case tea.KeyUp:
+		p.move(-1)
+	case tea.KeyDown:
+		p.move(1)
+	default:
+		if msg.Text != "" {
+			p.setFilter(p.filter + msg.Text)
 		}
 	}
 	return m, nil
@@ -375,8 +525,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 					if m.active == name {
 						closeCmd = closeDriverCmd(m.driver)
 						m.driver, m.active = nil, ""
-						m.panels[panelDatabases].setItems(nil)
-						m.panels[panelTables].setItems(nil)
+						m.resetBrowse()
 					}
 					delete(m.connState, name)
 					m.refreshConnections("")
@@ -390,14 +539,17 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		}
 
 	case actRefresh:
-		return m, logCmd("-- refresh %s", panelTitles[m.focus])
+		return m, m.reloadFocused()
 
 	case actFilter:
-		focus := m.focus
-		m.modal = newPromptModal("Filter "+panelTitles[focus], "substring", "",
-			func(m *Model, v string) tea.Cmd {
-				return logCmd("-- filter %s: %q", panelTitles[focus], v)
-			})
+		// The filter is inline, not a modal: typing narrows the panel on
+		// every keystroke and esc restores the full list.
+		m.panels[m.focus].filtering = true
+
+	case actToggleTab:
+		m.tableTab = (m.tableTab + 1) % relationTabCount
+		m.panels[panelTables].clearFilter()
+		m.refreshRelations()
 
 	case actRunQuery:
 		if sel := m.panels[panelHistory].selected(); sel != "" {
@@ -445,15 +597,18 @@ func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 
 // drillIn is `enter`: move one step deeper in the connection → database →
 // table chain, and record the resulting statement in the history panel.
-func (m Model) drillIn() tea.Cmd {
+func (m *Model) drillIn() tea.Cmd {
 	sel := m.panels[m.focus].selected()
 	if sel == "" {
 		return nil
 	}
 	switch m.focus {
 	case panelDatabases:
-		return tea.Batch(logCmd("USE %s;", sel), focusCmd(panelTables))
+		return tea.Batch(logCmd("USE %s;", sel), m.openDatabase(sel), focusCmd(panelTables))
 	case panelTables:
+		// The data grid is a separate issue; for now the main view only
+		// records which relation was opened.
+		m.table = sel
 		stmt := fmt.Sprintf("SELECT * FROM %s LIMIT 100;", sel)
 		return tea.Batch(logCmd("%s", stmt), func() tea.Msg { return historyEntryMsg{statement: stmt} })
 	case panelHistory:

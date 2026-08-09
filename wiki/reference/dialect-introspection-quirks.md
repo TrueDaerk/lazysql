@@ -22,6 +22,8 @@ sources:
 - `PRAGMA index_list` marks the implicit primary-key index with
   `origin = 'pk'`; `INTEGER PRIMARY KEY` (rowid alias) produces **no**
   index_list entry at all.
+- `sqlite_master.type` is already `'table'` / `'view'`, so the
+  relation-kind column costs nothing.
 - Original DDL comes from `sqlite_master.sql` (NULL for auto-created
   indexes — filter `sql IS NOT NULL`).
 - In-memory DSN: `:memory:`.
@@ -41,12 +43,19 @@ sources:
 - `duckdb_indexes().expressions` is a list too; cast to VARCHAR and
   parse for plain column indexes. Primary keys do not appear in
   `duckdb_indexes()`.
+- Tables and views live in *separate* functions, so a combined listing
+  is a `UNION ALL` with **literal** kind columns (`'table'` / `'view'`)
+  — there is no catalog column to read the kind from. Each branch needs
+  its own copy of the `database_name` argument.
 - `duckdb_tables().sql` / `duckdb_views().sql` hold reconstructed DDL.
 
 ## PostgreSQL (`jackc/pgx/v5/stdlib`, driver name `pgx`)
 
 - One connection sees one database — "databases" in the UI are the
   schemas of the connected database (`pg_namespace`).
+- `information_schema.tables.table_type` spells kinds as `BASE TABLE`,
+  `VIEW`, `FOREIGN`, `LOCAL TEMPORARY` — match on "contains view"
+  rather than equality.
 - No stored CREATE TABLE text; DDL is synthesized from
   `information_schema.columns`.
 - Primary key / index columns via `pg_index` with
@@ -58,6 +67,8 @@ sources:
 - Shared dialect; only `Engine`/display name differ.
 - `information_schema` throughout; empty database resolves via
   `table_schema = DATABASE()`.
+- `information_schema.tables.table_type` adds `SYSTEM VIEW` to the
+  standard set; the same "contains view" rule covers it.
 - `SHOW CREATE TABLE` returns two columns (name, DDL) — and a
   different column set for views; scan positionally.
 - Primary key detection: `columns.column_key = 'PRI'`; the PK index in

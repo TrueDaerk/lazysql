@@ -347,11 +347,13 @@ func TestConnectSetsStatusAndListsDatabases(t *testing.T) {
 	if got := m.connState["local-sqlite"].status; got != statusOK {
 		t.Fatalf("status = %v, want statusOK", got)
 	}
-	if len(m.panels[panelDatabases].items) == 0 {
-		t.Fatal("databases panel was not populated")
+	// SQLite is a single-namespace engine: one pseudo entry, straight to
+	// its tables.
+	if got := m.panels[panelDatabases].items; len(got) != 1 || got[0] != pseudoDatabase {
+		t.Fatalf("databases panel = %v, want [%s]", got, pseudoDatabase)
 	}
-	if m.focus != panelDatabases {
-		t.Fatalf("focus = %v, want %v", m.focus, panelDatabases)
+	if m.focus != panelTables {
+		t.Fatalf("focus = %v, want %v", m.focus, panelTables)
 	}
 	if !logContains(m, "-- connect local-sqlite") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -432,8 +434,8 @@ func TestActionsMenuDispatchesSameActionAsKey(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("menu stayed open after enter")
 	}
-	if m.focus != panelDatabases {
-		t.Fatalf("focus = %v, want %v (connect should drill in)", m.focus, panelDatabases)
+	if m.focus != panelTables {
+		t.Fatalf("focus = %v, want %v (connect should drill in)", m.focus, panelTables)
 	}
 	if len(mm.entries) < 2 {
 		t.Fatalf("menu had %d entries, want the panel's actions", len(mm.entries))

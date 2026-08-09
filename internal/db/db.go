@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -94,6 +95,34 @@ type Sort struct {
 	Desc   bool
 }
 
+// Filter is the WHERE fragment of a paged query. Expr is a SQL boolean
+// expression written with the dialect's placeholders and Args holds the
+// values they stand for, so user data never reaches the statement text.
+//
+// Verbatim marks a fragment lazysql could not take apart: Expr is then
+// the user's own SQL, interpolated as typed. The UI warns about that in
+// the command log. Raw is always what the user typed, for display.
+type Filter struct {
+	Expr     string
+	Args     []any
+	Verbatim bool
+	Raw      string
+}
+
+// empty reports whether the filter contributes no WHERE clause. A nil
+// filter is empty, which is why every method has a nil-safe receiver.
+func (f *Filter) empty() bool {
+	return f == nil || strings.TrimSpace(f.Expr) == ""
+}
+
+// FilterArgs returns the parameters of a possibly nil filter.
+func FilterArgs(f *Filter) []any {
+	if f == nil {
+		return nil
+	}
+	return f.Args
+}
+
 // Driver is the single abstraction UI code uses for database access.
 // Every method that touches the database takes a context and aborts
 // when it is cancelled.
@@ -120,10 +149,13 @@ type Driver interface {
 	TableIndexes(ctx context.Context, database, table string) ([]Index, error)
 	TableDDL(ctx context.Context, database, table string) (string, error)
 
-	// QueryPage reads one page of a table. filter is a raw SQL boolean
-	// expression supplied by the user (their own WHERE clause), or "".
-	// sort may be nil. Identifiers are quoted per dialect.
-	QueryPage(ctx context.Context, database, table, filter string, sortBy *Sort, limit, offset int) (*ResultSet, error)
+	// QueryPage reads one page of a table. filter and sortBy may be nil.
+	// Identifiers are quoted per dialect and filter arguments travel as
+	// query parameters.
+	QueryPage(ctx context.Context, database, table string, filter *Filter, sortBy *Sort, limit, offset int) (*ResultSet, error)
+	// CountRows returns how many rows the same table+filter matches. It
+	// is a separate round trip so the page can render before it lands.
+	CountRows(ctx context.Context, database, table string, filter *Filter) (int64, error)
 
 	// Exec runs a statement with parameters (dialect placeholder style).
 	Exec(ctx context.Context, query string, args ...any) (ExecResult, error)

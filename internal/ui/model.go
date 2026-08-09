@@ -87,6 +87,9 @@ type Model struct {
 	tableTab  relationTab
 	table     string // the relation the main view is showing
 
+	// data is the main view's Data tab: one page of m.table.
+	data dataView
+
 	startupErr string
 
 	keys  keyMap
@@ -174,8 +177,12 @@ func (m *Model) renameConnState(oldName, newName string) {
 func (m *Model) resetBrowse() {
 	m.database = ""
 	m.table = ""
+	m.data = dataView{}
 	m.relations = nil
 	m.tableTab = tabTables
+	if m.focus == panelMain {
+		m.focus = panelTables
+	}
 	for _, id := range []panelID{panelDatabases, panelTables} {
 		p := m.panels[id]
 		p.loading = false
@@ -189,6 +196,12 @@ func (m *Model) resetBrowse() {
 // The panel keeps its old rows until the reply lands.
 func (m *Model) openDatabase(name string) tea.Cmd {
 	m.database = databaseArg(name)
+	// The open page belongs to the namespace we are leaving.
+	m.table = ""
+	m.data = dataView{}
+	if m.focus == panelMain {
+		m.focus = panelTables
+	}
 	p := m.panels[panelTables]
 	p.clearFilter()
 	if m.driver == nil {
@@ -225,6 +238,8 @@ func (m *Model) reloadFocused() tea.Cmd {
 			logCmd("-- reload tables of %s", displayDatabase(m.database)),
 			loadRelationsCmd(m.active, m.driver, m.database),
 		)
+	case panelMain:
+		return m.reloadPage()
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
 }
@@ -341,6 +356,35 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshRelations()
 		return m, nil
 
+	case pageLoadedMsg:
+		if !m.fresh(msg.req, msg.conn, msg.table) {
+			return m, nil
+		}
+		m.data.loading = false
+		if msg.err != nil {
+			// The previous page stays on screen; the grid and the log
+			// both name the failure.
+			m.data.err = msg.err.Error()
+			return m, logCmd("-- select from %s FAILED: %v", msg.table, msg.err)
+		}
+		m.data.cols = msg.result.Columns
+		m.data.rows = msg.result.Rows
+		m.data.clampCursor()
+		return m, nil
+
+	case rowCountMsg:
+		if !m.fresh(msg.req, msg.conn, msg.table) {
+			return m, nil
+		}
+		if msg.err != nil {
+			// A missing count only costs the "of ~N" part of the status
+			// line, so it never blocks browsing.
+			m.data.hasTotal = false
+			return m, logCmd("-- count %s FAILED: %v", msg.table, msg.err)
+		}
+		m.data.total, m.data.hasTotal = msg.total, true
+		return m, nil
+
 	case connPersistedMsg:
 		if msg.err != nil {
 			return m, logCmd("-- %s %s FAILED: %v", msg.verb, msg.name, msg.err)
@@ -360,14 +404,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// 2. An open `/` filter captures every printable key, so digits
 		// and `q` type into the pattern instead of jumping or quitting.
-		if m.panels[m.focus].filtering {
+		if m.focus < panelCount && m.panels[m.focus].filtering {
 			return m.updateFilter(msg)
 		}
 		// 3. Global keys.
 		if handled, mm, cmd := m.updateGlobal(msg); handled {
 			return mm, cmd
 		}
-		// 4. Focused panel.
+		// 4. The focused view: the data grid, or a side panel.
+		if m.focus == panelMain {
+			return m.updateData(msg)
+		}
 		return m.updateFocused(msg)
 	}
 	return m, nil
@@ -393,11 +440,11 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case key.Matches(msg, k.NextPanel):
-		m.setFocus((m.focus + 1) % panelCount)
+		m.setFocus(m.cycleFocus(1))
 		return true, m, nil
 
 	case key.Matches(msg, k.PrevPanel):
-		m.setFocus((m.focus + panelCount - 1) % panelCount)
+		m.setFocus(m.cycleFocus(-1))
 		return true, m, nil
 
 	case key.Matches(msg, k.ScreenNext):
@@ -494,6 +541,10 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 // runAction performs a context action. Both a key press and an entry in the
 // `a` actions menu reach the panel behaviour through here.
 func (m Model) runAction(id actionID) (Model, tea.Cmd) {
+	// The data grid's actions live with the grid.
+	if mm, cmd, handled := m.dataActions(id); handled {
+		return mm, cmd
+	}
 	switch id {
 	case actConnect:
 		return m.dialSelected(false)
@@ -606,15 +657,28 @@ func (m *Model) drillIn() tea.Cmd {
 	case panelDatabases:
 		return tea.Batch(logCmd("USE %s;", sel), m.openDatabase(sel), focusCmd(panelTables))
 	case panelTables:
-		// The data grid is a separate issue; for now the main view only
-		// records which relation was opened.
-		m.table = sel
-		stmt := fmt.Sprintf("SELECT * FROM %s LIMIT 100;", sel)
-		return tea.Batch(logCmd("%s", stmt), func() tea.Msg { return historyEntryMsg{statement: stmt} })
+		// Opening a relation loads its first page and hands focus to the
+		// grid; `esc` there comes straight back here.
+		return tea.Batch(m.openTable(sel), focusCmd(panelMain))
 	case panelHistory:
 		return logCmd("%s", sel)
 	}
 	return nil
+}
+
+// cycleFocus is the `tab` order: the four numbered panels, and the main
+// view too whenever a relation is open in it. Without an open relation
+// the grid has nothing to show, so tab skips it.
+func (m Model) cycleFocus(delta int) panelID {
+	n := int(panelCount)
+	if m.data.open() {
+		n++
+	}
+	cur := int(m.focus)
+	if cur >= n {
+		cur = int(panelTables)
+	}
+	return panelID(((cur+delta)%n + n) % n)
 }
 
 func (m *Model) setFocus(id panelID) {

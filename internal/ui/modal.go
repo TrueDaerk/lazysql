@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,6 +11,8 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"lazysql/internal/db"
 )
 
 // modal is the interface every popup implements. While a modal is open the
@@ -193,6 +197,99 @@ func (p *promptModal) view(s styles, maxW, maxH int) string {
 		"",
 		s.muted.Render("enter submit · esc cancel"),
 	))
+}
+
+// ---------- cell ----------
+
+// cellModal shows one cell's full value, which the grid can only show
+// truncated. JSON is pretty-printed, because a JSON column is exactly
+// the case where the truncated grid text is useless.
+type cellModal struct {
+	title  string
+	lines  []string
+	offset int
+}
+
+func newCellModal(column string, value any) *cellModal {
+	title := "Cell"
+	if column != "" {
+		title = "Cell — " + column
+	}
+	text := db.FormatValue(value, nullText)
+	if value == nil {
+		text = nullText
+	} else if pretty, ok := prettyJSON(text); ok {
+		text = pretty
+		title += " (json)"
+	}
+	return &cellModal{title: title, lines: strings.Split(text, "\n")}
+}
+
+// prettyJSON re-indents s when it is a JSON object or array. Scalars
+// are left alone: re-indenting a bare number or string gains nothing.
+func prettyJSON(s string) (string, bool) {
+	trimmed := strings.TrimSpace(s)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') {
+		return "", false
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, []byte(trimmed), "", "  "); err != nil {
+		return "", false
+	}
+	return buf.String(), true
+}
+
+func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "enter", "v":
+		return true, nil
+	case "down", "j":
+		c.offset++
+	case "up", "k":
+		c.offset--
+	case "pgdown", "ctrl+f":
+		c.offset += 10
+	case "pgup", "ctrl+b":
+		c.offset -= 10
+	case "g", "home":
+		c.offset = 0
+	case "G", "end":
+		c.offset = len(c.lines)
+	}
+	return false, nil
+}
+
+func (c *cellModal) view(s styles, maxW, maxH int) string {
+	width := min(maxW-8, 80)
+	if width < 8 {
+		width = 8
+	}
+	rows := maxH - 6
+	if rows < 1 {
+		rows = 1
+	}
+	if rows > len(c.lines) {
+		rows = len(c.lines)
+	}
+	if maxOff := len(c.lines) - rows; c.offset > maxOff {
+		c.offset = maxOff
+	}
+	if c.offset < 0 {
+		c.offset = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(s.modalTitle.Render(truncate(c.title, width)) + "\n\n")
+	for _, line := range c.lines[c.offset : c.offset+rows] {
+		b.WriteString(truncate(line, width) + "\n")
+	}
+	footer := "esc close"
+	if len(c.lines) > rows {
+		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · esc close",
+			c.offset+1, c.offset+rows, len(c.lines))
+	}
+	b.WriteString("\n" + s.muted.Render(footer))
+	return s.modal.Render(b.String())
 }
 
 // ---------- help ----------

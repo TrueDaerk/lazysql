@@ -31,6 +31,13 @@ type styles struct {
 	modalTitle lipgloss.Style
 	danger     lipgloss.Style
 	pending    lipgloss.Style
+
+	// Data grid. The row tint is deliberately weaker than the cell tint
+	// so the cell cursor stays readable inside the highlighted row.
+	gridHeader       lipgloss.Style
+	gridHeaderCursor lipgloss.Style
+	rowCursor        lipgloss.Style
+	cellCursor       lipgloss.Style
 }
 
 func newStyles() styles {
@@ -53,6 +60,11 @@ func newStyles() styles {
 		modalTitle: lipgloss.NewStyle().Bold(true).Foreground(colorGreen),
 		danger:     lipgloss.NewStyle().Foreground(colorRed),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
+
+		gridHeader:       lipgloss.NewStyle().Bold(true),
+		gridHeaderCursor: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),
+		rowCursor:        lipgloss.NewStyle().Background(lipgloss.Color("236")),
+		cellCursor:       lipgloss.NewStyle().Background(lipgloss.Color("240")).Bold(true),
 	}
 }
 

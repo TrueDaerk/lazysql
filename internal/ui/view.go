@@ -31,7 +31,11 @@ func (m Model) View() tea.View {
 	bodyH := m.height - 1 // options bar
 	var body string
 	if m.screen == screenFull {
-		body = m.renderPanel(m.focus, m.width, bodyH)
+		if m.focus == panelMain {
+			body = m.renderMainColumn(m.width, bodyH)
+		} else {
+			body = m.renderPanel(m.focus, m.width, bodyH)
+		}
 	} else {
 		sideW := m.width / 3
 		if sideW < 24 {
@@ -83,7 +87,10 @@ func (m Model) panelHeights(bodyH int) [panelCount]int {
 	var out [panelCount]int
 	const collapsed = 3 // top border + title + bottom border
 
-	if m.screen == screenHalf && bodyH >= collapsed*int(panelCount)+2 {
+	// Half mode expands the focused *side* panel. With the main view
+	// focused there is nothing in the column to expand, so it keeps the
+	// even split.
+	if m.screen == screenHalf && m.focus < panelCount && bodyH >= collapsed*int(panelCount)+2 {
 		for id := panelID(0); id < panelCount; id++ {
 			out[id] = collapsed
 		}
@@ -125,7 +132,11 @@ func (m Model) renderMainColumn(w, h int) string {
 	}
 	mainH := h - logH
 
-	main := m.style.blurredBorder.
+	border := m.style.blurredBorder
+	if m.focus == panelMain {
+		border = m.style.focusedBorder
+	}
+	main := border.
 		Width(w).Height(mainH).
 		Render(m.mainContent(maxInt(w-2, 1), maxInt(mainH-2, 1)))
 	if logH <= 0 {
@@ -134,11 +145,18 @@ func (m Model) renderMainColumn(w, h int) string {
 	return lipgloss.JoinVertical(lipgloss.Left, main, m.renderCommandLog(w, logH))
 }
 
-// mainContent is the placeholder detail view for the focused selection. The
-// result grid replaces it once the driver layer lands.
+// mainContent is the main view: the Data tab of the open relation, the
+// selected connection's settings, or — with nothing opened yet — a
+// summary of what the focused panel points at.
 func (m Model) mainContent(w, h int) string {
 	if m.focus == panelConnections {
 		return m.connectionDetail(w, h)
+	}
+	if m.data.open() {
+		return m.dataContent(w, h)
+	}
+	if m.focus >= panelCount {
+		return m.style.muted.Render("no relation open — pick one in [3] Tables")
 	}
 	sel := m.panels[m.focus].selected()
 	if sel == "" {

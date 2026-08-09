@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -116,26 +117,78 @@ func qualifiedTable(d Dialect, database, table string) string {
 	return d.QuoteIdent(database) + "." + d.QuoteIdent(table)
 }
 
-func (c *conn) QueryPage(ctx context.Context, database, table, filter string, sortBy *Sort, limit, offset int) (*ResultSet, error) {
+// writeWhere appends the filter's WHERE clause, if it has one.
+func writeWhere(b *strings.Builder, filter *Filter) {
+	if filter.empty() {
+		return
+	}
+	b.WriteString(" WHERE ")
+	b.WriteString(filter.Expr)
+}
+
+// PageSQL renders the statement QueryPage executes. The UI uses it to
+// show the exact SQL in the command log without running it twice.
+func PageSQL(d Dialect, database, table string, filter *Filter, sortBy *Sort, limit, offset int) string {
+	var b strings.Builder
+	b.WriteString("SELECT * FROM ")
+	b.WriteString(qualifiedTable(d, database, table))
+	writeWhere(&b, filter)
+	if sortBy != nil && sortBy.Column != "" {
+		b.WriteString(" ORDER BY ")
+		b.WriteString(d.QuoteIdent(sortBy.Column))
+		if sortBy.Desc {
+			b.WriteString(" DESC")
+		} else {
+			b.WriteString(" ASC")
+		}
+	}
+	b.WriteString(d.LimitOffset(limit, offset))
+	return b.String()
+}
+
+// CountSQL renders the statement CountRows executes.
+func CountSQL(d Dialect, database, table string, filter *Filter) string {
+	var b strings.Builder
+	b.WriteString("SELECT COUNT(*) FROM ")
+	b.WriteString(qualifiedTable(d, database, table))
+	writeWhere(&b, filter)
+	return b.String()
+}
+
+func (c *conn) QueryPage(ctx context.Context, database, table string, filter *Filter, sortBy *Sort, limit, offset int) (*ResultSet, error) {
 	if c.db == nil {
 		return nil, errNotConnected
 	}
-	var b strings.Builder
-	b.WriteString("SELECT * FROM ")
-	b.WriteString(qualifiedTable(c.dialect, database, table))
-	if strings.TrimSpace(filter) != "" {
-		b.WriteString(" WHERE ")
-		b.WriteString(filter)
+	q := PageSQL(c.dialect, database, table, filter, sortBy, limit, offset)
+	return c.Query(ctx, q, FilterArgs(filter)...)
+}
+
+func (c *conn) CountRows(ctx context.Context, database, table string, filter *Filter) (int64, error) {
+	if c.db == nil {
+		return 0, errNotConnected
 	}
-	if sortBy != nil && sortBy.Column != "" {
-		b.WriteString(" ORDER BY ")
-		b.WriteString(c.dialect.QuoteIdent(sortBy.Column))
-		if sortBy.Desc {
-			b.WriteString(" DESC")
+	rs, err := c.Query(ctx, CountSQL(c.dialect, database, table, filter), FilterArgs(filter)...)
+	if err != nil {
+		return 0, err
+	}
+	if len(rs.Rows) == 0 || len(rs.Rows[0]) == 0 {
+		return 0, errors.New("db: count returned no rows")
+	}
+	switch n := rs.Rows[0][0].(type) {
+	case int64:
+		return n, nil
+	case float64:
+		return int64(n), nil
+	case string:
+		// Some drivers hand big integers back as decimal text.
+		v, err := strconv.ParseInt(n, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("db: unreadable count %q", n)
 		}
+		return v, nil
+	default:
+		return 0, fmt.Errorf("db: unreadable count of type %T", n)
 	}
-	b.WriteString(c.dialect.LimitOffset(limit, offset))
-	return c.Query(ctx, b.String())
 }
 
 func (c *conn) Exec(ctx context.Context, query string, args ...any) (ExecResult, error) {

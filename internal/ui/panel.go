@@ -18,11 +18,18 @@ const (
 	panelCount
 )
 
-var panelTitles = [panelCount]string{
+// panelMain is the focusable main view. It is not a side panel — it has
+// no number, no entry in Model.panels and no slot in the side column —
+// but it takes focus like one so the keybinding table, the options bar,
+// the actions menu and `?` stay keyed by a single identifier.
+const panelMain = panelCount
+
+var panelTitles = [panelCount + 1]string{
 	"Connections",
 	"Databases",
 	"Tables",
 	"Query history",
+	"Data",
 }
 
 // itemStatus tints a row. The [1] Connections panel uses it to show which

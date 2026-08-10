@@ -2,8 +2,10 @@ package ui
 
 import (
 	"image/color"
+	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ANSI palette colors respect the user's terminal theme, which keeps the
@@ -138,6 +140,58 @@ func newStyles() styles {
 		editorCursorIdle: lipgloss.NewStyle().Background(colorCellCursorBg),
 		editorGutter:     lipgloss.NewStyle().Foreground(colorMuted),
 	}
+}
+
+// titleBorderPad is how many border runes sit between a corner and the
+// embedded title, matching lazygit's `╭─[3]─Local branches─╮`.
+const titleBorderPad = 1
+
+// renderTitledBox draws body inside a w x h box and splices the title into
+// the top border line, lazygit style, instead of spending a content row on
+// it. Lipgloss has no border-title support, so the top line is rebuilt from
+// the style's own border runes and top foreground: the corners and the fill
+// keep the border colour, the title keeps whatever styling it arrived with.
+//
+// title is expected to be pre-styled (it mixes colours — number, name,
+// sub-tabs, loading marker), so truncation has to be ANSI-aware; a byte or
+// rune cut would slice an escape sequence and bleed colour into the border.
+func renderTitledBox(border lipgloss.Style, title, body string, w, h int) string {
+	box := border.Width(w).Height(h).Render(body)
+	if title == "" || !border.GetBorderTop() {
+		return box
+	}
+	b := border.GetBorderStyle()
+	if b.Top == "" {
+		return box
+	}
+	lines := strings.Split(box, "\n")
+	if len(lines) == 0 {
+		return box
+	}
+
+	// What is left of the top line once the corners and the padding runes
+	// on either side of the title are accounted for.
+	room := w - lipgloss.Width(b.TopLeft) - lipgloss.Width(b.TopRight) - 2*titleBorderPad*lipgloss.Width(b.Top)
+	if room < 1 {
+		return box
+	}
+	t := ansi.Truncate(title, room, "…")
+	fill := room - lipgloss.Width(t)
+	if fill < 0 {
+		fill = 0
+	}
+
+	ink := lipgloss.NewStyle()
+	if fg := border.GetBorderTopForeground(); fg != nil {
+		ink = ink.Foreground(fg)
+	}
+	if bg := border.GetBorderTopBackground(); bg != nil {
+		ink = ink.Background(bg)
+	}
+	lines[0] = ink.Render(b.TopLeft+strings.Repeat(b.Top, titleBorderPad)) +
+		t +
+		ink.Render(strings.Repeat(b.Top, fill+titleBorderPad)+b.TopRight)
+	return strings.Join(lines, "\n")
 }
 
 // statusColor maps a row status to its tint. The idle status has no color of

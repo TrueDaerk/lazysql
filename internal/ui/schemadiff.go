@@ -340,10 +340,7 @@ func writeDiffReport(path, text string) tea.Cmd {
 // line, the failure, or the scrollable report.
 func (m Model) diffContent(w, h int) string {
 	d := m.diff
-	lines := []string{
-		m.style.titleFocused.Render("Schema diff") +
-			m.style.muted.Render(" — A: "+d.aLabel+" · B: "+d.bLabel),
-	}
+	var lines []string
 	switch {
 	case d.running:
 		lines = append(lines, "", m.style.pending.Render(truncate(d.note, w)))
@@ -351,7 +348,7 @@ func (m Model) diffContent(w, h int) string {
 		lines = append(lines, "", m.style.danger.Render(truncate("schema diff failed: "+d.err, w)))
 		lines = append(lines, "", m.style.keyHint.Render("esc close"))
 	default:
-		body := maxInt(h-2, 0) // title + footer
+		body := maxInt(h-1, 0) // footer — the title is the border title
 		rendered := make([]string, 0, len(d.lines))
 		for _, l := range d.lines {
 			rendered = append(rendered, m.diffLineStyle(l.Kind).Render(l.Text))
@@ -361,6 +358,13 @@ func (m Model) diffContent(w, h int) string {
 		lines = append(lines, m.style.keyHint.Render(truncate(hint, w)))
 	}
 	return joinTruncated(lines, w, h)
+}
+
+// diffTitle is the main view's border title while a diff report is open.
+func (m Model) diffTitle() string {
+	d := m.diff
+	return m.style.titleFocused.Render("Schema diff") +
+		m.style.muted.Render(" — A: "+d.aLabel+" · B: "+d.bLabel)
 }
 
 func (m Model) diffLineStyle(kind db.DiffLineKind) lipgloss.Style {

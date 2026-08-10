@@ -202,12 +202,7 @@ func (m Model) updatePlanKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 func (m Model) planContent(w, h int) string {
 	p := m.plan
 	s := m.style
-	head := s.titleFocused.Render("Query plan") + s.muted.Render(" — "+p.engine)
-	if m.active != "" {
-		head += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
-	}
 	lines := []string{
-		truncate(head, w),
 		s.muted.Render(truncate(firstLine(p.stmt), w)),
 	}
 	switch {
@@ -217,12 +212,22 @@ func (m Model) planContent(w, h int) string {
 		lines = append(lines, "", s.danger.Render(truncate("explain failed: "+p.err, w)))
 		lines = append(lines, "", s.keyHint.Render("esc back to the editor"))
 	default:
-		body := maxInt(h-3, 0) // header, statement, footer
+		body := maxInt(h-2, 0) // statement, footer — the header is the border title
 		lines = append(lines, scrollLines(p.lines, p.offset, w, body)...)
 		hint := fmt.Sprintf("%d lines — j/k scroll · y copy · esc back to the editor", len(p.lines))
 		lines = append(lines, s.keyHint.Render(truncate(hint, w)))
 	}
 	return joinTruncated(lines, w, h)
+}
+
+// planTitle is the main view's border title while a plan is open.
+func (m Model) planTitle() string {
+	s := m.style
+	title := s.titleFocused.Render("Query plan") + s.muted.Render(" — "+m.plan.engine)
+	if m.active != "" {
+		title += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
+	}
+	return title
 }
 
 // firstLine is the statement's first line, marked when it has more —

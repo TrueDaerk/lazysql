@@ -226,14 +226,27 @@ func rowWindow(n, cursor, rows int) (start, end int) {
 	return start, end
 }
 
-// dataContent renders the main view's Data tab into a w x h content box.
+// dataContent renders the Data tab with its tab bar on top. The main view
+// draws the bar in its border instead and calls dataBody directly; this is
+// for the nested case — the result under the editor in the query view,
+// which has a border title of its own.
 func (m Model) dataContent(w, h int) string {
-	d := m.data
-	lines := []string{m.mainTabBar(w)}
+	if h <= 0 {
+		return ""
+	}
+	if h == 1 {
+		return m.mainTabBar(w)
+	}
+	return m.mainTabBar(w) + "\n" + m.dataBody(w, h-1)
+}
 
-	// header (3 lines: name, type, rule) + status (1 line) + the title
-	// already written
-	bodyRows := h - 5
+// dataBody renders the grid and its status line into a w x h content box.
+func (m Model) dataBody(w, h int) string {
+	d := m.data
+	var lines []string
+
+	// header (3 lines: name, type, rule) + status (1 line)
+	bodyRows := h - 4
 	if bodyRows < 0 {
 		bodyRows = 0
 	}

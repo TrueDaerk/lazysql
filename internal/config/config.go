@@ -7,6 +7,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,10 @@ const (
 	AppDir = "lazysql"
 	// FileName is the config file inside AppDir.
 	FileName = "config.toml"
+	// StateFileName is the disposable UI state file inside AppDir, next to
+	// FileName but never sharing its hand-edited-file treatment: it holds
+	// runtime UI state (see State) and is safe to delete at any time.
+	StateFileName = "state.toml"
 )
 
 // Connection is one named connection profile. Field order matters for the
@@ -365,10 +370,24 @@ func (c *Config) Save() error {
 // (temp file + rename) so a crash cannot truncate an existing config, and
 // both directory and file are owner-only.
 func (c *Config) SaveTo(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("config: create %s: %w", filepath.Dir(path), err)
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(c.forEncoding()); err != nil {
+		return fmt.Errorf("config: encode: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.toml")
+	return writeAtomicFile(path, ".config-*.toml", buf.Bytes())
+}
+
+// writeAtomicFile writes data to path via a temp file + rename in path's
+// directory, so a crash never leaves a truncated file behind. Both the
+// directory and file are created owner-only; pattern is the temp file's
+// os.CreateTemp glob (kept distinct per caller so concurrent writers of
+// different files never collide). Shared by Config.SaveTo and State.SaveTo.
+func writeAtomicFile(path, pattern string, data []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("config: create %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, pattern)
 	if err != nil {
 		return fmt.Errorf("config: create temp file: %w", err)
 	}
@@ -378,10 +397,9 @@ func (c *Config) SaveTo(path string) error {
 		tmp.Close()
 		return fmt.Errorf("config: chmod temp file: %w", err)
 	}
-	enc := toml.NewEncoder(tmp)
-	if err := enc.Encode(c.forEncoding()); err != nil {
+	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("config: encode: %w", err)
+		return fmt.Errorf("config: write temp file: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("config: close temp file: %w", err)
@@ -390,6 +408,75 @@ func (c *Config) SaveTo(path string) error {
 		return fmt.Errorf("config: write %s: %w", path, err)
 	}
 	return nil
+}
+
+// ---------- disposable UI state ----------
+
+// State holds runtime UI state that should survive a restart but, unlike
+// Config, is never hand-edited: it is written only by the app and safe to
+// delete at any time. ScreenMode is the first field; keep the struct open
+// for more disposable state later (last focused panel, last connection).
+type State struct {
+	// ScreenMode is the last screen mode cycled to with `+`/`_`
+	// ("normal"/"half"/"full"), stored by name rather than the underlying
+	// int so reordering the enum in internal/ui can never corrupt a saved
+	// value. Empty or unrecognized falls back to normal.
+	ScreenMode string `toml:"screen_mode,omitempty"`
+}
+
+// StatePath returns the full path of the state file.
+func StatePath() (string, error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, StateFileName), nil
+}
+
+// LoadState reads the saved UI state. A missing, unreadable or corrupt file
+// is not an error: it yields a zero State, which callers apply as "use
+// defaults" — this file is disposable and a bad one must never block
+// startup.
+func LoadState() (*State, error) {
+	path, err := StatePath()
+	if err != nil {
+		return nil, err
+	}
+	return LoadStateFrom(path), nil
+}
+
+// LoadStateFrom reads a state file from an explicit path, degrading to a
+// zero State on any read or parse error rather than propagating it.
+func LoadStateFrom(path string) *State {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return &State{}
+	}
+	var st State
+	if err := toml.Unmarshal(data, &st); err != nil {
+		return &State{}
+	}
+	return &st
+}
+
+// Save writes the state file, creating the directory if needed.
+func (s *State) Save() error {
+	path, err := StatePath()
+	if err != nil {
+		return err
+	}
+	return s.SaveTo(path)
+}
+
+// SaveTo writes the state to an explicit path, atomically. It has no
+// owner-only guarantee to preserve beyond what writeAtomicFile already does
+// for every file it writes.
+func (s *State) SaveTo(path string) error {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(s); err != nil {
+		return fmt.Errorf("config: encode state: %w", err)
+	}
+	return writeAtomicFile(path, ".state-*.toml", buf.Bytes())
 }
 
 // ---------- list operations ----------

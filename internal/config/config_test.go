@@ -437,3 +437,75 @@ func TestRestoreSessionAbsentStaysAbsent(t *testing.T) {
 		t.Fatal("Clone shared the RestoreSession pointer with the original")
 	}
 }
+
+func TestStatePathHonoursXDGConfigHome(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	got, err := StatePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join("/tmp/xdg", AppDir, StateFileName); got != want {
+		t.Fatalf("StatePath() = %q, want %q", got, want)
+	}
+}
+
+func TestStateRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.toml")
+	st := &State{ScreenMode: "full"}
+	if err := st.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	back := LoadStateFrom(path)
+	if back.ScreenMode != "full" {
+		t.Fatalf("ScreenMode = %q, want %q", back.ScreenMode, "full")
+	}
+}
+
+// State is disposable: a missing file must never error, just yield defaults.
+func TestStateMissingFileLoadsZeroValue(t *testing.T) {
+	back := LoadStateFrom(filepath.Join(t.TempDir(), "absent.toml"))
+	if back.ScreenMode != "" {
+		t.Fatalf("ScreenMode = %q, want empty", back.ScreenMode)
+	}
+}
+
+// A corrupt state file must degrade to defaults too, never block startup.
+func TestStateCorruptFileLoadsZeroValue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.toml")
+	if err := os.WriteFile(path, []byte("not valid toml [["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	back := LoadStateFrom(path)
+	if back.ScreenMode != "" {
+		t.Fatalf("ScreenMode = %q, want empty", back.ScreenMode)
+	}
+}
+
+func TestStateSaveNeverModifiesConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, FileName)
+	cfg := &Config{Connections: []Connection{
+		{Name: "dev", Engine: db.EngineSQLite, File: "/tmp/dev.sqlite"},
+	}}
+	if err := cfg.SaveTo(cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	statePath := filepath.Join(dir, StateFileName)
+	st := &State{ScreenMode: "half"}
+	if err := st.SaveTo(statePath); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("saving state modified the config file")
+	}
+}

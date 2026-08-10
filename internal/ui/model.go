@@ -41,6 +41,18 @@ const (
 
 var screenModeNames = [screenModeCount]string{"normal", "half", "full"}
 
+// screenModeFromName maps a saved state name back to a screenMode. An
+// unknown or empty name (missing/corrupt state file, or a value from a
+// future version) falls back to screenNormal silently.
+func screenModeFromName(name string) screenMode {
+	for i, n := range screenModeNames {
+		if n == name {
+			return screenMode(i)
+		}
+	}
+	return screenNormal
+}
+
 // ---------- messages ----------
 
 // Panels emit domain messages instead of mutating shared state; the root
@@ -307,6 +319,10 @@ func New(noRestore bool) (Model, error) {
 		m.panels[id] = &sidePanel{id: id}
 	}
 	m.panels[panelTables].tabs = relationTabNames[:]
+
+	if st, err := config.LoadState(); err == nil && st != nil {
+		m.screen = screenModeFromName(st.ScreenMode)
+	}
 
 	selectName := ""
 	if !noRestore && cfg.RestoreSessionEnabled() {
@@ -1102,6 +1118,7 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		if m.cfg.RestoreSessionEnabled() {
 			m.saveSession()
 		}
+		_ = (&config.State{ScreenMode: screenModeNames[m.screen]}).Save()
 		m.closeSession()
 		return true, m, tea.Quit
 

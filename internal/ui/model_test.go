@@ -506,6 +506,79 @@ func TestScreenModeCycles(t *testing.T) {
 	}
 }
 
+func TestScreenModeFromNameFallsBackOnUnknown(t *testing.T) {
+	cases := map[string]screenMode{
+		"normal": screenNormal,
+		"half":   screenHalf,
+		"full":   screenFull,
+		"":       screenNormal,
+		"bogus":  screenNormal,
+		"NORMAL": screenNormal,
+	}
+	for name, want := range cases {
+		if got := screenModeFromName(name); got != want {
+			t.Errorf("screenModeFromName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// removeState clears any state.toml left at the test's XDG_CONFIG_HOME, so
+// one test's saved screen mode never leaks into the next New().
+func removeState(t *testing.T) {
+	t.Helper()
+	path, err := config.StatePath()
+	if err != nil {
+		t.Fatalf("config.StatePath: %v", err)
+	}
+	os.Remove(path)
+	t.Cleanup(func() { os.Remove(path) })
+}
+
+// Quitting must persist the current screen mode, and a later New() must
+// restore it — the acceptance criterion for issue #67.
+func TestQuitPersistsScreenModeForNextStartup(t *testing.T) {
+	removeState(t)
+	m := sized(120, 40)
+	m = send(t, m, press('+'), press('+')) // normal -> half -> full
+	if m.screen != screenFull {
+		t.Fatalf("screen = %v, want %v", m.screen, screenFull)
+	}
+	send(t, m, press('q'))
+
+	st, err := config.LoadState()
+	if err != nil {
+		t.Fatalf("LoadState: %v", err)
+	}
+	if st.ScreenMode != "full" {
+		t.Fatalf("saved ScreenMode = %q, want %q", st.ScreenMode, "full")
+	}
+
+	restarted, err := New(false)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	if restarted.screen != screenFull {
+		t.Fatalf("restarted screen = %v, want %v", restarted.screen, screenFull)
+	}
+}
+
+// An unknown value in the state file must never block startup: it degrades
+// to screenNormal like a missing file would.
+func TestNewFallsBackToNormalOnUnknownSavedScreenMode(t *testing.T) {
+	removeState(t)
+	st := &config.State{ScreenMode: "gigantic"}
+	if err := st.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	m, err := New(false)
+	if err != nil {
+		t.Fatalf("New(): %v", err)
+	}
+	if m.screen != screenNormal {
+		t.Fatalf("screen = %v, want %v", m.screen, screenNormal)
+	}
+}
+
 func TestPanelHeightsFillBody(t *testing.T) {
 	m := sized(120, 40)
 	for _, mode := range []screenMode{screenNormal, screenHalf} {

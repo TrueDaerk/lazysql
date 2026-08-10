@@ -842,3 +842,25 @@ Chronological history of wiki changes, newest last.
   navigation while completion owns it.
 - `keyMap` gained `CompletePath`/`NextField`/`PrevField` and
   `formPathComplete()`, listed by `helpGroups` on the Connections panel.
+
+## 2026-08-10 — Persist screen mode across restarts (issue #67)
+
+- Added [design/screen-mode-persistence](design/screen-mode-persistence.md):
+  the config-vs-state split rationale, why it is a new `internal/config.State`
+  file rather than `Config` or `internal/session`, and why `ScreenMode` is
+  stored by name.
+- `internal/config` gained `State{ScreenMode string}`, `StatePath`,
+  `LoadState`/`LoadStateFrom` (never error — a bad file degrades to a zero
+  `State`) and `State.Save`/`SaveTo`, at `state.toml` next to `config.toml`.
+  `Config.SaveTo` and `State.SaveTo` now share a new `writeAtomicFile` helper
+  instead of each having their own temp-file-plus-rename code.
+- `internal/ui`: `New()` loads the saved state and applies
+  `screenModeFromName` to set the initial `m.screen`; the `k.Quit` handler
+  saves the current mode (by name, via `screenModeNames`) before tearing down
+  the session. Unknown/missing/corrupt state silently falls back to
+  `screenNormal`.
+- Tests: `internal/config` covers the state round trip, a corrupt file, a
+  missing file, and that saving state never touches `config.toml`;
+  `internal/ui` covers `screenModeFromName`'s fallback table, a full
+  quit-then-`New()` restore, and startup degrading an unknown saved value to
+  `normal`.

@@ -12,14 +12,23 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazysql/internal/db"
 	"lazysql/internal/export"
 )
 
-// `E` exports the open relation to a file. Unlike a copy it is not
-// bounded by what fits in memory: the writer streams pages straight
-// into the file, so the export costs one page of rows whatever the
-// table's size. The format comes from the extension, progress goes to
-// the command log, and `X` cancels a run that is taking too long.
+// `E` exports the open relation — or, from the query editor, the open
+// query result — to a file. Unlike a copy it is not bounded by what fits
+// in memory: the writer streams straight into the file, so the export
+// costs one row of memory whatever the result's size. The format comes
+// from the extension, progress goes to the command log, and `X` cancels
+// a run that is taking too long.
+//
+// A table export re-issues Driver.QueryPage by OFFSET, one page at a
+// time — exportSource's tableSource. A query result cannot be re-paged
+// that way without risking a change in what the statement means, so it
+// re-runs once through Driver.QueryStream instead — querySource — and
+// SQL/INSERT is only offered when db.SingleTableSelect can name the one
+// table the columns belong to.
 
 // exportProgressEvery is how many rows pass between progress lines. It
 // is large enough that a fast export logs a handful of lines and small
@@ -68,8 +77,8 @@ type exportDoneMsg struct {
 // pre-filled with a plausible name so the common case is one keystroke
 // plus enter.
 func (m *Model) startExport() tea.Cmd {
-	if !m.data.browsing() {
-		return logCmd("-- export skipped: no relation open")
+	if !m.data.browsing() && !(m.data.isQuery() && m.data.hasResult()) {
+		return logCmd("-- export skipped: nothing to export")
 	}
 	if m.driver == nil {
 		return logCmd("-- export skipped: not connected")
@@ -84,10 +93,11 @@ func (m *Model) startExport() tea.Cmd {
 	if m.export.running {
 		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.export.table)
 	}
+	subject := m.dataSubject()
 	m.modal = newPromptModal(
-		"Export "+m.data.table+" — file path",
-		"~/"+m.data.table+".csv",
-		defaultExportPath(m.data.table),
+		"Export "+subject+" — file path",
+		"~/"+defaultExportPath(subject),
+		defaultExportPath(subject),
 		func(mm *Model, value string) tea.Cmd { return mm.runExport(value) },
 	)
 	return nil
@@ -115,9 +125,10 @@ func defaultDDLExportPath(table string) string {
 	return sanitizePathComponent(table) + "-ddl.sql"
 }
 
-// runExport validates the path, opens the file and starts the worker.
-// Everything that can fail synchronously does so here, so the worker
-// only ever reports problems that needed the database.
+// runExport validates the path and format, then dispatches to whichever
+// scope the Data tab is showing. Everything that can fail synchronously
+// does so here, so the worker only ever reports problems that needed the
+// database.
 func (m *Model) runExport(path string) tea.Cmd {
 	if path == "" {
 		return logCmd("-- export cancelled: no path given")
@@ -130,10 +141,22 @@ func (m *Model) runExport(path string) tea.Cmd {
 	if err != nil {
 		return logCmd("-- export %s FAILED: %v", full, err)
 	}
-	if !m.data.browsing() || m.driver == nil {
+	if m.driver == nil {
 		return logCmd("-- export skipped: nothing open")
 	}
+	switch {
+	case m.data.browsing():
+		return m.runTableExport(full, format)
+	case m.data.isQuery() && m.data.hasResult():
+		return m.runQueryExport(full, format)
+	default:
+		return logCmd("-- export skipped: nothing open")
+	}
+}
 
+// runTableExport streams a browsed relation's rows, page by page, into
+// full.
+func (m *Model) runTableExport(full string, format export.Format) tea.Cmd {
 	f, err := os.Create(full)
 	if err != nil {
 		return logCmd("-- export FAILED: %v", err)
@@ -156,12 +179,59 @@ func (m *Model) runExport(path string) tea.Cmd {
 		path:    full,
 		format:  format,
 		options: m.exportOptions(""),
-		pager:   pagerFor(m.driver, m.data),
+		source:  tableSource(pagerFor(m.driver, m.data)),
 		ch:      m.export.ch,
 	}
 	return tea.Batch(
 		logCmd("-- export %s to %s as %s (streaming %d rows per page)…",
 			m.data.table, full, strings.ToUpper(string(format)), export.DefaultPageSize),
+		startExportCmd(job),
+	)
+}
+
+// runQueryExport re-runs the query result's own statement once, through
+// Driver.QueryStream, and writes every row it yields to full. This is
+// what makes the export cover the whole result rather than the
+// maxQueryRows-capped, in-memory copy the grid pages from.
+func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
+	table := ""
+	if format == export.FormatSQL {
+		t, ok := db.SingleTableSelect(m.driver.Engine(), m.data.query)
+		if !ok {
+			return logCmd(
+				"-- export %s FAILED: query result has no single-table mapping for SQL — use .csv, .json or .md",
+				full)
+		}
+		table = t
+	}
+
+	f, err := os.Create(full)
+	if err != nil {
+		return logCmd("-- export FAILED: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.export = exportState{
+		running: true,
+		id:      m.export.id + 1,
+		table:   "query result",
+		cancel:  cancel,
+		ch:      make(chan tea.Msg),
+	}
+	m.keys.CancelExport.SetEnabled(true)
+
+	job := exportJob{
+		id:      m.export.id,
+		ctx:     ctx,
+		file:    f,
+		path:    full,
+		format:  format,
+		options: export.Options{Database: m.data.database, Table: table, Dialect: m.driver.Dialect()},
+		source:  querySource(queryRunnerFor(m.driver, m.data)),
+		ch:      m.export.ch,
+	}
+	return tea.Batch(
+		logCmd("-- export query result to %s as %s (streaming)…", full, strings.ToUpper(string(format))),
 		startExportCmd(job),
 	)
 }
@@ -194,8 +264,26 @@ type exportJob struct {
 	path    string
 	format  export.Format
 	options export.Options
-	pager   export.Pager
+	source  exportSource
 	ch      chan tea.Msg
+}
+
+// exportSource is how exportJob reads the rows it writes: a table pager,
+// re-issued once per streaming page, or a query runner, whose one-shot
+// statement streams straight through. The worker calls either the same
+// way, so it does not need to know which kind it has.
+type exportSource func(ctx context.Context, w export.Writer, o export.StreamOptions) (rows int64, truncated bool, err error)
+
+func tableSource(pager export.Pager) exportSource {
+	return func(ctx context.Context, w export.Writer, o export.StreamOptions) (int64, bool, error) {
+		return export.Stream(ctx, w, pager, o)
+	}
+}
+
+func querySource(run export.QueryRunner) exportSource {
+	return func(ctx context.Context, w export.Writer, o export.StreamOptions) (int64, bool, error) {
+		return export.StreamQuery(ctx, w, run, o)
+	}
 }
 
 // startExportCmd launches the worker and blocks until its first
@@ -234,7 +322,7 @@ func (j exportJob) run() {
 	var rows int64
 	w, err := export.NewWriter(counting, j.format, j.options)
 	if err == nil {
-		rows, _, err = export.Stream(j.ctx, w, j.pager, export.StreamOptions{
+		rows, _, err = j.source(j.ctx, w, export.StreamOptions{
 			PageSize:      export.DefaultPageSize,
 			ProgressEvery: exportProgressEvery,
 			Progress: func(n int64) {

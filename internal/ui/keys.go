@@ -364,6 +364,8 @@ const (
 	actCopyTableJSON
 	actCopyTableInsert
 	actCopyTableSchema
+	actCopyPageCSV
+	actCopyPageJSON
 	actExportTable
 	actExportDDL
 	actCancelExport

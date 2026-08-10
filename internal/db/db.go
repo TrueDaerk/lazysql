@@ -213,6 +213,13 @@ type Driver interface {
 	// through it: an unbounded `SELECT *` on a large table would
 	// otherwise be read entirely into memory.
 	QueryLimit(ctx context.Context, query string, max int, args ...any) (*ResultSet, bool, error)
+	// QueryStream runs query exactly once and hands each row to onRow as
+	// it arrives, with the same columns passed every call. Unlike
+	// QueryLimit it never materializes a ResultSet at all, which is what
+	// a query-result export needs: the statement cannot be safely
+	// re-issued with a different LIMIT/OFFSET, so exporting it in full
+	// means reading it once and streaming straight through.
+	QueryStream(ctx context.Context, query string, args []any, onRow func(cols []Column, row []any) error) error
 }
 
 // Dialect captures everything engine-specific: identifier quoting,

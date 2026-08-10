@@ -26,9 +26,10 @@ import (
 type Format string
 
 const (
-	FormatCSV  Format = "csv"
-	FormatJSON Format = "json"
-	FormatSQL  Format = "sql"
+	FormatCSV      Format = "csv"
+	FormatJSON     Format = "json"
+	FormatSQL      Format = "sql"
+	FormatMarkdown Format = "markdown"
 )
 
 // FormatForPath infers the format from a file extension, which is how
@@ -41,10 +42,12 @@ func FormatForPath(path string) (Format, error) {
 		return FormatJSON, nil
 	case ".sql":
 		return FormatSQL, nil
+	case ".md", ".markdown":
+		return FormatMarkdown, nil
 	case "":
-		return "", errors.New("no file extension — use .csv, .json or .sql")
+		return "", errors.New("no file extension — use .csv, .json, .md or .sql")
 	default:
-		return "", fmt.Errorf("unsupported extension %q — use .csv, .json or .sql", ext)
+		return "", fmt.Errorf("unsupported extension %q — use .csv, .json, .md or .sql", ext)
 	}
 }
 
@@ -81,6 +84,8 @@ func NewWriter(w io.Writer, f Format, o Options) (Writer, error) {
 		return &jsonWriter{w: w}, nil
 	case FormatSQL:
 		return &sqlWriter{w: w, opt: o}, nil
+	case FormatMarkdown:
+		return &markdownWriter{w: w}, nil
 	default:
 		return nil, fmt.Errorf("export: unknown format %q", f)
 	}
@@ -288,6 +293,90 @@ func (s *sqlWriter) Row(values []any) error {
 
 func (s *sqlWriter) End() error { return nil }
 
+// ---------- Markdown ----------
+
+// markdownWriter renders a GitHub-flavored Markdown table: a header row,
+// the `---` separator row Markdown requires to recognize a table at all,
+// and one row per data row. It streams the same way the CSV writer does —
+// the separator only needs the column count, not any row's values.
+type markdownWriter struct {
+	w    io.Writer
+	cols int
+}
+
+func (m *markdownWriter) Begin(cols []db.Column) error {
+	m.cols = len(cols)
+	var b strings.Builder
+	b.WriteString("|")
+	for _, c := range cols {
+		b.WriteString(" ")
+		b.WriteString(markdownEscape(c.Name))
+		b.WriteString(" |")
+	}
+	b.WriteString("\n|")
+	for range cols {
+		b.WriteString(" --- |")
+	}
+	b.WriteString("\n")
+	_, err := io.WriteString(m.w, b.String())
+	return err
+}
+
+func (m *markdownWriter) Row(values []any) error {
+	var b strings.Builder
+	b.WriteString("|")
+	for i := 0; i < m.cols; i++ {
+		var v any
+		if i < len(values) {
+			v = values[i]
+		}
+		b.WriteString(" ")
+		b.WriteString(markdownValue(v))
+		b.WriteString(" |")
+	}
+	b.WriteString("\n")
+	_, err := io.WriteString(m.w, b.String())
+	return err
+}
+
+func (m *markdownWriter) End() error { return nil }
+
+// markdownValue renders one cell. SQL NULL becomes the literal text
+// "NULL": a Markdown table cell has no equivalent of CSV's empty field —
+// a blank cell there just reads as an empty value, not as "no value at
+// all" — so the word is the only way to say it unambiguously.
+func markdownValue(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "NULL"
+	case string:
+		return markdownEscape(x)
+	case bool:
+		return strconv.FormatBool(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'g', -1, 64)
+	case time.Time:
+		return x.Format(time.RFC3339Nano)
+	default:
+		return markdownEscape(db.FormatValue(x, ""))
+	}
+}
+
+// markdownEscape keeps a cell from spilling into its neighbors or
+// breaking the row: an unescaped `|` reads as a new column boundary and a
+// newline ends the row outright, so both are neutralized before a
+// backslash of their own could be mistaken for an escape.
+func markdownEscape(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "|", "\\|")
+	s = strings.ReplaceAll(s, "\r\n", "<br>")
+	s = strings.ReplaceAll(s, "\n", "<br>")
+	s = strings.ReplaceAll(s, "\r", "<br>")
+	return s
+}
+
 // ---------- streaming ----------
 
 // Pager reads one page of the exported result. It is the seam between
@@ -386,6 +475,77 @@ func Stream(ctx context.Context, w Writer, page Pager, o StreamOptions) (rows in
 
 	// An empty result never reached the Begin above, but a CSV still
 	// owes its header and a JSON its brackets.
+	if !begun {
+		if err := w.Begin(nil); err != nil {
+			return rows, truncated, err
+		}
+	}
+	if o.Progress != nil && rows != reportedAt {
+		o.Progress(rows)
+	}
+	return rows, truncated, w.End()
+}
+
+// QueryRunner executes an arbitrary statement exactly once and streams
+// its rows to onRow, one at a time. It is the query-result counterpart
+// of Pager: a browsed table can be re-read page by page by OFFSET, but
+// rewriting an arbitrary user statement to page it the same way would
+// risk changing what it selects — see
+// wiki/design/query-editor-and-history.md — so a query result is instead
+// read a single time, streaming straight through with no more than one
+// row held in memory at once.
+type QueryRunner func(ctx context.Context, onRow func(cols []db.Column, row []any) error) error
+
+// errStreamMaxRows is StreamQuery's internal signal to stop reading once
+// MaxRows is reached. It is translated back into the truncated return
+// value and never escapes StreamQuery itself.
+var errStreamMaxRows = errors.New("export: MaxRows reached")
+
+// StreamQuery is Stream for a query result: same Writer contract, same
+// progress and cancellation behaviour, same MaxRows truncation, but fed
+// by a QueryRunner's single pass instead of Pager's repeated offset
+// reads.
+func StreamQuery(ctx context.Context, w Writer, run QueryRunner, o StreamOptions) (rows int64, truncated bool, err error) {
+	every := o.ProgressEvery
+	if every <= 0 {
+		every = 5000
+	}
+
+	var (
+		reportedAt int64
+		begun      bool
+	)
+	runErr := run(ctx, func(cols []db.Column, row []any) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !begun {
+			if err := w.Begin(cols); err != nil {
+				return err
+			}
+			begun = true
+		}
+		if o.MaxRows > 0 && rows >= o.MaxRows {
+			truncated = true
+			return errStreamMaxRows
+		}
+		if err := w.Row(row); err != nil {
+			return err
+		}
+		rows++
+		if o.Progress != nil && rows-reportedAt >= every {
+			reportedAt = rows
+			o.Progress(rows)
+		}
+		return nil
+	})
+	if errors.Is(runErr, errStreamMaxRows) {
+		runErr = nil
+	}
+	if runErr != nil {
+		return rows, truncated, runErr
+	}
+
 	if !begun {
 		if err := w.Begin(nil); err != nil {
 			return rows, truncated, err

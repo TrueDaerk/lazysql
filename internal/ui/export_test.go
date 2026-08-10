@@ -154,6 +154,134 @@ func TestExportStreamsManyPages(t *testing.T) {
 	}
 }
 
+// ---------- query-result export ----------
+
+// `E` on a query result writes every row the statement matches, in
+// whichever format the extension names — including Markdown, which is
+// query-only in this test but also available for a browsed table.
+func TestExportQueryResultWritesFullResult(t *testing.T) {
+	dir := t.TempDir()
+	m := runQuery(t, queryable(t), "SELECT id, name FROM q")
+
+	m = send(t, m, press('E'))
+	m = typePath(t, m, filepath.Join(dir, "q.csv"))
+	if !logContains(m, "export query result") || !logContains(m, "export wrote 3 rows") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "q.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n"); len(lines) != 4 {
+		t.Fatalf("file has %d lines, want header + 3 rows:\n%s", len(lines), data)
+	}
+
+	m = send(t, m, press('E'))
+	m = typePath(t, m, filepath.Join(dir, "q.md"))
+	data, err = os.ReadFile(filepath.Join(dir, "q.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(data), "| id | name |\n| --- | --- |\n") {
+		t.Errorf("exported Markdown = %s", data)
+	}
+
+	// The result is a plain single-table SELECT, so SQL/INSERT is
+	// offered too, targeting the table the columns came from.
+	m = send(t, m, press('E'))
+	m = typePath(t, m, filepath.Join(dir, "q.sql"))
+	data, err = os.ReadFile(filepath.Join(dir, "q.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `INSERT INTO "q"`) {
+		t.Errorf("exported SQL = %s", data)
+	}
+}
+
+// SQL/INSERT is refused, before any file is written, when the query's
+// columns cannot be mapped back onto one real table — CSV/JSON/Markdown
+// stay available.
+func TestExportQueryResultSQLRefusedWhenAmbiguous(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "q.sql")
+	m := runQuery(t, queryable(t), "SELECT COUNT(*) AS n FROM q")
+
+	m = send(t, m, press('E'))
+	m = typePath(t, m, path)
+	if !logContains(m, "no single-table mapping") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("a file was created anyway: %v", err)
+	}
+
+	m = send(t, m, press('E'))
+	m = typePath(t, m, filepath.Join(dir, "q.csv"))
+	if !logContains(m, "export wrote 1 rows") {
+		t.Fatalf("CSV export of the same ambiguous query failed: %v", m.commandLog)
+	}
+}
+
+// The export re-runs the statement instead of reading the grid's own
+// capped, in-memory copy, so a result larger than maxQueryRows still
+// exports in full.
+func TestExportQueryResultStreamsBeyondGridCap(t *testing.T) {
+	m := queryable(t)
+	const total = maxQueryRows + 500
+	if _, err := m.driver.Exec(t.Context(),
+		fmt.Sprintf(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < %d)
+		 INSERT INTO q (id, name) SELECT i + 100, 'bulk' FROM n`, total-3)); err != nil {
+		t.Fatal(err)
+	}
+	m = runQuery(t, m, "SELECT id FROM q")
+	if !m.data.truncated {
+		t.Fatalf("grid data = %#v, want the maxQueryRows cap to have kicked in", m.data)
+	}
+
+	dir := t.TempDir()
+	m = send(t, m, press('E'))
+	m = typePath(t, m, filepath.Join(dir, "big.csv"))
+	if !logContains(m, fmt.Sprintf("export wrote %d rows", total)) {
+		t.Fatalf("command log = %v, want the full %d rows despite the grid's cap", m.commandLog, total)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "big.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := total + 1; strings.Count(string(data), "\n") != want {
+		t.Fatalf("file has %d lines, want %d", strings.Count(string(data), "\n"), want)
+	}
+}
+
+// A result bound to placeholder values exports the same filtered rows —
+// the export re-runs the statement with the values it ran with, not the
+// unbound display text.
+func TestExportQueryResultReusesBoundPlaceholderArgs(t *testing.T) {
+	m := queryable(t)
+	m = runQuery(t, m, "SELECT id FROM q WHERE id = ? AND name = :n")
+	if _, ok := m.modal.(*paramsModal); !ok {
+		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
+	}
+	m = send(t, m, press('2'), special(tea.KeyEnter, 0),
+		press('r'), press('o'), press('w'), special(tea.KeyEnter, 0))
+	if !m.data.isQuery() || len(m.data.rows) != 1 {
+		t.Fatalf("data = %#v, want the one matching row", m.data)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bound.csv")
+	m = send(t, m, press('E'))
+	m = typePath(t, m, path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimRight(string(data), "\n"); got != "id\n2" {
+		t.Errorf("exported %q, want just the row bound to id=2", got)
+	}
+}
+
 // A whole-table clipboard copy is capped, and the cap is reported
 // rather than silently applied.
 func TestCopyTableTruncationIsReported(t *testing.T) {
@@ -208,7 +336,7 @@ func TestExportCancellationRemovesPartialFile(t *testing.T) {
 		file:   f,
 		path:   path,
 		format: export.FormatCSV,
-		pager: func(c context.Context, limit, offset int) (*db.ResultSet, error) {
+		source: tableSource(func(c context.Context, limit, offset int) (*db.ResultSet, error) {
 			// The second page never arrives: the export is cancelled
 			// while the first one is being written.
 			if offset > 0 {
@@ -220,7 +348,7 @@ func TestExportCancellationRemovesPartialFile(t *testing.T) {
 				rs.Rows = append(rs.Rows, []any{int64(i)})
 			}
 			return rs, nil
-		},
+		}),
 		ch: make(chan tea.Msg),
 	}
 	go job.run()

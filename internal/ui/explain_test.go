@@ -43,10 +43,11 @@ func TestExplainShowsAPlanAndKeepsTheBuffer(t *testing.T) {
 	if m.editor.editing {
 		t.Fatal("ctrl+e stayed in insert mode — the plan would swallow no keys")
 	}
-	// The plan replaces the editor in the main view.
+	// The plan replaces the editor in the main view; it names itself in
+	// the box's top border, not in a content row.
 	out := m.mainContent(100, 24)
-	if !strings.Contains(out, "Query plan") {
-		t.Fatalf("the main view is not showing the plan:\n%s", out)
+	if !strings.Contains(m.mainTitle(100), "Query plan") {
+		t.Fatalf("the main view is not titled for the plan:\n%s", m.mainTitle(100))
 	}
 	if !strings.Contains(strings.ToLower(out), "q") {
 		t.Fatalf("the plan does not mention the relation:\n%s", out)
@@ -80,9 +81,8 @@ func TestEscClosesThePlanAndReturnsToTheEditor(t *testing.T) {
 	if m.script() != script {
 		t.Fatalf("buffer = %q, want it intact", m.script())
 	}
-	out := m.mainContent(100, 24)
-	if !strings.Contains(out, "Query editor") {
-		t.Fatalf("the editor did not come back:\n%s", out)
+	if title := m.mainTitle(100); !strings.Contains(title, "Query editor") {
+		t.Fatalf("the editor did not come back: title = %q", title)
 	}
 }
 

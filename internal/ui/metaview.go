@@ -51,10 +51,11 @@ func (m Model) mainTabBar(w int) string {
 
 // metaContent renders the Structure, Indexes or DDL tab into a w x h
 // content box. Their shared loading and error states live here so the
-// three renderers only ever see data.
+// three renderers only ever see data. The tab bar is not part of it — the
+// main view splices it into its top border.
 func (m Model) metaContent(w, h int) string {
-	lines := []string{m.mainTabBar(w)}
-	body := maxInt(h-len(lines), 0)
+	var lines []string
+	body := maxInt(h, 0)
 
 	switch {
 	case m.meta.err != "":

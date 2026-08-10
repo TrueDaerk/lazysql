@@ -124,7 +124,9 @@ func (m Model) tooSmallView() string {
 // the current screen mode. Every returned height includes the border rows.
 func (m Model) panelHeights(bodyH int) [panelCount]int {
 	var out [panelCount]int
-	const collapsed = 3 // top border + title + bottom border
+	// The title rides in the top border, so a collapsed panel still shows
+	// its name plus one row of content.
+	const collapsed = 3 // top border + one row + bottom border
 
 	// Half mode expands the focused *side* panel. With the main view
 	// focused there is nothing in the column to expand, so it keeps the
@@ -155,11 +157,13 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 	cw, ch := maxInt(w-2, 1), maxInt(h-2, 1)
 	// Panel [5] is not a list, so it renders itself; every other side
 	// panel is a cursor over a slice of strings.
+	title := m.queryPanelTitle()
 	body := clipHeight(m.queryPanelBody(cw, ch), ch)
 	if id != panelQuery {
+		title = m.panels[id].titleLine(m.style, id == m.focus)
 		body = m.panels[id].render(m.style, id == m.focus, cw, ch)
 	}
-	return border.Width(w).Height(h).Render(body)
+	return renderTitledBox(border, title, body, w, h)
 }
 
 // renderMainColumn stacks the main view and the command log beneath it.
@@ -168,9 +172,7 @@ func (m Model) renderMainColumn(w, h int) string {
 	mainH := h - logH
 
 	border := m.style.blurredBorder
-	// Exactly one green border: the side column keeps it while panel [5]
-	// is focused, except in full-screen mode where the column is gone.
-	if m.focus == panelMain || (m.focus == panelQuery && m.screen == screenFull) {
+	if m.mainFocused() {
 		border = m.style.focusedBorder
 	}
 	// The active connection's color tag tints only the top border segment,
@@ -180,9 +182,8 @@ func (m Model) renderMainColumn(w, h int) string {
 	if tc, ok := m.activeTagColor(); ok {
 		border = border.BorderTopForeground(tc)
 	}
-	main := border.
-		Width(w).Height(mainH).
-		Render(m.mainContent(maxInt(w-2, 1), maxInt(mainH-2, 1)))
+	cw, ch := maxInt(w-2, 1), maxInt(mainH-2, 1)
+	main := renderTitledBox(border, m.mainTitle(cw), m.mainContent(cw, ch), w, mainH)
 	if logH <= 0 {
 		return main
 	}
@@ -221,10 +222,9 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	if !ok {
 		return "", 0, 0, false
 	}
-	// Inside the main column: the box's border, then the query view's
-	// header line, then the editor block.
-	cw, ch := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
-	rows := ch - 1 // the header
+	// Inside the main column: the box's border — whose top line carries
+	// the title — then the editor block, which is the first content row.
+	cw, rows := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
 	if rows < 1 {
 		return "", 0, 0, false
 	}
@@ -233,7 +233,7 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	if !ok {
 		return "", 0, 0, false
 	}
-	ax, ay := mx+1+caretCol, my+1+1+caretRow
+	ax, ay := mx+1+caretCol, my+1+caretRow
 
 	box = m.completionPopup(m.width, m.height-1)
 	if box == "" {
@@ -266,6 +266,50 @@ func placePopup(anchorX, anchorY, w, h, screenW, screenH int) (x, y int) {
 	return x, y
 }
 
+// mainFocused reports whether the main view owns the keyboard. Exactly one
+// green border: the side column keeps it while panel [5] is focused,
+// except in full-screen mode where the column is gone.
+func (m Model) mainFocused() bool {
+	return m.focus == panelMain || (m.focus == panelQuery && m.screen == screenFull)
+}
+
+// mainTitle is the main view's border title. It shadows the switch in
+// mainContent: whatever owns the box names itself in the top border, and
+// its renderer keeps every content row for content.
+func (m Model) mainTitle(w int) string {
+	// The generic titles follow the box: green and bold while the main
+	// view has focus, muted while a side panel does. The views that own
+	// the box outright — the diff, the plan, the editor, the tab bar —
+	// carry their own emphasis.
+	titleStyle := m.style.title
+	if m.mainFocused() {
+		titleStyle = m.style.titleFocused
+	}
+	if m.focus == panelConnections {
+		if m.diff != nil {
+			return m.diffTitle()
+		}
+		return titleStyle.Render(panelTitles[panelConnections]) +
+			m.style.muted.Render(" — main view")
+	}
+	if m.focus == panelQuery {
+		if m.plan != nil {
+			return m.planTitle()
+		}
+		return m.queryTitle()
+	}
+	if m.data.open() {
+		// The tab bar is the Data/Structure/… title: sub-tabs, the
+		// relation, the read-only lock and the loading marker.
+		return m.mainTabBar(w)
+	}
+	if m.focus >= panelCount {
+		return titleStyle.Render(panelTitles[panelMain])
+	}
+	return titleStyle.Render(panelTitles[m.focus]) +
+		m.style.muted.Render(" — main view")
+}
+
 // mainContent is the main view: the Data tab of the open relation, the
 // selected connection's settings, or — with nothing opened yet — a
 // summary of what the focused panel points at.
@@ -292,7 +336,7 @@ func (m Model) mainContent(w, h int) string {
 		if m.tab.metadata() {
 			return m.metaContent(w, h)
 		}
-		return m.dataContent(w, h)
+		return m.dataBody(w, h)
 	}
 	if m.focus >= panelCount {
 		return m.style.muted.Render("no relation open — pick one in [3] Tables")
@@ -302,8 +346,6 @@ func (m Model) mainContent(w, h int) string {
 		sel = "(nothing selected)"
 	}
 	lines := []string{
-		m.style.titleFocused.Render(panelTitles[m.focus]) + m.style.muted.Render(" — main view"),
-		"",
 		"selected: " + sel,
 	}
 	if m.active != "" {
@@ -327,10 +369,7 @@ func (m Model) mainContent(w, h int) string {
 // settings, its live status, and the last error it produced. It never shows a
 // password — passwords live only in the keyring.
 func (m Model) connectionDetail(w, h int) string {
-	lines := []string{
-		m.style.titleFocused.Render(panelTitles[panelConnections]) + m.style.muted.Render(" — main view"),
-		"",
-	}
+	var lines []string
 	c, ok := m.selectedConnection()
 	if !ok {
 		lines = append(lines, m.style.muted.Render("no connections yet — press n to add one"))
@@ -407,26 +446,22 @@ func joinTruncated(lines []string, w, h int) string {
 // the app executed plus its own notes, newest last. `@` expands it into
 // a full scrollable view; this slim strip truncates long SQL to fit.
 func (m Model) renderCommandLog(w, h int) string {
-	cw, ch := maxInt(w-2, 1), maxInt(h-2, 1)
-	rows := ch - 1 // title line
+	cw, rows := maxInt(w-2, 1), maxInt(h-2, 1)
 
-	var b strings.Builder
-	b.WriteString(m.style.title.Render("Command log"))
-	if rows > 0 {
-		entries := m.commandLogEntries()
-		start := len(entries) - rows
-		if start < 0 {
-			start = 0
-		}
-		for _, e := range entries[start:] {
-			style := m.style.muted
-			if e.err {
-				style = m.style.danger
-			}
-			b.WriteString("\n" + style.Render(truncate(e.render(), cw)))
-		}
+	lines := make([]string, 0, rows)
+	entries := m.commandLogEntries()
+	if start := len(entries) - rows; start > 0 {
+		entries = entries[start:]
 	}
-	return m.style.blurredBorder.Width(w).Height(h).Render(b.String())
+	for _, e := range entries {
+		style := m.style.muted
+		if e.err {
+			style = m.style.danger
+		}
+		lines = append(lines, style.Render(truncate(e.render(), cw)))
+	}
+	return renderTitledBox(m.style.blurredBorder,
+		m.style.title.Render("Command log"), strings.Join(lines, "\n"), w, h)
 }
 
 // optionsBarBindings is what the bottom bar offers for the focused panel.

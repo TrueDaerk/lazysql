@@ -91,9 +91,13 @@ func TestSchemaDiffProducesReport(t *testing.T) {
 	if !logContains(m, "schema diff diff-a vs diff-b") {
 		t.Errorf("command log missing the diff line: %v", m.commandLog)
 	}
-	// The report owns the main view while panel [1] is focused.
+	// The report owns the main view while panel [1] is focused, and
+	// names itself in the box's top border.
 	if view := m.mainContent(100, 30); !strings.Contains(view, "Schema diff") {
 		t.Errorf("main view does not show the report:\n%s", view)
+	}
+	if title := m.mainTitle(100); !strings.Contains(title, "Schema diff") {
+		t.Errorf("main view is not titled for the report: %q", title)
 	}
 }
 

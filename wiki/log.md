@@ -798,3 +798,28 @@ Chronological history of wiki changes, newest last.
   case alongside the existing `onSubmit`, so the restore-triggered
   `AskPassword` prompt can drop its pending restore on cancel instead of
   leaving `restoreSess` to swallow a later, unrelated `esc`.
+
+## 2026-08-10 — Panel titles embedded in the top border (issue #64)
+
+- Added [design/border-embedded-panel-titles](design/border-embedded-panel-titles.md):
+  the lazygit-style title-in-border treatment, why `renderTitledBox`
+  rebuilds the top line from `GetBorderStyle()`/`GetBorderTopForeground()`
+  instead of splicing into the rendered one, why truncation has to be
+  `ansi.Truncate` (the title is pre-styled and multi-coloured), and the
+  table of which main-view state supplies which border title.
+- `renderTitledBox(border, title, body, w, h)` in `internal/ui/styles.go`
+  is the single implementation, shared by the four side panels, the main
+  view and the command log strip. It degrades to an untitled box when the
+  width leaves no room for corners plus one padding rune per side.
+- `github.com/charmbracelet/x/ansi` became a direct dependency; it was
+  already in the module graph via lipgloss.
+- Every content renderer lost its title row and gained it back as content:
+  `sidePanel.render` starts at `rows := h`, `dataContent` split into a
+  nesting wrapper (tab bar + body, still used for the result grid under
+  the query editor) and `dataBody`, and `mainTitle(w)` now shadows the
+  `mainContent` switch so the diff, the plan, the editor, the tab bar and
+  the connection detail each name themselves in the border.
+- Budgets that assumed a title row were corrected: `panelHeights`'
+  `collapsed = 3` now buys one usable row, `dataBody` takes `h - 4`,
+  `diffContent` `h - 1`, `planContent` `h - 2`, and `completionLayer`
+  dropped the header offset it used to add to the caret's screen row.

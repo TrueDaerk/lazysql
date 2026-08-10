@@ -236,7 +236,9 @@ func (p *sidePanel) visible(rows int) []string {
 	return p.items[p.offset:end]
 }
 
-// titleLine is the panel header: number, name, sub-tabs and load state.
+// titleLine is the panel header: number, name, sub-tabs and load state. It
+// is spliced into the panel's top border by renderTitledBox, not written as
+// a content row.
 func (p *sidePanel) titleLine(s styles, focused bool) string {
 	titleStyle := s.title
 	if focused {
@@ -277,18 +279,18 @@ func (p *sidePanel) filterLine(s styles) (string, bool) {
 	return line, true
 }
 
-// render draws the panel body (title + rows) for a content box of w x h cells.
+// render draws the panel body for a content box of w x h cells. The title
+// rides in the top border, so every row here is content.
 func (p *sidePanel) render(s styles, focused bool, w, h int) string {
-	var b strings.Builder
-	b.WriteString(truncate(p.titleLine(s, focused), w))
+	lines := make([]string, 0, h)
 
-	rows := h - 1 // title line
+	rows := h
 	if line, ok := p.filterLine(s); ok && rows > 0 {
-		b.WriteString("\n" + truncate(line, w))
+		lines = append(lines, truncate(line, w))
 		rows--
 	}
 	if rows <= 0 {
-		return b.String()
+		return strings.Join(lines, "\n")
 	}
 	for i, item := range p.visible(rows) {
 		idx := p.offset + i
@@ -314,9 +316,9 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 			style = style.Foreground(fg)
 		}
 		line := truncate(p.decor[item]+item, maxInt(w-markerW, 0))
-		b.WriteString("\n" + marker + style.Render(line))
+		lines = append(lines, marker+style.Render(line))
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
 // fuzzyMatch reports whether pattern occurs in s as a case-insensitive

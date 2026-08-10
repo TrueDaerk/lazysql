@@ -923,6 +923,40 @@ func (m *Model) focusResult() {
 // a preview, not a second copy of the textarea.
 func (m Model) queryPanelBody(w, h int) string {
 	s := m.style
+	rows := h
+	if rows <= 0 {
+		return ""
+	}
+	if strings.TrimSpace(m.script()) == "" {
+		return s.muted.Render(truncate("(empty — press : to write a query)", w))
+	}
+	lines := strings.Split(m.script(), "\n")
+	out := make([]string, 0, rows)
+	for i, l := range lines {
+		if i >= rows {
+			break
+		}
+		// The last visible row says how much is out of sight rather than
+		// letting the preview end mid-script without a word.
+		if i == rows-1 && len(lines) > rows {
+			out = append(out, s.muted.Render(truncate(
+				fmt.Sprintf("… %d more lines", len(lines)-rows+1), w)))
+			break
+		}
+		// The preview truncates first and highlights the result: styling
+		// then cutting would slice an escape sequence in half. A token
+		// cut by the truncation is re-read on its own, which at worst
+		// costs the last word on the line its colour.
+		out = append(out, highlightSQL(s, m.sqlDialect(), truncate(l, w)))
+	}
+	return strings.Join(out, "\n")
+}
+
+// queryPanelTitle is panel [4]'s border title: number, name and what the
+// editor is doing. It is the sidePanel.titleLine equivalent for the one
+// side panel that is not a list.
+func (m Model) queryPanelTitle() string {
+	s := m.style
 	focused := m.focus == panelQuery
 	titleStyle := s.title
 	if focused {
@@ -937,36 +971,7 @@ func (m Model) queryPanelBody(w, h int) string {
 	case focused:
 		line += " " + s.muted.Render("normal")
 	}
-
-	var b strings.Builder
-	b.WriteString(truncate(line, w))
-	rows := h - 1
-	if rows <= 0 {
-		return b.String()
-	}
-	lines := strings.Split(m.script(), "\n")
-	if strings.TrimSpace(m.script()) == "" {
-		b.WriteString("\n" + s.muted.Render(truncate("(empty — press : to write a query)", w)))
-		return b.String()
-	}
-	for i, l := range lines {
-		if i >= rows {
-			break
-		}
-		// The last visible row says how much is out of sight rather than
-		// letting the preview end mid-script without a word.
-		if i == rows-1 && len(lines) > rows {
-			b.WriteString("\n" + s.muted.Render(truncate(
-				fmt.Sprintf("… %d more lines", len(lines)-rows+1), w)))
-			break
-		}
-		// The preview truncates first and highlights the result: styling
-		// then cutting would slice an escape sequence in half. A token
-		// cut by the truncation is re-read on its own, which at worst
-		// costs the last word on the line its colour.
-		b.WriteString("\n" + highlightSQL(s, m.sqlDialect(), truncate(l, w)))
-	}
-	return b.String()
+	return line
 }
 
 // queryContent is the main view while panel [5] is focused: the editor
@@ -975,14 +980,10 @@ func (m Model) queryPanelBody(w, h int) string {
 // the result off screen.
 func (m Model) queryContent(w, h int) string {
 	s := m.style
-	header := s.titleFocused.Render("Query editor") + s.muted.Render(" — "+m.editorMode())
-	if m.active != "" {
-		header += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
-	}
-	body := []string{truncate(header, w)}
-	rows := h - 1
+	var body []string
+	rows := h
 	if rows <= 0 {
-		return clipHeight(strings.Join(body, "\n"), h)
+		return ""
 	}
 
 	rendered := m.editorBlock(w, m.editorHeight(w, rows))
@@ -997,6 +998,17 @@ func (m Model) queryContent(w, h int) string {
 		body = append(body, m.dataContent(w, rows))
 	}
 	return clipHeight(strings.Join(body, "\n"), h)
+}
+
+// queryTitle is the main view's border title while panel [4] is focused:
+// what the editor is doing, and against which connection.
+func (m Model) queryTitle() string {
+	s := m.style
+	title := s.titleFocused.Render("Query editor") + s.muted.Render(" — "+m.editorMode())
+	if m.active != "" {
+		title += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
+	}
+	return title
 }
 
 // clipHeight drops whatever does not fit in h lines. The main view is a

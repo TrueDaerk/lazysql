@@ -146,14 +146,14 @@ func (m *Model) openEditModal() tea.Cmd {
 		initial = staged.NewValue
 	}
 
-	nullable := true
+	col := db.Column{Name: colName, Nullable: true}
 	for _, c := range m.meta.cols {
 		if c.Name == colName {
-			nullable = c.Nullable
+			col = c
 			break
 		}
 	}
-	m.modal = newEditCellModal(change, initial, nullable, rowLabel(pkCols, pkVals))
+	m.modal = newEditCellModal(change, initial, col, rowLabel(pkCols, pkVals))
 	return nil
 }
 
@@ -330,13 +330,13 @@ func convertInput(text string, old any) any {
 // Submitting stages the change; nothing here touches the database.
 type editCellModal struct {
 	change   db.CellChange
+	col      db.Column
 	rowLabel string
 	input    textinput.Model
 	null     bool
-	nullable bool
 }
 
-func newEditCellModal(change db.CellChange, initial any, nullable bool, rowLabel string) *editCellModal {
+func newEditCellModal(change db.CellChange, initial any, col db.Column, rowLabel string) *editCellModal {
 	ti := textinput.New()
 	ti.Placeholder = "value"
 	if initial != nil {
@@ -347,10 +347,10 @@ func newEditCellModal(change db.CellChange, initial any, nullable bool, rowLabel
 	ti.SetWidth(40)
 	return &editCellModal{
 		change:   change,
+		col:      col,
 		rowLabel: rowLabel,
 		input:    ti,
 		null:     initial == nil,
-		nullable: nullable,
 	}
 }
 
@@ -392,17 +392,23 @@ func (e *editCellModal) view(s styles, maxW, maxH int) string {
 	e.input.SetWidth(min(50, maxW-8))
 	title := fmt.Sprintf("Edit %s.%s — %s", e.change.Table, e.change.Column, e.rowLabel)
 
+	typeLine := strings.ToLower(e.col.DataType)
+	if !e.col.Nullable {
+		typeLine += " · NOT NULL"
+	}
+
 	value := e.input.View()
 	if e.null {
 		value = s.pending.Render(nullText) + s.muted.Render("  (ctrl+n for a value)")
 	}
 	lines := []string{
 		s.modalTitle.Render(truncate(title, min(maxW-8, 70))),
+		s.muted.Render(truncate(typeLine, min(maxW-8, 70))),
 		"",
 		s.muted.Render("current: " + truncate(flatten(db.FormatValue(e.change.OldValue, nullText)), 50)),
 		value,
 	}
-	if e.null && !e.nullable {
+	if e.null && !e.col.Nullable {
 		lines = append(lines, s.danger.Render("column is NOT NULL — the commit will fail"))
 	}
 	lines = append(lines, "", s.muted.Render("enter stage · ctrl+n NULL · esc cancel"))

@@ -458,18 +458,36 @@ func (f *insertRowModal) build() (db.RowInsert, string) {
 	return r, ""
 }
 
+// typeTag is the dimmed hint shown next to each field's label: the
+// column's declared type, plus NOT NULL and its default when the driver
+// reported them.
+func typeTag(c db.Column) string {
+	t := strings.ToLower(c.DataType)
+	if !c.Nullable {
+		t += " NOT NULL"
+	}
+	if c.Default != nil {
+		t += " default:" + flatten(*c.Default)
+	}
+	return t
+}
+
 func (f *insertRowModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 72)
 	if width < 20 {
 		width = 20
 	}
-	labelW := 0
+	labelW, typeW := 0, 0
 	for _, fl := range f.fields {
 		if w := lipgloss.Width(fl.col.Name); w > labelW {
 			labelW = w
 		}
+		if w := lipgloss.Width(typeTag(fl.col)); w > typeW {
+			typeW = w
+		}
 	}
-	inputW := min(38, maxInt(width-labelW-6, 12))
+	typeW = min(typeW, 20)
+	inputW := min(38, maxInt(width-labelW-typeW-8, 12))
 
 	// title, blank, error, blank, footer, borders
 	rows := maxH - 8
@@ -505,7 +523,10 @@ func (f *insertRowModal) view(s styles, maxW, maxH int) string {
 		} else {
 			label = s.muted.Render(label)
 		}
-		b.WriteString(marker + label + "  " + truncate(f.fieldValue(s, fl), inputW+22) + "\n")
+		typeStr := truncate(typeTag(fl.col), typeW)
+		typeStr += strings.Repeat(" ", typeW-lipgloss.Width(typeStr))
+		b.WriteString(marker + label + "  " + s.muted.Render(typeStr) + "  " +
+			truncate(f.fieldValue(s, fl), inputW+22) + "\n")
 	}
 	if len(f.fields) > rows {
 		b.WriteString(s.muted.Render(fmt.Sprintf("… %d of %d columns\n",

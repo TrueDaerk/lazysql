@@ -249,3 +249,71 @@ func TestSavingConnectionsPreservesKeysAndTheme(t *testing.T) {
 		t.Fatalf("saving a connection dropped the [keys] section: %+v", reloaded.Keys)
 	}
 }
+
+// The read-only flag round trips, is written only when set, and a config
+// from before the flag existed still loads as read-write.
+func TestReadOnlyRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{Connections: []Connection{
+		{Name: "prod", Engine: db.EnginePostgres, Host: "db.example", Port: 5432, ReadOnly: true},
+		{Name: "dev", Engine: db.EngineSQLite, File: "/tmp/dev.sqlite"},
+	}}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "read_only = true") {
+		t.Fatalf("read_only not written:\n%s", raw)
+	}
+	if strings.Count(string(raw), "read_only") != 1 {
+		t.Fatalf("read_only written for the read-write profile too:\n%s", raw)
+	}
+
+	back, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prod, _ := back.Find("prod"); !prod.ReadOnly {
+		t.Fatal("read_only did not round trip")
+	}
+	if dev, _ := back.Find("dev"); dev.ReadOnly {
+		t.Fatal("a profile without read_only loaded as read-only")
+	}
+}
+
+// A config file written before the flag existed loads unchanged, and the
+// parameters it produces ask for no engine-level read-only mode.
+func TestConfigWithoutReadOnlyLoadsReadWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	old := "[[connections]]\nname = \"legacy\"\nengine = \"sqlite\"\nfile = \"/tmp/legacy.db\"\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cfg.Connections[0]
+	if c.ReadOnly {
+		t.Fatal("an absent read_only key loaded as read-only")
+	}
+	if c.Params("").ReadOnly {
+		t.Fatal("ConnParams asked for a read-only session")
+	}
+}
+
+// Params carries the flag into the DSN layer, and Clone keeps it.
+func TestReadOnlyReachesParamsAndClone(t *testing.T) {
+	cfg := &Config{Connections: []Connection{
+		{Name: "prod", Engine: db.EngineSQLite, File: "/tmp/p.db", ReadOnly: true},
+	}}
+	if !cfg.Connections[0].Params("").ReadOnly {
+		t.Fatal("Params dropped the read-only flag")
+	}
+	if !cfg.Clone().Connections[0].ReadOnly {
+		t.Fatal("Clone dropped the read-only flag")
+	}
+}

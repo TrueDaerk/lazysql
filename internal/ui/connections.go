@@ -201,7 +201,7 @@ func dial(req dialRequest) (db.Driver, *sshtunnel.Tunnel, string, error) {
 		redacted += " " + tunnelSuffix(c)
 	}
 
-	drv, err := db.OpenWith(c.Engine, dialFn)
+	drv, err := db.OpenOpts(c.Engine, db.Options{Dial: dialFn, ReadOnly: c.ReadOnly})
 	if err != nil {
 		closeTunnel(tunnel)
 		return nil, nil, redacted, err
@@ -404,6 +404,10 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 			withHelp("prompt instead of using the keyring").
 			withVisible(isServerEngine),
 		newTextField("options", "Options", formatOptions(c.Options), "sslmode=disable, k=v"),
+		// Read-only applies to every engine, so it sits outside the
+		// server-only block above.
+		newBoolField("read_only", "Read-only", c.ReadOnly).
+			withHelp("block all writes on this connection"),
 	}
 	fields = append(fields, sshFields(c, oldName)...)
 
@@ -472,6 +476,7 @@ func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
 		return c, sec, err
 	}
 	c.Options = opts
+	c.ReadOnly = f.value("read_only") == "true"
 	if err := c.Validate(); err != nil {
 		return c, sec, err
 	}

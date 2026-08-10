@@ -166,6 +166,12 @@ type Driver interface {
 	Engine() Engine
 	Dialect() Dialect
 
+	// ReadOnly reports that this session refuses every write: Exec and
+	// ExecTx always fail with ErrReadOnly, and so does any statement
+	// IsWrite classifies as a write. UI code asks it to disable its own
+	// write entry points; the refusal itself does not depend on that.
+	ReadOnly() bool
+
 	// Logger is the ring buffer every statement this Driver runs lands
 	// in, for the command log panel. Never nil.
 	Logger() *Logger
@@ -298,17 +304,32 @@ func DialectFor(engine Engine) (Dialect, error) {
 	return d, nil
 }
 
+// Options are the per-session settings a Driver is opened with.
+type Options struct {
+	// Dial replaces the driver's own transport — an SSH tunnel's
+	// DialContext. Passing one to a file-based engine fails at Connect.
+	Dial DialFunc
+	// ReadOnly refuses every write on the session. The DSN should carry
+	// the engine's own read-only parameters too (ConnParams.ReadOnly),
+	// but this flag is what enforces the mode.
+	ReadOnly bool
+}
+
 // Open creates an unconnected Driver for the engine. Call Connect on it.
-func Open(engine Engine) (Driver, error) { return OpenWith(engine, nil) }
+func Open(engine Engine) (Driver, error) { return OpenOpts(engine, Options{}) }
 
 // OpenWith is Open with a custom transport — an SSH tunnel's DialContext.
-// Passing a dial function to a file-based engine fails at Connect, not here.
 func OpenWith(engine Engine, dial DialFunc) (Driver, error) {
+	return OpenOpts(engine, Options{Dial: dial})
+}
+
+// OpenOpts is Open with every session setting spelled out.
+func OpenOpts(engine Engine, o Options) (Driver, error) {
 	d, err := DialectFor(engine)
 	if err != nil {
 		return nil, err
 	}
-	return &conn{dialect: d, logger: NewLogger(), dial: dial}, nil
+	return &conn{dialect: d, logger: NewLogger(), dial: o.Dial, readOnly: o.ReadOnly}, nil
 }
 
 // Tunnelled reports whether an engine can be reached through an SSH tunnel.

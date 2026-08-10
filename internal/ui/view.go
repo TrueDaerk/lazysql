@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -345,10 +346,16 @@ func (m Model) connectionDetail(w, h int) string {
 	if d, err := db.DialectFor(c.Engine); err == nil {
 		engine = d.DisplayName()
 	}
+	access := "read-write"
+	accessStyle := m.style.muted
+	if c.ReadOnly {
+		access, accessStyle = lockMark+" read-only", m.style.pending
+	}
 	lines = append(lines,
 		"name    "+c.Name,
 		"engine  "+engine,
 		"status  "+statusStyle.Render(status),
+		"access  "+accessStyle.Render(access),
 	)
 	if db.FileBased(c.Engine) {
 		file := c.File
@@ -415,11 +422,23 @@ func (m Model) renderCommandLog(w, h int) string {
 	return m.style.blurredBorder.Width(w).Height(h).Render(b.String())
 }
 
+// optionsBarBindings is what the bottom bar offers for the focused panel.
+// A read-only connection drops the keys that could only ever answer
+// "connection is read-only"; `?` still lists them, so no binding goes
+// undocumented.
+func (m Model) optionsBarBindings() []key.Binding {
+	out := m.keys.optionsBarBindings(m.focus)
+	if m.readOnly() {
+		out = withoutBindings(out, m.keys.writeBindings())
+	}
+	return out
+}
+
 // renderOptionsBar shows the focused panel's bindings — same slices as `?`.
 func (m Model) renderOptionsBar() string {
 	h := m.help
 	h.SetWidth(maxInt(m.width-len(appName)-len(screenModeNames[m.screen])-len(version.Version)-9, 10))
-	bindings := m.keys.optionsBarBindings(m.focus)
+	bindings := m.optionsBarBindings()
 	// Insert mode leaves almost nothing bound, so the bar shows the keys
 	// that still act instead of a list the buffer would swallow — and an
 	// open popup narrows that further to the four keys it claims.

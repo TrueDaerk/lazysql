@@ -660,3 +660,45 @@ Chronological history of wiki changes, newest last.
   produced the result on screen instead of erroring on an unbound
   placeholder marker sent to the server.
 
+
+## 2026-08-10 — Per-connection read-only mode (issue #49)
+
+- Added [design/read-only-connections](design/read-only-connections.md)
+  and [reference/read-only-per-engine](reference/read-only-per-engine.md).
+- `Connection.ReadOnly` (`read_only = true`, absent means read-write) is
+  carried into `db.ConnParams` and into `db.OpenOpts`, the new
+  `Open`/`OpenWith` base that takes an `Options{Dial, ReadOnly}` instead
+  of a bare `DialFunc`.
+- Enforcement is one guard in the driver session, not a check per call
+  site: `conn.Exec` and `conn.ExecTx` are refused outright, and
+  `Query`/`QueryLimit`/`QueryStream` are refused when `db.IsWrite` says
+  the statement writes — a data-modifying CTE returns rows, so it arrives
+  through the query door, not `Exec`. Every rejection lands in the
+  command log through the existing `Logger`, prefixed
+  `-- REJECTED (read-only)` with `db.ErrReadOnly` as its outcome.
+- `ClassifyStatement` was re-implemented on the `internal/sqlhl`
+  tokenizer (`ClassifyStatementFor`, `significantTokens`), replacing the
+  upper-cased substring scan `containsKeyword` did: a write verb inside a
+  comment, a string literal or a quoted identifier is no longer mistaken
+  for a data-modifying CTE, and `PRAGMA table_info('a=b')` is no longer
+  mistaken for a `PRAGMA … = …` write. `containsKeyword`/its whole-word
+  helper are gone.
+- `db.IsWrite` is deliberately *not* the same question as the editor's
+  read/write routing: `EXPLAIN ANALYZE` stays a read for the editor
+  (there is a plan to render) but counts as a write for the guard,
+  because on PostgreSQL and MySQL it executes the statement it explains.
+- Discovered while wiring the engine-level flags: `SET SESSION
+  transaction_read_only = 1` after `Connect` is worthless under
+  `database/sql` pooling — it applies to one pooled connection and not to
+  the next one dialled. The go-sql-driver DSN-parameter form (`SET` on
+  every connection setup) is the only spelling that survives the pool.
+  DuckDB refuses `access_mode=read_only` on an in-memory database, so
+  `engineReadOnlyParams` drops the flag there rather than breaking the
+  connection.
+- UI side is decoration over the guard: `Model.readOnly()` asks the
+  driver (not the profile, which may have been edited since connecting),
+  the four staging entry points and the commit answer with `connection is
+  read-only`, `submitQuery` rejects a whole script containing any write
+  before the run starts, the options bar drops the write keys while `?`
+  keeps them, and `sidePanel.decor` puts the 🔒 in front of a read-only
+  profile's name without disturbing the filter or `selectByName`.

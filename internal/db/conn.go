@@ -21,6 +21,11 @@ type conn struct {
 	// release undoes the driver-side registration dial needed.
 	dial    DialFunc
 	release func()
+
+	// readOnly refuses every write this conn is asked to run. It is set
+	// once at Open and never changes: a session cannot be talked out of
+	// read-only mode while it is live. See readonly.go.
+	readOnly bool
 }
 
 func (c *conn) Logger() *Logger { return c.logger }
@@ -63,6 +68,7 @@ func (c *conn) Close() error {
 
 func (c *conn) Engine() Engine   { return c.dialect.Engine() }
 func (c *conn) Dialect() Dialect { return c.dialect }
+func (c *conn) ReadOnly() bool   { return c.readOnly }
 
 // querierAdapter narrows *sql.DB to the querier interface the dialects use.
 // It logs through the same Logger as every other call the conn makes, so
@@ -238,6 +244,11 @@ func (c *conn) Exec(ctx context.Context, query string, args ...any) (ExecResult,
 	if c.db == nil {
 		return ExecResult{}, errNotConnected
 	}
+	// Exec is the write door: nothing that only reads is routed through
+	// it, so a read-only session refuses it without classifying anything.
+	if c.readOnly {
+		return ExecResult{}, c.rejectWrite(query, args)
+	}
 	start := time.Now()
 	res, err := c.db.ExecContext(ctx, query, args...)
 	c.logger.record(query, args, start, err)
@@ -258,6 +269,9 @@ func (c *conn) Exec(ctx context.Context, query string, args ...any) (ExecResult,
 func (c *conn) ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, error) {
 	if c.db == nil {
 		return nil, errNotConnected
+	}
+	if c.readOnly {
+		return nil, c.rejectTx(stmts)
 	}
 	beginStart := time.Now()
 	tx, err := c.db.BeginTx(ctx, nil)
@@ -301,6 +315,12 @@ func (c *conn) QueryLimit(ctx context.Context, query string, max int, args ...an
 	if c.db == nil {
 		return nil, false, errNotConnected
 	}
+	// Free-form SQL reaches the server through Query too — a data-modifying
+	// CTE returns rows — so the read-only session classifies it here as
+	// well and only lets reads through.
+	if c.readOnly && ContainsWrite(c.Engine(), query) {
+		return nil, false, c.rejectWrite(query, args)
+	}
 	start := time.Now()
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -316,6 +336,9 @@ func (c *conn) QueryLimit(ctx context.Context, query string, max int, args ...an
 func (c *conn) QueryStream(ctx context.Context, query string, args []any, onRow func(cols []Column, row []any) error) error {
 	if c.db == nil {
 		return errNotConnected
+	}
+	if c.readOnly && ContainsWrite(c.Engine(), query) {
+		return c.rejectWrite(query, args)
 	}
 	start := time.Now()
 	rows, err := c.db.QueryContext(ctx, query, args...)

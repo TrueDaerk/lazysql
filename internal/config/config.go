@@ -42,6 +42,12 @@ type Connection struct {
 	// from the keyring.
 	AskPassword bool `toml:"ask_password,omitempty"`
 
+	// ReadOnly blocks every write on this connection: the driver session
+	// refuses Exec and any statement classified as a write, and the UI
+	// hides the staging keys. An absent key means read-write, so configs
+	// written before the flag existed load unchanged.
+	ReadOnly bool `toml:"read_only,omitempty"`
+
 	Options map[string]string `toml:"options,omitempty"`
 
 	// SSH is the optional jump host this connection is tunnelled through.
@@ -128,6 +134,7 @@ func (c Connection) Params(password string) db.ConnParams {
 		Database: c.Database,
 		File:     c.File,
 		Options:  c.Options,
+		ReadOnly: c.ReadOnly,
 	}
 }
 
@@ -197,6 +204,7 @@ type connectionFile struct {
 	File     string `toml:"file,omitempty"`
 
 	AskPassword bool `toml:"ask_password,omitempty"`
+	ReadOnly    bool `toml:"read_only,omitempty"`
 
 	Options map[string]string `toml:"options,omitempty"`
 
@@ -235,6 +243,7 @@ func (c *Config) forEncoding() configFile {
 			Database:    conn.Database,
 			File:        conn.File,
 			AskPassword: conn.AskPassword,
+			ReadOnly:    conn.ReadOnly,
 			Options:     conn.Options,
 		}
 		if conn.Port != 0 {

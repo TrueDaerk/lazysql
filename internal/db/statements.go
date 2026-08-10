@@ -1,6 +1,10 @@
 package db
 
-import "strings"
+import (
+	"strings"
+
+	"lazysql/internal/sqlhl"
+)
 
 // Free-form SQL arrives from the query editor as one script that may hold
 // several statements. Splitting it on `;` needs a lexer rather than
@@ -223,29 +227,88 @@ var readKeywords = map[string]bool{
 // writeInCTE are the keywords that turn a `WITH` into a writing
 // statement: PostgreSQL allows data-modifying CTEs, so the leading
 // keyword alone does not settle it.
-var writeInCTE = []string{"INSERT", "UPDATE", "DELETE", "MERGE"}
+var writeInCTE = map[string]bool{
+	"INSERT": true, "UPDATE": true, "DELETE": true, "MERGE": true,
+	"REPLACE": true, "TRUNCATE": true,
+}
 
-// ClassifyStatement decides whether a statement reads or writes. It errs
-// towards StatementWrite: an unrecognized statement is confirmed before
-// it runs and executed through Exec, which is the safe way to be wrong.
+// ClassifyStatement decides whether a statement reads or writes, reading
+// the most portable spelling of it. ClassifyStatementFor is the same
+// question asked with an engine's own lexical rules — backticks, `#`
+// comments, dollar-quoted bodies — and is what the read-only guard uses.
 func ClassifyStatement(sql string) StatementKind {
-	body := TrimLeadingComments(sql)
-	kw := strings.ToUpper(firstWord(body))
+	return ClassifyStatementFor("", sql)
+}
+
+// ClassifyStatementFor decides whether a statement reads or writes. It
+// errs towards StatementWrite: an unrecognized statement is confirmed
+// before it runs and executed through Exec, which is the safe way to be
+// wrong.
+//
+// The decision runs on the tokenizer, never on substring search: a
+// keyword inside a comment, a string literal or a quoted identifier is
+// data. That is what keeps `WITH x AS (…) DELETE FROM t` a write while
+// `SELECT 'delete me'` stays a read.
+func ClassifyStatementFor(engine Engine, sql string) StatementKind {
+	toks := significantTokens(engine, sql)
+	if len(toks) == 0 {
+		// Nothing but comments and whitespace: no leading keyword to
+		// recognize, so it falls in with everything else unrecognized.
+		return StatementWrite
+	}
+	kw := strings.ToUpper(toks[0].text)
 	if !readKeywords[kw] {
 		return StatementWrite
 	}
 	switch kw {
 	case "WITH":
-		if containsKeyword(body, writeInCTE...) {
-			return StatementWrite
+		// A data-modifying CTE is spelled with its verb as a bare word;
+		// one inside a literal or a quoted identifier is not it.
+		for _, t := range toks[1:] {
+			if t.word && writeInCTE[strings.ToUpper(t.text)] {
+				return StatementWrite
+			}
 		}
 	case "PRAGMA":
-		// `PRAGMA x = y` sets, `PRAGMA x` reads.
-		if strings.Contains(body, "=") {
-			return StatementWrite
+		// `PRAGMA x = y` sets, `PRAGMA x` reads. The `=` has to be a real
+		// operator: `PRAGMA table_info('a=b')` still only reads.
+		for _, t := range toks[1:] {
+			if t.op && strings.Contains(t.text, "=") {
+				return StatementWrite
+			}
 		}
 	}
 	return StatementRead
+}
+
+// sqlToken is one significant token of a statement: its text plus the two
+// facts classification asks about it. word marks a bare word — a keyword
+// or an unquoted identifier, the two kinds a verb can be scanned as —
+// and op marks an operator run.
+type sqlToken struct {
+	text string
+	word bool
+	op   bool
+}
+
+// significantTokens tokenizes sql and drops whitespace and comments, so
+// index 0 is the statement's leading keyword however it was written.
+func significantTokens(engine Engine, sql string) []sqlToken {
+	d := sqlhl.For(string(engine))
+	var out []sqlToken
+	for _, t := range sqlhl.Tokenize(d, sql) {
+		switch t.Kind {
+		case sqlhl.Plain, sqlhl.Comment:
+			continue
+		case sqlhl.Keyword, sqlhl.Ident:
+			out = append(out, sqlToken{text: t.Text(sql), word: true})
+		case sqlhl.Operator:
+			out = append(out, sqlToken{text: t.Text(sql), op: true})
+		default:
+			out = append(out, sqlToken{text: t.Text(sql)})
+		}
+	}
+	return out
 }
 
 // TrimLeadingComments strips whitespace and leading `--`, `#` and `/* */`
@@ -287,30 +350,6 @@ func firstWord(s string) string {
 		}
 	}
 	return s
-}
-
-// containsKeyword reports whether any of the words appears in sql as a
-// whole word, ignoring case. It is a heuristic over statement text, used
-// only to decide whether a CTE writes.
-func containsKeyword(sql string, words ...string) bool {
-	up := strings.ToUpper(sql)
-	for _, w := range words {
-		for i := 0; ; {
-			j := strings.Index(up[i:], w)
-			if j < 0 {
-				break
-			}
-			at := i + j
-			before := at == 0 || !isWordRune(rune(up[at-1]))
-			afterAt := at + len(w)
-			after := afterAt >= len(up) || !isWordRune(rune(up[afterAt]))
-			if before && after {
-				return true
-			}
-			i = at + len(w)
-		}
-	}
-	return false
 }
 
 func isWordRune(c rune) bool { return isTagRune(c) }

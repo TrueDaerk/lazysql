@@ -28,7 +28,7 @@ func pgRequest(action Action) Request {
 	return Request{
 		Action: action, Engine: db.EnginePostgres,
 		Host: "db.example.com", Port: 5432, User: "app", Database: "shop",
-		Password: "hunter2", Path: "/tmp/shop.sql",
+		Password: "hunter2", Path: "/backups/shop.sql",
 	}.WithLookPath(found("pg_dump", "psql"))
 }
 
@@ -36,7 +36,7 @@ func myRequest(action Action, engine db.Engine) Request {
 	return Request{
 		Action: action, Engine: engine,
 		Host: "db.example.com", Port: 3306, User: "root", Database: "shop",
-		Password: "hunter2", Path: "/tmp/shop.sql",
+		Password: "hunter2", Path: "/backups/shop.sql",
 	}.WithLookPath(found("mysqldump", "mysql", "mariadb-dump", "mariadb"))
 }
 
@@ -149,7 +149,7 @@ func TestPostgresDumpArgv(t *testing.T) {
 	}
 	want := []string{
 		"--host=db.example.com", "--port=5432", "--dbname=shop", "--no-password",
-		"--username=app", "--schema=reporting", "--file=/tmp/shop.sql", "--data-only",
+		"--username=app", "--schema=reporting", "--file=/backups/shop.sql", "--data-only",
 	}
 	if strings.Join(cmd.Args, " ") != strings.Join(want, " ") {
 		t.Fatalf("args =\n%v\nwant\n%v", cmd.Args, want)
@@ -172,7 +172,7 @@ func TestPostgresRestoreStopsOnError(t *testing.T) {
 		t.Fatalf("binary = %q, want psql", cmd.Name)
 	}
 	joined := strings.Join(cmd.Args, " ")
-	for _, want := range []string{"--set=ON_ERROR_STOP=1", "--file=/tmp/shop.sql", "--no-password"} {
+	for _, want := range []string{"--set=ON_ERROR_STOP=1", "--file=/backups/shop.sql", "--no-password"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("args %v missing %q", cmd.Args, want)
 		}
@@ -205,7 +205,7 @@ func TestMySQLDumpAndRestoreShape(t *testing.T) {
 	if got := dumpCmd.Args[len(dumpCmd.Args)-1]; got != "shop" {
 		t.Fatalf("last arg = %q, want the database name", got)
 	}
-	if !strings.Contains(strings.Join(dumpCmd.Args, " "), "--result-file=/tmp/shop.sql") {
+	if !strings.Contains(strings.Join(dumpCmd.Args, " "), "--result-file=/backups/shop.sql") {
 		t.Fatalf("args %v do not name the output file", dumpCmd.Args)
 	}
 	if dumpCmd.StdinPath != "" {
@@ -221,7 +221,7 @@ func TestMySQLDumpAndRestoreShape(t *testing.T) {
 		t.Fatalf("binary = %q, want mysql", restoreCmd.Name)
 	}
 	// The client has no --file of its own; the dump arrives on stdin.
-	if restoreCmd.StdinPath != "/tmp/shop.sql" {
+	if restoreCmd.StdinPath != "/backups/shop.sql" {
 		t.Fatalf("stdin = %q, want the dump file", restoreCmd.StdinPath)
 	}
 }
@@ -418,7 +418,7 @@ func TestPreviewRendersTheWholeCommand(t *testing.T) {
 	}
 	// The stdin redirect is part of what the command does, so the preview
 	// has to show it.
-	if !strings.Contains(restore.String(), "< /tmp/shop.sql") {
+	if !strings.Contains(restore.String(), "< /backups/shop.sql") {
 		t.Fatalf("preview %q does not show the stdin redirect", restore.String())
 	}
 }

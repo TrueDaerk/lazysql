@@ -34,7 +34,13 @@ const copyTimeout = 2 * time.Minute
 // ---------- messages ----------
 
 // copiedMsg is the outcome of a copy, already rendered for the log.
-type copiedMsg struct{ line string }
+// osc52, when set, is text the update loop still has to push out as an
+// OSC 52 escape sequence: copyOut chose the terminal's own clipboard
+// write, and only the program can write to the terminal.
+type copiedMsg struct {
+	line  string
+	osc52 string
+}
 
 // ---------- the menu ----------
 
@@ -184,9 +190,12 @@ func (m Model) exportOptions(ddl string) export.Options {
 
 // copyTextCmd hands text to the clipboard off the update loop; the
 // clipboard library shells out, which is not something Update may wait
-// for.
+// for. When the copy has to go out as OSC 52 instead, the message it
+// returns says so and the root issues tea.SetClipboard for it — the
+// escape sequence belongs to the program's tty, not to a command
+// running on its own goroutine.
 func copyTextCmd(subject, filename, text string) tea.Cmd {
-	return func() tea.Msg { return copiedMsg{line: copyOut(subject, filename, text)} }
+	return func() tea.Msg { return copyOut(subject, filename, text) }
 }
 
 // ---------- whole table ----------
@@ -244,11 +253,11 @@ func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
 			if err != nil {
 				return copiedMsg{line: fmt.Sprintf("-- copy %s FAILED after %d rows: %v", d.table, rows, err)}
 			}
-			line := copyOut(fmt.Sprintf("%s as %s (%d rows)", d.table, label, rows), name, b.String())
+			out := copyOut(fmt.Sprintf("%s as %s (%d rows)", d.table, label, rows), name, b.String())
 			if truncated {
-				line += fmt.Sprintf("  -- TRUNCATED at %d rows, press E to export the whole table", copyRowLimit)
+				out.line += fmt.Sprintf("  -- TRUNCATED at %d rows, press E to export the whole table", copyRowLimit)
 			}
-			return copiedMsg{line: line}
+			return out
 		},
 	)
 }

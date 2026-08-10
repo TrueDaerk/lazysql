@@ -864,3 +864,48 @@ Chronological history of wiki changes, newest last.
   `internal/ui` covers `screenModeFromName`'s fallback table, a full
   quit-then-`New()` restore, and startup degrading an unknown saved value to
   `normal`.
+
+## 2026-08-10 — Clipboard: OSC 52 copy fallback and bracketed paste (issue #76)
+
+- Added [design/clipboard-strategy](design/clipboard-strategy.md): the
+  native → OSC 52 → temp-file order and why it is that order, why the escape
+  sequence has to travel back through the update loop as `copiedMsg.osc52`
+  instead of being written from the copy command's goroutine, why an OSC 52
+  copy is logged as *sent* rather than confirmed, the two guards on the
+  fallback (128 KiB, `detectOSC52`/`LAZYSQL_NO_OSC52`), why the read side of
+  OSC 52 is not used at all, and the paste routing table.
+- Added [reference/osc52-and-bracketed-paste](reference/osc52-and-bracketed-paste.md):
+  the exact sequence emitted (`ESC]52;c;<base64>BEL`, selection `c`, BEL
+  terminator, no tmux passthrough wrapping), the per-terminal support table
+  (iTerm2 off by default, Terminal.app not at all, tmux `set-clipboard`
+  `external`/`on` forwarding), why the size cap exists, and that Bubble Tea v2
+  enables bracketed paste for every view without being asked.
+- `internal/ui/clipboard.go`: `copyOut` now returns a `copiedMsg` carrying both
+  the log line and an optional OSC 52 payload; new `osc52Available`
+  seam/`detectOSC52` (terminal on stdout, `TERM` not empty/`dumb`, no
+  `LAZYSQL_NO_OSC52`) and `osc52Limit`. `clipboardWrite` and `spillFile` are
+  unchanged.
+- `internal/ui/copy.go` + `model.go`: `copyTextCmd` returns copyOut's message;
+  the root's `copiedMsg` case batches `tea.SetClipboard(msg.osc52)` with the
+  log line when the copy has to go out through the terminal.
+- Added `internal/ui/paste.go`: `updatePaste` mirrors the key routing for
+  `tea.PasteMsg` (modal → `/` filter → query editor; grid and side panels drop
+  it), the optional `pasteHandler` modal interface, and `flattenPaste` for
+  one-line fields. Implemented `paste` on `promptModal`, `formModal`,
+  `filterModal`, `editCellModal`, `insertRowModal` and `paramsModal`. In the
+  editor's normal mode the blurred textarea is focused for the insertion alone,
+  the mode is kept, a pending `dd`/`yy` chord is cleared and `applyVim`
+  re-clamps the caret. Vim's `p` still reads only the internal register.
+- Tests: `clipboard_test.go` covers the OSC 52 fallback, the size cap sending a
+  large copy to the spill instead, the spill when no mechanism exists, the
+  round trip that turns `copiedMsg.osc52` into a `tea.SetClipboard` command,
+  and `detectOSC52`'s environment guards; `paste_test.go` covers verbatim
+  multi-line paste in both editor modes (including that `DROP TABLE dd;` opens
+  no clear-buffer confirm), prompt/connection-form/filter targets, and a
+  confirm modal ignoring a paste. `TestMain` sets `LAZYSQL_NO_OSC52=1` so no
+  test can write an escape sequence to the developer's terminal.
+- Verified in a real PTY (140×40, `creack/pty` driver): the paste in insert and
+  normal mode, the pasted value reaching the connection form's Name field, a
+  native macOS copy landing on the system clipboard, the same copy emitting
+  `ESC]52;c;MQ==BEL` (decoded back to the cell value) once `pbcopy` is off
+  `PATH`, and the temp-file spill still happening with `LAZYSQL_NO_OSC52=1`.

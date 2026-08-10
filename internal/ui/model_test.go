@@ -28,6 +28,10 @@ func TestMain(m *testing.M) {
 	// The query history is persistent; point it at the temp home too so
 	// no test can append to the developer's own history file.
 	os.Setenv("XDG_STATE_HOME", dir)
+	// A test never writes an escape sequence to whatever terminal is
+	// running it: the OSC 52 fallback is off unless a test turns it on
+	// through the osc52Available seam.
+	os.Setenv("LAZYSQL_NO_OSC52", "1")
 	keyring.MockInit()
 	code := m.Run()
 	os.RemoveAll(dir)

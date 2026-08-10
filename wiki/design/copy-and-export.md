@@ -200,10 +200,13 @@ scope, uppercase the table scope.
 
 - `y` no longer copies the DDL directly; it opens the menu, whose `d`
   entry does. The DDL tab's hint changed to match.
-- A copy never simply fails. With no clipboard — an SSH session, a bare
-  tty, a container — the text spills to a temp file and the log names
-  the path. `clipboardWrite` and `spillFile` are both variables so a
-  test run can never touch the developer's clipboard or temp directory.
+- A copy never simply fails. With no native clipboard — an SSH session,
+  a container — the text goes out as an OSC 52 escape sequence, and
+  with no terminal to take that either it spills to a temp file whose
+  path the log names. `clipboardWrite`, `osc52Available` and `spillFile`
+  are all variables so a test run can never touch the developer's
+  clipboard, terminal or temp directory. See
+  [design/clipboard-strategy](clipboard-strategy.md).
 - A whole-table copy or export of a relation the user is mid-edit on
   reads the *server's* rows. Only the single-cell and single-row copies
   apply the staged changeset, because those are built from the page the

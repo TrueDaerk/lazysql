@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -355,13 +356,13 @@ func newEditCellModal(change db.CellChange, initial any, col db.Column, rowLabel
 }
 
 func (e *editCellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	switch {
+	case msg.String() == "esc":
 		return true, nil
-	case "ctrl+n":
+	case msg.String() == "ctrl+n":
 		e.null = !e.null
 		return false, nil
-	case "enter":
+	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
 		c := e.change
 		if e.null {
 			c.NewValue = nil
@@ -411,6 +412,6 @@ func (e *editCellModal) view(s styles, maxW, maxH int) string {
 	if e.null && !e.col.Nullable {
 		lines = append(lines, s.danger.Render("column is NOT NULL — the commit will fail"))
 	}
-	lines = append(lines, "", s.muted.Render("enter stage · ctrl+n NULL · esc cancel"))
+	lines = append(lines, "", s.muted.Render("enter/ctrl+enter stage · ctrl+n NULL · esc cancel"))
 	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

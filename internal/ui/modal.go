@@ -33,13 +33,13 @@ type confirmModal struct {
 }
 
 func (c *confirmModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
-	switch msg.String() {
-	case "enter", "y":
+	switch {
+	case msg.String() == "enter", msg.String() == "y", key.Matches(msg, m.keys.AcceptChanges):
 		if c.onConfirm == nil {
 			return true, nil
 		}
 		return true, c.onConfirm(m)
-	case "esc", "n", "q":
+	case msg.String() == "esc", msg.String() == "n", msg.String() == "q":
 		return true, nil
 	}
 	return false, nil
@@ -56,7 +56,7 @@ func (c *confirmModal) view(s styles, maxW, maxH int) string {
 		"",
 		body,
 		"",
-		s.muted.Render("enter confirm · esc cancel"),
+		s.muted.Render("enter/ctrl+enter confirm · esc cancel"),
 	))
 }
 

@@ -1005,3 +1005,11 @@ Chronological history of wiki changes, newest last.
   subset, column-packing help modal — plus the rejected alternatives
   (non-modal default, auto-insert on printable, result pane, run-in-modal,
   dropping vim).
+- Added [reference/ctrl-enter-accept-alias](reference/ctrl-enter-accept-alias.md)
+  (issue #96): `ctrl+enter`/`cmd+enter` now alias `enter` in the edit cell
+  modal, insert row form, generic form and confirm modals, and alias `c` for
+  commit-staged-changes in the table view, all through one `acceptKeys` list
+  in `internal/ui/keys.go`. Documented why no `tea.WithKeyboardEnhancements()`
+  call was needed: Bubble Tea v2's renderer always requests basic key
+  disambiguation, which is what lets terminals report `ctrl+enter` as
+  distinct from plain `enter` in the first place.

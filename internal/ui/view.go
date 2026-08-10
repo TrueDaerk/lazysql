@@ -518,6 +518,10 @@ func maxInt(a, b int) int {
 }
 
 // truncate shortens s to w display cells, appending an ellipsis when cut.
+// It walks forward accumulating rune widths rather than popping runes off
+// the end and re-measuring the prefix each time: a long line behind a
+// narrow box was quadratic, and the panel previews truncate on every
+// frame.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -526,8 +530,13 @@ func truncate(s string, w int) string {
 		return s
 	}
 	runes := []rune(s)
-	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > w {
-		runes = runes[:len(runes)-1]
+	width := 0
+	for i, r := range runes {
+		rw := lipgloss.Width(string(r))
+		if width+rw > w-1 {
+			return string(runes[:i]) + "…"
+		}
+		width += rw
 	}
 	return string(runes) + "…"
 }

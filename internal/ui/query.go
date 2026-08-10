@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textarea"
@@ -465,13 +466,17 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	// Motions.
+	// Motions. j/k go through the wheel's coalescer — the target is the
+	// editor block (row 0 of the main view), the same place a wheel over
+	// the buffer aims at — so a held key or a terminal's alternate-scroll
+	// arrow emulation collapses to one caret move per frame instead of
+	// queueing up. A single press still moves exactly one line.
 	case key.Matches(msg, k.Down):
-		m.vimMotion((*vimBuffer).down)
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneMain}, 1)
+		return m, cmd
 	case key.Matches(msg, k.Up):
-		m.vimMotion((*vimBuffer).up)
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneMain}, -1)
+		return m, cmd
 	case key.Matches(msg, k.VimLeft):
 		m.vimMotion((*vimBuffer).left)
 		return m, nil
@@ -927,10 +932,14 @@ func (m Model) queryPanelBody(w, h int) string {
 	if rows <= 0 {
 		return ""
 	}
-	if strings.TrimSpace(m.script()) == "" {
+	// The buffer comes out of the editor's highlight cache rather than
+	// being split (and the textarea's Value re-joined) every frame: the
+	// preview repaints on every message, and a long script made that
+	// per-frame O(buffer) work — part of the input backlog issue #78.
+	lines := m.editorLines()
+	if blankLines(lines) {
 		return s.muted.Render(truncate("(empty — press : to write a query)", w))
 	}
-	lines := strings.Split(m.script(), "\n")
 	out := make([]string, 0, rows)
 	for i, l := range lines {
 		if i >= rows {
@@ -947,9 +956,23 @@ func (m Model) queryPanelBody(w, h int) string {
 		// then cutting would slice an escape sequence in half. A token
 		// cut by the truncation is re-read on its own, which at worst
 		// costs the last word on the line its colour.
-		out = append(out, highlightSQL(s, m.sqlDialect(), truncate(l, w)))
+		out = append(out, highlightSQL(s, m.sqlDialect(), truncate(string(l.runes), w)))
 	}
 	return strings.Join(out, "\n")
+}
+
+// blankLines reports whether the buffer is empty or whitespace — the
+// TrimSpace(script) == "" test, run over the cached lines so it exits at
+// the first real character instead of re-joining the buffer.
+func blankLines(lines []hlLine) bool {
+	for _, l := range lines {
+		for _, r := range l.runes {
+			if !unicode.IsSpace(r) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // queryPanelTitle is panel [4]'s border title: number, name and what the

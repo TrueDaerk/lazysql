@@ -265,9 +265,15 @@ type Model struct {
 	help  help.Model
 	style styles
 
-	// wheel coalesces mouse wheel bursts into one scroll per frame, so a
-	// fast wheel cannot queue up behind the renderer. See mouse.go.
+	// wheel coalesces scroll bursts — mouse wheel notches and repeated
+	// navigation keys alike — into one state change per frame, so fast
+	// input cannot queue up behind the renderer. See mouse.go.
 	wheel wheelState
+
+	// hl caches the query editor's tokenization and wrap geometry, so a
+	// pure cursor move re-styles only the visible rows instead of
+	// re-highlighting the whole buffer. See highlight.go.
+	hl *editorCache
 
 	// spin animates the running indicator in the options bar. It ticks
 	// only while a query runs — the message handler drops any tick that
@@ -313,6 +319,7 @@ func New(noRestore bool) (Model, error) {
 		changes:   db.NewChangeset(),
 		cfg:       cfg,
 		editor:    newQueryEditor(),
+		hl:        &editorCache{},
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {
@@ -1198,12 +1205,17 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch {
+	// Down/Up go through the wheel's coalescer rather than moving the
+	// cursor here: a held key repeats faster than the app can render, and
+	// routing the repeats into wheelAt collapses the backlog the same way
+	// a wheel burst is collapsed. A single press still moves exactly one
+	// row — the first event of a burst is applied immediately.
 	case key.Matches(msg, k.Down):
-		p.move(1)
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneSide, panel: m.focus}, 1)
+		return m, cmd
 	case key.Matches(msg, k.Up):
-		p.move(-1)
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneSide, panel: m.focus}, -1)
+		return m, cmd
 
 	case key.Matches(msg, k.Enter):
 		// Connecting can open a password prompt, which drillIn (a plain

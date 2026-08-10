@@ -435,20 +435,17 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	switch {
+	// Down/Up go through the wheel's coalescer: applyScroll routes a
+	// zoneMain delta to the grid or the metadata tabs exactly like the
+	// direct handlers used to, and a key-repeat burst collapses to one
+	// state change per frame instead of queueing. A single press still
+	// moves exactly one row.
 	case key.Matches(msg, k.Down):
-		if m.tab.metadata() {
-			return m.updateMetaKeys(1)
-		}
-		m.data.row++
-		m.clampCursor()
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneMain}, 1)
+		return m, cmd
 	case key.Matches(msg, k.Up):
-		if m.tab.metadata() {
-			return m.updateMetaKeys(-1)
-		}
-		m.data.row--
-		m.clampCursor()
-		return m, nil
+		cmd := m.wheelAt(scrollTarget{zone: zoneMain}, -1)
+		return m, cmd
 	case key.Matches(msg, k.Back):
 		// esc unwinds the foreign-key jumps first: coming back to where
 		// the chain started is what the key means while there is a

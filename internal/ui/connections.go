@@ -153,6 +153,11 @@ type dialRequest struct {
 	conn config.Connection
 	test bool
 
+	// restore marks the one dial the startup session restore issues, so
+	// the connectedMsg handler can route it into the restore chain
+	// instead of the interactive connect flow.
+	restore bool
+
 	password    string
 	hasPassword bool
 

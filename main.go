@@ -13,13 +13,14 @@ import (
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	noRestore := flag.Bool("no-restore", false, "start without restoring the last session")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("lazysql version " + version.Version)
 		return
 	}
 
-	m, err := ui.New()
+	m, err := ui.New(*noRestore)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "lazysql:", err)
 		os.Exit(1)

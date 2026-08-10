@@ -378,3 +378,62 @@ func TestColorReachesClone(t *testing.T) {
 		t.Fatalf("Clone dropped the color tag: got %q", got)
 	}
 }
+
+// An absent restore_session key — every config written before the field
+// existed, and a fresh default one — must default to restoring.
+func TestRestoreSessionDefaultsEnabled(t *testing.T) {
+	cfg := &Config{}
+	if !cfg.RestoreSessionEnabled() {
+		t.Fatal("RestoreSessionEnabled() = false with the key absent, want true")
+	}
+}
+
+func TestRestoreSessionRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	off := false
+	cfg := &Config{RestoreSession: &off}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "restore_session = false") {
+		t.Fatalf("restore_session not written:\n%s", raw)
+	}
+	back, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.RestoreSessionEnabled() {
+		t.Fatal("RestoreSessionEnabled() = true after loading restore_session = false")
+	}
+}
+
+// A config file without the key at all — the common case — never writes it
+// back out, and Clone does not share the pointer with the original.
+func TestRestoreSessionAbsentStaysAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{Connections: []Connection{
+		{Name: "dev", Engine: db.EngineSQLite, File: "/tmp/dev.sqlite"},
+	}}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "restore_session") {
+		t.Fatalf("restore_session written despite being unset:\n%s", raw)
+	}
+
+	on := true
+	cfg.RestoreSession = &on
+	clone := cfg.Clone()
+	*cfg.RestoreSession = false
+	if !clone.RestoreSessionEnabled() {
+		t.Fatal("Clone shared the RestoreSession pointer with the original")
+	}
+}

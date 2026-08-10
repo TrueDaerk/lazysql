@@ -344,6 +344,22 @@ and the query editor's SQL highlighting — `sql-keyword`, `sql-string`,
 operators are deliberately left uncolored so they keep your terminal's
 own foreground.
 
+### `restore_session`
+
+On quit, lazysql remembers the connection, database, table, tab and grid
+cursor you were on in `${XDG_STATE_HOME:-~/.local/state}/lazysql/session.json`
+(a connection *name* only — never a password) and reconnects to it on the
+next start. Set `restore_session = false` to turn this off permanently, or
+pass `--no-restore` to skip it for one run:
+
+```toml
+restore_session = false
+```
+
+Either way, `esc` cancels an auto-connect in progress and drops back to
+the plain connections panel; a deleted connection, an unreachable host or
+a dropped table degrade the same way, with a note in the command log.
+
 ## Install
 
 Download a prebuilt binary (darwin/linux, amd64/arm64) from the

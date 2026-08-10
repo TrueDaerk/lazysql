@@ -943,3 +943,14 @@ Chronological history of wiki changes, newest last.
   event applies, the rest accumulate, the flush drains, a stale `gen` is
   ignored, an empty flush disarms), retargeting mid-burst, modal swallowing,
   the grid's cell click and page-boundary clamp, and the editor caret scroll.
+
+## 2026-08-10
+
+- Added [design/input-coalescing](design/input-coalescing.md) with the scroll
+  backlog fix (issue #78): why every queued message costs a full View build in
+  Bubble Tea v2, the measured 29 ms/event editor culprit (whole-buffer
+  re-tokenization, full-buffer styling, quadratic `truncate`), the three-layer
+  `editorCache`, and keyboard Down/Up routed through the wheel's coalescer.
+- Cross-reference: [design/mouse-support](design/mouse-support.md)'s
+  `wheelState` is now the shared coalescer for wheel notches *and* repeated
+  navigation keys.

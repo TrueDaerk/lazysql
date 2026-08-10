@@ -178,15 +178,98 @@ func cursorSegment(segs [][2]int, col, width int) (row, offset int, extra bool) 
 	return last, offset, false
 }
 
+// editorCache memoizes what renderEditor derives from the buffer alone:
+// the whole-buffer tokenization, and the wrap geometry at one width.
+// Both are invariant under pure cursor movement, which is what makes a
+// held-down j/k (or the wheel) cost O(visible rows) per frame instead of
+// re-tokenizing and re-wrapping the whole script — the editor half of
+// the input backlog issue #78 describes. One View builds the editor
+// block several times (height calculation, the block itself, the caret
+// for the completion popup), so the cache pays off within a single
+// frame, not only across frames.
+//
+// It hangs off the Model as a pointer so every copied Model shares it;
+// the Elm loop is single-threaded, so a value-receiver View filling it
+// is safe.
+type editorCache struct {
+	// Key of the tokenization: the buffer and the dialect it was read as.
+	dialect sqlhl.Dialect
+	src     string
+	valid   bool
+	lines   []hlLine
+
+	// Key of the wrap geometry: the content width it was computed at.
+	width int
+	segs  [][][2]int // wrapSegments of each line, parallel to lines
+	rows  int        // total display rows at width
+
+	// Memo of the last rendered block. During a coalesced input burst
+	// the accumulate-only messages change nothing the editor renders
+	// from, but bubbletea still builds a View per queued message — this
+	// memo makes those builds return the previous block instead of
+	// re-styling the window.
+	blk blockMemo
+}
+
+// blockMemo is one renderEditor result together with everything it was
+// computed from that is not already the cache's key (buffer + width).
+type blockMemo struct {
+	valid    bool
+	w, h     int
+	row, col int  // textarea cursor
+	show     bool // cursor drawn at all (focus)
+	idle     bool // normal-mode cursor style
+
+	block              string
+	caretRow, caretCol int
+	caretOK            bool
+}
+
+// editorLines is highlightLines through the cache: a pure cursor move
+// reuses the previous tokenization. A nil cache (a zero Model in tests)
+// just computes.
+func (m Model) editorLines() []hlLine {
+	d, src := m.sqlDialect(), m.script()
+	c := m.hl
+	if c == nil {
+		return highlightLines(d, src)
+	}
+	if !c.valid || c.dialect != d || c.src != src {
+		c.lines = highlightLines(d, src)
+		c.dialect, c.src, c.valid = d, src, true
+		c.segs, c.rows, c.width = nil, 0, 0
+		c.blk = blockMemo{}
+	}
+	return c.lines
+}
+
+// editorGeometry is the wrap geometry at width: each line's display-row
+// segments and their total, cached alongside the tokenization.
+func (m Model) editorGeometry(width int) (lines []hlLine, segs [][][2]int, rows int) {
+	lines = m.editorLines()
+	c := m.hl
+	if c != nil && c.segs != nil && c.width == width {
+		return lines, c.segs, c.rows
+	}
+	segs = make([][][2]int, len(lines))
+	rows = 0
+	for i, l := range lines {
+		segs[i] = wrapSegments(l.runes, width)
+		rows += len(segs[i])
+	}
+	if c != nil {
+		c.segs, c.rows, c.width = segs, rows, width
+		c.blk = blockMemo{}
+	}
+	return lines, segs, rows
+}
+
 // editorRows is how many display rows the buffer needs at width w. The
 // caller uses it to decide how much of the main view the editor gets.
 func (m Model) editorRows(w int) int {
 	_, contentW := editorGutterWidth(m.editor.area.LineCount(), w)
-	n := 0
-	for _, l := range highlightLines(m.sqlDialect(), m.script()) {
-		n += len(wrapSegments(l.runes, contentW))
-	}
-	return maxInt(n, 1)
+	_, _, rows := m.editorGeometry(contentW)
+	return maxInt(rows, 1)
 }
 
 // editorGutterWidth splits the box between the line-number gutter and
@@ -235,7 +318,7 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 	if w < 1 || h < 1 {
 		return "", 0, 0, false
 	}
-	lines := highlightLines(m.sqlDialect(), m.script())
+	lines := m.editorLines()
 	gutterW, contentW := editorGutterWidth(len(lines), w)
 
 	// Where the caret is, and how it should look. It is only drawn while
@@ -250,6 +333,18 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 	if cursorRow < 0 || cursorRow >= len(lines) {
 		showCursor = false
 	}
+	idle := showCursor && !m.editor.editing
+
+	// The memo: same buffer (editorLines validated it above), same box,
+	// same caret, same styling inputs — same block. This is what the
+	// accumulate-only messages of a coalesced burst hit, so a backlogged
+	// input event costs a struct compare here instead of a render.
+	if c := m.hl; c != nil && c.valid && c.blk.valid &&
+		c.blk.w == w && c.blk.h == h &&
+		c.blk.row == cursorRow && c.blk.col == cursorCol &&
+		c.blk.show == showCursor && c.blk.idle == idle {
+		return c.blk.block, c.blk.caretRow, c.blk.caretCol, c.blk.caretOK
+	}
 
 	// An untouched buffer shows the placeholder instead of an empty
 	// grid, the way the textarea did.
@@ -261,34 +356,30 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 		return padRows([]string{gutter(s, gutterW, 1) + row}, h), 0, gutterW, showCursor
 	}
 
-	var rows []string
-	cursorAt, cursorX := -1, 0 // index into rows and cell within it
-	for i, line := range lines {
-		segs := wrapSegments(line.runes, contentW)
-		curSeg, curOff, extra := -1, 0, false
+	// Pass 1 — geometry only, no styling: where every line's first
+	// display row sits, how many rows there are in total, and which row
+	// the caret is on. The wrap segments come out of the cache, so a
+	// pure cursor move pays for none of this beyond a walk over the
+	// line count.
+	_, segs, _ := m.editorGeometry(contentW)
+	rowStart := make([]int, len(lines))
+	cursorAt, cursorX := -1, 0 // display row of the caret and cell within it
+	curSeg, curOff, extra := -1, 0, false
+	total := 0
+	for i := range lines {
+		rowStart[i] = total
+		total += len(segs[i])
 		if showCursor && i == cursorRow {
-			curSeg, curOff, extra = cursorSegment(segs, cursorCol, contentW)
-		}
-		for si, seg := range segs {
-			num := 0
-			if si == 0 {
-				num = i + 1
+			curSeg, curOff, extra = cursorSegment(segs[i], cursorCol, contentW)
+			if extra {
+				// A cursor past the end of a full row gets a row of its
+				// own, right after the line's last segment — every later
+				// line shifts down by it.
+				cursorAt, cursorX = total, gutterW
+				total++
+			} else {
+				cursorAt = rowStart[i] + curSeg
 			}
-			at := -1
-			if si == curSeg && !extra {
-				at = curOff
-				cursorAt = len(rows)
-				// The caret's *cell* is not its rune index: a wide rune
-				// before it takes two columns.
-				cursorX = gutterW + lipgloss.Width(string(line.runes[seg[0]:seg[0]+at]))
-			}
-			rows = append(rows, gutter(s, gutterW, num)+
-				renderTokens(s, line.runes[seg[0]:seg[1]], line.kinds[seg[0]:seg[1]], at, cursorStyle))
-		}
-		// A cursor past the end of a full row gets a row of its own.
-		if extra {
-			cursorAt, cursorX = len(rows), gutterW
-			rows = append(rows, gutter(s, gutterW, 0)+cursorStyle.Render(" "))
 		}
 	}
 
@@ -299,15 +390,63 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 	if cursorAt >= h {
 		start = cursorAt - h + 1
 	}
-	if start > len(rows)-h {
-		start = maxInt(len(rows)-h, 0)
+	if start > total-h {
+		start = maxInt(total-h, 0)
 	}
-	end := min(start+h, len(rows))
+	end := min(start+h, total)
+
+	// Pass 2 — style only the rows inside the window. This is the part
+	// that used to run over the whole buffer; it is now O(visible rows).
+	rows := make([]string, 0, end-start)
+	for i, line := range lines {
+		if rowStart[i] >= end {
+			break
+		}
+		onCursorLine := showCursor && i == cursorRow
+		last := rowStart[i] + len(segs[i]) // one past this line's rows
+		if onCursorLine && extra {
+			last++
+		}
+		if last <= start {
+			continue
+		}
+		for si, seg := range segs[i] {
+			r := rowStart[i] + si
+			if r < start || r >= end {
+				continue
+			}
+			num := 0
+			if si == 0 {
+				num = i + 1
+			}
+			at := -1
+			if onCursorLine && si == curSeg && !extra {
+				at = curOff
+				// The caret's *cell* is not its rune index: a wide rune
+				// before it takes two columns.
+				cursorX = gutterW + lipgloss.Width(string(line.runes[seg[0]:seg[0]+at]))
+			}
+			rows = append(rows, gutter(s, gutterW, num)+
+				renderTokens(s, line.runes[seg[0]:seg[1]], line.kinds[seg[0]:seg[1]], at, cursorStyle))
+		}
+		if onCursorLine && extra && cursorAt >= start && cursorAt < end {
+			rows = append(rows, gutter(s, gutterW, 0)+cursorStyle.Render(" "))
+		}
+	}
+
 	caretRow, caretOK = cursorAt-start, cursorAt >= 0
 	if caretRow < 0 || caretRow >= h {
 		caretOK = false
 	}
-	return padRows(rows[start:end], h), caretRow, cursorX, caretOK
+	block = padRows(rows, h)
+	if c := m.hl; c != nil {
+		c.blk = blockMemo{
+			valid: true, w: w, h: h, row: cursorRow, col: cursorCol,
+			show: showCursor, idle: idle,
+			block: block, caretRow: caretRow, caretCol: cursorX, caretOK: caretOK,
+		}
+	}
+	return block, caretRow, cursorX, caretOK
 }
 
 // gutter renders one line-number cell. num <= 0 is a continuation row of

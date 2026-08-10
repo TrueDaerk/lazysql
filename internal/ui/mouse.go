@@ -325,15 +325,24 @@ func (m *Model) scrollGrid(delta int) {
 
 // scrollEditor moves the caret by delta lines. The editor has no scroll
 // offset of its own either — renderEditor derives its window from the
-// caret — so moving the caret is how the buffer scrolls.
+// caret — so moving the caret is how the buffer scrolls. The buffer is
+// read and written back once for the whole delta, not once per line:
+// vimBuffer splits the text and applyVim walks the textarea's cursor
+// from the top, both O(buffer), and a coalesced flush hands several
+// lines at a time.
 func (m *Model) scrollEditor(delta int) {
+	if delta == 0 {
+		return
+	}
 	move := (*vimBuffer).down
 	if delta < 0 {
 		move, delta = (*vimBuffer).up, -delta
 	}
+	b := m.vimBuffer()
 	for i := 0; i < delta; i++ {
-		m.vimMotion(move)
+		move(&b)
 	}
+	m.applyVim(b, false)
 }
 
 // editorBlockRows is how many of the main view's content rows the editor

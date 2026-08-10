@@ -524,7 +524,8 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 		newTextField("database", "Database", c.Database, "").withVisible(isServerEngine),
 		newTextField("file", "File", c.File, "path/to/db").
 			withHelp("empty = in-memory (DuckDB)").
-			withVisible(isFileEngine),
+			withVisible(isFileEngine).
+			withSuggest(),
 		newPasswordField("password", "Password", passwordPlaceholder(c, oldName)).
 			withHelp("stored in the OS keyring, never in config.toml").
 			withVisible(isServerEngine),

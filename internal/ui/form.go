@@ -40,6 +40,10 @@ type formField struct {
 	on bool // fieldBool
 
 	help string
+	// suggest turns on filesystem path completion for this text field: the
+	// form recomputes candidates on every edit and `tab` completes instead
+	// of moving to the next field while any exist.
+	suggest bool
 	// visible reports whether the field applies to the current form state.
 	// nil means always visible.
 	visible func(f *formModal) bool
@@ -79,6 +83,9 @@ func newBoolField(name, label string, on bool) *formField {
 func (f *formField) withHelp(h string) *formField { f.help = h; return f }
 
 func (f *formField) withVisible(fn func(*formModal) bool) *formField { f.visible = fn; return f }
+
+// withSuggest enables path completion on a text field.
+func (f *formField) withSuggest() *formField { f.suggest = true; return f }
 
 // value is the field's current content as a string. Select fields report the
 // value behind the label; bool fields report "true"/"false".
@@ -140,6 +147,11 @@ type formModal struct {
 	// typed — which is what makes the dump/restore preview show the
 	// command the form is actually about to run.
 	body func(f *formModal) []string
+
+	// sugg holds the path candidates for the field under the cursor when
+	// that field opted into completion. It is emptied whenever the cursor
+	// leaves the field, and whenever the form closes or submits.
+	sugg pathSuggest
 }
 
 // withBody attaches the lines rendered above the fields.
@@ -234,18 +246,41 @@ func (f *formModal) move(delta int) {
 		return
 	}
 	f.cursor = (f.cursor + delta + n) % n
+	f.sugg.clear()
 	f.syncFocus()
+}
+
+// suggestField is the field under the cursor when it takes path completion,
+// otherwise nil.
+func (f *formModal) suggestField() *formField {
+	cur := f.current()
+	if cur != nil && cur.suggest && (cur.kind == fieldText || cur.kind == fieldPassword) {
+		return cur
+	}
+	return nil
 }
 
 func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
 	switch msg.String() {
 	case "esc":
+		f.sugg.clear()
 		if f.onCancel != nil {
 			f.onCancel(m)
 		}
 		return true, nil
-	case "tab", "down":
+	case "tab":
+		// While path candidates are up, tab completes the path; ↑↓ (and
+		// shift+tab) stay the way to walk fields. With no candidates tab
+		// keeps its usual meaning.
+		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			sf.input.SetValue(f.sugg.complete(sf.input.Value()))
+			sf.input.CursorEnd()
+			return false, nil
+		}
+		f.move(1)
+		return false, nil
+	case "down":
 		f.move(1)
 		return false, nil
 	case "shift+tab", "up":
@@ -253,10 +288,15 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		return false, nil
 	case "enter":
 		if f.onSubmit == nil {
+			f.sugg.clear()
 			return true, nil
 		}
 		f.err = ""
-		return f.onSubmit(m, f)
+		close, cmd := f.onSubmit(m, f)
+		if close {
+			f.sugg.clear()
+		}
+		return close, cmd
 	}
 
 	if cur == nil {
@@ -271,6 +311,7 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 			cur.choice = (cur.choice + 1) % len(cur.choices)
 		}
 		// Visibility rules may now hide the field the cursor sits on.
+		f.sugg.clear()
 		f.syncFocus()
 		return false, nil
 	case fieldBool:
@@ -283,6 +324,9 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 
 	var cmd tea.Cmd
 	cur.input, cmd = cur.input.Update(msg)
+	if cur.suggest {
+		f.sugg.refresh(cur.input.Value())
+	}
 	return false, cmd
 }
 
@@ -296,12 +340,32 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	}
 	inputW := min(38, maxInt(maxW-labelW-12, 12))
 
+	var bodyLines []string
+	if f.body != nil {
+		bodyLines = f.body(f)
+	}
+
+	// Path suggestions only get the rows the terminal has left over: the
+	// modal is centered on the full height, so growing past it would break
+	// the tiny-terminal guard. 4 covers the box border and padding.
+	sugRows := 0
+	if sf := f.suggestField(); sf != nil && f.sugg.active() {
+		used := 4 + 2 + len(vis) + 2 // chrome, title+blank, fields, blank+footer
+		if len(bodyLines) > 0 {
+			used += len(bodyLines) + 1
+		}
+		if f.err != "" {
+			used += 2
+		}
+		sugRows = min(maxSuggestLines, maxH-used)
+	}
+
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render(f.title) + "\n\n")
-	if f.body != nil {
-		for _, line := range f.body(f) {
-			b.WriteString(truncate(line, maxInt(maxW-6, 8)) + "\n")
-		}
+	for _, line := range bodyLines {
+		b.WriteString(truncate(line, maxInt(maxW-6, 8)) + "\n")
+	}
+	if len(bodyLines) > 0 {
 		b.WriteString("\n")
 	}
 	for i, fl := range vis {
@@ -321,6 +385,12 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 			line += "  " + s.muted.Render(fl.help)
 		}
 		b.WriteString(line + "\n")
+		if fl.suggest && i == f.cursor {
+			indent := strings.Repeat(" ", labelW+4)
+			for _, sl := range f.sugg.lines(sugRows) {
+				b.WriteString(indent + s.muted.Render(truncate(sl, maxInt(inputW, 8))) + "\n")
+			}
+		}
 	}
 	if f.err != "" {
 		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
@@ -328,6 +398,11 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	footer := f.footer
 	if footer == "" {
 		footer = "tab/↑↓ field · ←→ change · enter save · esc cancel"
+	}
+	if sugRows > 0 {
+		// tab is taken by completion here, so the bar must stop advertising
+		// it as the way to move between fields.
+		footer = "tab complete path · ↑↓ field · enter save · esc cancel"
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())

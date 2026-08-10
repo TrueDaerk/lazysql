@@ -823,3 +823,22 @@ Chronological history of wiki changes, newest last.
   `collapsed = 3` now buys one usable row, `dataBody` takes `h - 4`,
   `diffContent` `h - 1`, `planContent` `h - 2`, and `completionLayer`
   dropped the header offset it used to add to the caret's screen row.
+
+## 2026-08-10 — Path completion for the connection form's File field (issue #66)
+
+- Added [design/path-completion-in-forms](design/path-completion-in-forms.md):
+  the pure-engine / presentation-glue split, the completion behaviours worth
+  knowing (`~` notation preserved, dotfiles on explicit dot, case-insensitive
+  fallback, trailing separator on directories), why `tab` completes only while
+  candidates exist, and how the row budget keeps the modal inside the screen.
+- New package `internal/pathcomplete`, ported from the Ike editor and
+  unchanged apart from its package doc: `Complete`/`CompleteFrom`/`Dirs`/
+  `Expand` over `Result{Candidates, Completed}`, with its tempdir-fixture
+  tests.
+- `formField` gained `withSuggest()` and `formModal` a `pathSuggest`; the
+  connection form's `file` field opted in. `formModal.update` splits the old
+  `case "tab", "down"` so `tab` can complete, and `formModal.view` renders the
+  candidate rows plus a footer that stops advertising `tab` as field
+  navigation while completion owns it.
+- `keyMap` gained `CompletePath`/`NextField`/`PrevField` and
+  `formPathComplete()`, listed by `helpGroups` on the Connections panel.

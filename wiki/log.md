@@ -1013,3 +1013,14 @@ Chronological history of wiki changes, newest last.
   call was needed: Bubble Tea v2's renderer always requests basic key
   disambiguation, which is what lets terminals report `ctrl+enter` as
   distinct from plain `enter` in the first place.
+- Added [reference/keyboard-layout-portability](reference/keyboard-layout-portability.md)
+  (issue #97): audited every binding in `internal/ui/keys.go` against the
+  German QWERTZ layout. `[`/`]` (AltGr+8/9) gained `,`/`.` as aliases,
+  `@` (AltGr+q) gained `L`, and `ctrl+@` was dropped — ultraviolet decodes
+  the NUL byte to `ctrl+space`, so the string never matched, and the chord
+  is untypeable on QWERTZ anyway. The expanded command log now closes via
+  `key.Matches(msg, keys.CommandLog)` instead of a literal `"@"`, so the
+  alias and `[keys]` overrides toggle it. `TestNoActionNeedsAltGr` walks
+  `keyMap.slots()` and fails any action reachable only through an AltGr
+  character.
+

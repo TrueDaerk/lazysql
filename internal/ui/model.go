@@ -135,7 +135,7 @@ func restoreStartCmd() tea.Cmd {
 	return func() tea.Msg { return restoreStartMsg{} }
 }
 
-// historyEntryMsg records a statement in the query history: panel [4]
+// historyEntryMsg records a statement in the query history: panel [3]
 // and the on-disk history behind it. Everything lazysql executes emits
 // one — a browsing page, a committed changeset, a script from the
 // editor — so there is a single way into the history.
@@ -241,12 +241,12 @@ type Model struct {
 	diff *diffView
 
 	// plan is the EXPLAIN result on screen, nil when none. It replaces
-	// the editor in the main view while panel [5] keeps the focus, and
+	// the editor in the main view while panel [3] keeps the focus, and
 	// `esc` dismisses it with the buffer untouched.
 	plan *planView
 
-	// history is the persistent query history behind panel [4], newest
-	// first. editor is panel [5] — the buffer and its mode, which outlive
+	// history is the persistent query history behind panel [3], newest
+	// first. editor is panel [3] — the buffer and its mode, which outlive
 	// every focus change — and run is the script currently executing, if
 	// any.
 	history []history.Entry
@@ -1424,7 +1424,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actHistory:
-		m.modal = newHistoryModal(m.history, m.snippets, m.sqlDialect())
+		m.modal = newHistoryModal(m.history, m.snippets, m.sqlDialect(), m.keys)
 
 	case actSaveSnippet:
 		cmd := m.promptSaveSnippet(m.script())

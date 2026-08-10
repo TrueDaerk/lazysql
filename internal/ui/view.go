@@ -38,7 +38,7 @@ func (m Model) View() tea.View {
 	bodyH := m.height - 1 // options bar
 	var body string
 	if m.screen == screenFull {
-		// Panel [5] edits in the main view, so full-screening it means
+		// Panel [3] edits in the main view, so full-screening it means
 		// the editor, not the side column's preview of it.
 		if m.focus == panelMain || m.focus == panelQuery {
 			body = m.renderMainColumn(m.width, bodyH)
@@ -160,7 +160,7 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 	// In lipgloss v2 Style.Width/Height are the *total* block size, borders
 	// included; the content area is 2 cells smaller in each direction.
 	cw, ch := maxInt(w-2, 1), maxInt(h-2, 1)
-	// Panel [5] is not a list, so it renders itself; every other side
+	// Panel [3] is not a list, so it renders itself; every other side
 	// panel is a cursor over a slice of strings.
 	title := m.queryPanelTitle()
 	body := clipHeight(m.queryPanelBody(cw, ch), ch)
@@ -272,7 +272,7 @@ func placePopup(anchorX, anchorY, w, h, screenW, screenH int) (x, y int) {
 }
 
 // mainFocused reports whether the main view owns the keyboard. Exactly one
-// green border: the side column keeps it while panel [5] is focused,
+// green border: the side column keeps it while panel [3] is focused,
 // except in full-screen mode where the column is gone.
 func (m Model) mainFocused() bool {
 	return m.focus == panelMain || (m.focus == panelQuery && m.screen == screenFull)
@@ -332,7 +332,7 @@ func (m Model) mainContent(w, h int) string {
 		}
 		return m.connectionDetail(w, h)
 	}
-	// Panel [4] edits here: the side column has room for a preview of the
+	// Panel [3] edits here: the side column has room for a preview of the
 	// buffer, not for typing in it.
 	if m.focus == panelQuery {
 		// An open EXPLAIN result replaces the editor until esc dismisses

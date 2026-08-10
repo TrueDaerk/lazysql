@@ -62,7 +62,7 @@ func (s styles) sqlStyle(k sqlhl.Kind) lipgloss.Style {
 }
 
 // highlightSQL renders one line of SQL. It is the entry point for the
-// read-only places — the panel [5] preview, and the history pane once it
+// read-only places — the panel [3] preview, and the history pane once it
 // wants the same treatment — where there is no cursor to draw.
 func highlightSQL(s styles, d sqlhl.Dialect, line string) string {
 	runes := []rune(line)

@@ -995,3 +995,13 @@ Chronological history of wiki changes, newest last.
   (blocked only by a coexisting `RowDelete` for that row, checked directly
   rather than assumed) and why it is safe given `StageDelete`'s existing
   purge and the UI's edit-on-deleted-row refusal.
+- Added [design/query-editor-ux-rework](design/query-editor-ux-rework.md)
+  (issue #88): the query editor UX audit (mode only in border titles,
+  `backspace` as a hidden history opener, options bar and `?` truncation,
+  the pane's inverted `enter`, the mostly-shadowed vim fall-through) and
+  the redesign — in-content status line with mode badge and run outcome,
+  `H` for history & snippets, pane keys drill-in-consistent and rebindable
+  (`enter` load, `r` run, `s` snippet, `d` delete), documented result-key
+  subset, column-packing help modal — plus the rejected alternatives
+  (non-modal default, auto-insert on printable, result pane, run-in-modal,
+  dropping vim).

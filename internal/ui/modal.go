@@ -361,6 +361,10 @@ type helpModal struct {
 	title  string
 	groups [][]key.Binding
 	help   help.Model
+	// offset scrolls the packed columns when they outgrow the terminal —
+	// a narrow window stacks the groups tall, and clipping them would
+	// undocument exactly the keys the modal exists to show.
+	offset int
 }
 
 func newHelpModal(title string, groups [][]key.Binding) *helpModal {
@@ -373,24 +377,76 @@ func (hm *helpModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "?", "enter":
 		return true, nil
+	case "down", "j":
+		hm.offset++
+	case "up", "k":
+		hm.offset--
+	case "pgdown", "ctrl+f":
+		hm.offset += 10
+	case "pgup", "ctrl+b":
+		hm.offset -= 10
+	}
+	if hm.offset < 0 {
+		hm.offset = 0
 	}
 	return false, nil
 }
 
 func (hm *helpModal) view(s styles, maxW, maxH int) string {
 	hm.help.SetWidth(maxW - 6)
-	groups := make([][]key.Binding, 0, len(hm.groups))
+	// One column per group, packed into as many rows as the width asks
+	// for. Bubbles' FullHelpView joins all columns side by side and cuts
+	// what does not fit — which silently undocumented the query panel's
+	// keys on ordinary terminal widths. Packing keeps every binding on
+	// screen at any width the app itself accepts.
+	avail := maxW - 8 // modal border and padding
+	const gap = 3
+	var rows []string
+	var row []string
+	rowW := 0
 	for _, g := range hm.groups {
-		if len(g) > 0 {
-			groups = append(groups, g)
+		if len(g) == 0 {
+			continue
 		}
+		col := hm.help.FullHelpView([][]key.Binding{g})
+		w := lipgloss.Width(col)
+		if len(row) > 0 && rowW+gap+w > avail {
+			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, row...))
+			row, rowW = nil, 0
+		}
+		if len(row) > 0 {
+			row = append(row, strings.Repeat(" ", gap))
+			rowW += gap
+		}
+		row = append(row, col)
+		rowW += w
+	}
+	if len(row) > 0 {
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, row...))
+	}
+	var lines []string
+	for i, r := range rows {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, strings.Split(r, "\n")...)
+	}
+	// Scroll window: title, blank, body, blank, footer inside the modal's
+	// border — the body gets what is left of the terminal height.
+	body := maxInt(maxH-8, 3)
+	footer := "esc close"
+	if len(lines) > body {
+		if hm.offset > len(lines)-body {
+			hm.offset = len(lines) - body
+		}
+		lines = lines[hm.offset : hm.offset+body]
+		footer = "j/k scroll · esc close"
+	} else {
+		hm.offset = 0
 	}
 	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left,
-		s.modalTitle.Render(hm.title),
-		"",
-		hm.help.FullHelpView(groups),
-		"",
-		s.muted.Render("esc close"),
+		append([]string{s.modalTitle.Render(hm.title), ""},
+			append(lines, "", s.muted.Render(footer))...)...,
 	))
 }
 

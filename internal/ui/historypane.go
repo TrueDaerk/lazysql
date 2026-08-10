@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -25,22 +26,28 @@ const (
 	sectionCount
 )
 
-// historyModal is the floating query-history pane, opened with
-// `backspace` from the editor's normal mode. Like every other modal it
-// renders from its own snapshot of the entries; a statement recorded
-// while it is open shows up the next time it opens.
+// historyModal is the floating query-history pane, opened with `H` (or
+// `backspace`, the legacy alias) from the editor's normal mode. Like
+// every other modal it renders from its own snapshot of the entries; a
+// statement recorded while it is open shows up the next time it opens.
 //
-// `enter` executes the selected entry through the same path as ctrl+r in
-// the editor — including the placeholder prompt and the unguarded-write
-// confirm — and `e` loads it into the editor instead. `d` deletes the
+// Its keys are the keyMap's Hist* bindings — one source for dispatch,
+// the footer and `?`. `enter` follows the app-wide drill-in reading and
+// loads the selected statement into the editor; `r` executes it
+// immediately through the same path as ctrl+r — including the
+// placeholder prompt and the unguarded-write confirm. `d` deletes the
 // entry, on disk too, and `s` saves it as a named snippet.
 //
-// `tab` switches to the Snippets section, which offers the same three
-// verbs over the named statements in internal/snippets.
+// `tab` switches to the Snippets section, which offers the same verbs
+// over the named statements in internal/snippets.
 type historyModal struct {
 	entries []history.Entry
 	snips   []snippets.Snippet
 	dialect sqlhl.Dialect
+	// keys is the shell's keyMap, carried in so the footer renders from
+	// the same bindings update dispatches on — a `[keys]` override shows
+	// up in both or in neither.
+	keys    keyMap
 	section paneSection
 	// cursor and offset are per section, so switching back and forth
 	// does not lose either list's position.
@@ -48,11 +55,12 @@ type historyModal struct {
 	offset [sectionCount]int
 }
 
-func newHistoryModal(entries []history.Entry, snips []snippets.Snippet, d sqlhl.Dialect) *historyModal {
+func newHistoryModal(entries []history.Entry, snips []snippets.Snippet, d sqlhl.Dialect, k keyMap) *historyModal {
 	return &historyModal{
 		entries: append([]history.Entry(nil), entries...),
 		snips:   append([]snippets.Snippet(nil), snips...),
 		dialect: d,
+		keys:    k,
 	}
 }
 
@@ -79,22 +87,25 @@ func (hm *historyModal) scroll(delta int) {
 
 func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := &hm.cursor[hm.section]
-	switch msg.String() {
-	case "esc", "q", "backspace":
+	k := m.keys
+	switch {
+	case msg.String() == "esc", msg.String() == "q", msg.String() == "backspace":
 		return true, nil
-	case "tab", "shift+tab":
+	case key.Matches(msg, k.HistSection):
 		hm.section = (hm.section + 1) % sectionCount
 		return false, nil
-	case "down", "j":
+	case key.Matches(msg, k.Down):
 		if *cur < hm.rowCount()-1 {
 			*cur++
 		}
 		return false, nil
-	case "up", "k":
+	case key.Matches(msg, k.Up):
 		if *cur > 0 {
 			*cur--
 		}
 		return false, nil
+	}
+	switch msg.String() {
 	case "g", "home":
 		*cur = 0
 		return false, nil
@@ -105,18 +116,22 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	if hm.section == sectionSnippets {
 		return hm.updateSnippets(msg, m)
 	}
-	switch msg.String() {
-	case "enter":
-		if e, ok := hm.selected(); ok {
-			return true, m.submitQuery(e.SQL)
-		}
-		return true, nil
-	case "e":
+	switch {
+	case key.Matches(msg, k.HistLoad):
+		// enter drills in, the way it does everywhere else: the statement
+		// lands in the editor, where running it is one visible key away.
 		if e, ok := hm.selected(); ok {
 			return true, m.loadIntoEditor(e.SQL)
 		}
 		return true, nil
-	case "s":
+	case key.Matches(msg, k.HistRun):
+		// The immediate path, through the same guards as the editor's own
+		// run: placeholder prompt, read-only vet, unguarded-write confirm.
+		if e, ok := hm.selected(); ok {
+			return true, m.submitQuery(e.SQL)
+		}
+		return true, nil
+	case key.Matches(msg, k.HistSnippet):
 		e, ok := hm.selected()
 		if !ok {
 			return false, nil
@@ -124,7 +139,7 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// The prompt replaces the pane: promptSaveSnippet sets the modal
 		// itself, and the replacement rule keeps it there.
 		return true, m.promptSaveSnippet(e.SQL)
-	case "d":
+	case key.Matches(msg, k.HistDelete):
 		e, ok := hm.selected()
 		if !ok {
 			return false, nil
@@ -160,22 +175,23 @@ func (hm *historyModal) selected() (history.Entry, bool) {
 
 // ---------- the snippets section ----------
 
-// updateSnippets is the same three verbs as the history section over the
-// named statements: run, load, delete — plus the confirm a delete of kept
+// updateSnippets is the same verbs as the history section over the
+// named statements: load, run, delete — plus the confirm a delete of kept
 // work deserves and a history entry's does not.
 func (hm *historyModal) updateSnippets(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	sn, ok := hm.selectedSnippet()
 	if !ok {
 		return false, nil
 	}
-	switch msg.String() {
-	case "enter":
+	k := m.keys
+	switch {
+	case key.Matches(msg, k.HistLoad):
+		return true, m.loadIntoEditor(sn.SQL)
+	case key.Matches(msg, k.HistRun):
 		// The same path as ctrl+r, so a snippet with `?`/`:name`
 		// placeholders prompts for its values and runs prepared.
 		return true, m.submitQuery(sn.SQL)
-	case "e":
-		return true, m.loadIntoEditor(sn.SQL)
-	case "d":
+	case key.Matches(msg, k.HistDelete):
 		// The confirm replaces the pane; reopening it after the answer
 		// would cost the snapshot, so the pane closes either way.
 		m.modal = &confirmModal{
@@ -338,10 +354,24 @@ func (hm *historyModal) detail(s styles, width, height int) string {
 }
 
 func (hm *historyModal) footer() string {
-	if hm.section == sectionSnippets {
-		return "enter run · e load into editor · d delete · tab history · esc close"
+	k := hm.keys
+	pair := func(b key.Binding, verb string) string { return b.Help().Key + " " + verb }
+	parts := []string{
+		pair(k.HistLoad, "load into editor"),
+		pair(k.HistRun, "run now"),
 	}
-	return "enter run · e load into editor · s save as snippet · d delete · tab snippets · esc close"
+	if hm.section != sectionSnippets {
+		parts = append(parts, pair(k.HistSnippet, "save as snippet"))
+	}
+	other := "snippets"
+	if hm.section == sectionSnippets {
+		other = "history"
+	}
+	parts = append(parts,
+		pair(k.HistDelete, "delete"),
+		pair(k.HistSection, other),
+		"esc close")
+	return strings.Join(parts, " · ")
 }
 
 // ---------- placeholder prompt ----------

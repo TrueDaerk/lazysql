@@ -16,8 +16,11 @@ sources:
 > Written when the editor was `[5]`: the `[4] Query history` panel has
 > since become a floating pane opened from this editor (issue #34, see
 > [history-pane-and-placeholders](history-pane-and-placeholders.md)),
-> and the editor renumbered to `[4]`. Panel numbers below are updated;
-> the mode split and focus rules are unchanged.
+> and after the #79 panel merge the editor is `[3]`. The mode split and
+> focus rules are unchanged; the hint line under the buffer grew into
+> the mode/state status line described in
+> [query-editor-ux-rework](query-editor-ux-rework.md) (issue #88), which
+> also renamed several keys.
 
 ## Decision
 

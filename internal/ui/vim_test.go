@@ -240,7 +240,7 @@ func TestVimAppendColumn(t *testing.T) {
 
 // ---------- the mode layer over the panel ----------
 
-// editorAt focuses panel [4] in normal mode with the given script and the
+// editorAt focuses panel [3] in normal mode with the given script and the
 // cursor driven to the top.
 func editorAt(t *testing.T, script string) Model {
 	t.Helper()
@@ -251,7 +251,7 @@ func editorAt(t *testing.T, script string) Model {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
 	if m.editor.editing {
-		t.Fatal("panel [4] gained focus in insert mode, want normal")
+		t.Fatal("panel [3] gained focus in insert mode, want normal")
 	}
 	return send(t, m, press('g'), press('g'))
 }
@@ -406,7 +406,7 @@ func TestNormalModeHelpListsTheVimKeys(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Fatalf("`?` for panel [4] is missing %q (has: %s)", want, joined)
+			t.Fatalf("`?` for panel [3] is missing %q (has: %s)", want, joined)
 		}
 	}
 }

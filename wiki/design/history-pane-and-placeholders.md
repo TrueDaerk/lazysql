@@ -13,6 +13,14 @@ sources:
 
 # The floating history pane and placeholder execution
 
+> **Keymap superseded** by
+> [query-editor-ux-rework](query-editor-ux-rework.md) (issue #88): the
+> pane opens with `H` (`backspace` remains an alias), `enter` now
+> *loads* the selection into the editor and `r` runs it, and the pane's
+> keys are keyMap bindings (`hist-*` override names) rendered into its
+> footer and `?`. The placeholder detection and prompt-and-bind flow
+> below are unchanged.
+
 ## Decision
 
 Panel `[4] Query history` is gone. The history is a **floating pane**

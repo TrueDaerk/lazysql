@@ -12,12 +12,13 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazysql/internal/db"
 )
 
-// The query editor is panel [5]: a multi-line textarea that lives in the
-// layout, not in a popup. `5` (or `:`) focuses it, ctrl+r runs the
+// The query editor is panel [3]: a multi-line textarea that lives in the
+// layout, not in a popup. `3` (or `:`) focuses it, ctrl+r runs the
 // buffer without ever closing or clearing it, and the result lands in
 // the main view's Data tab next to the browsing pages. Three rules shape
 // the flow:
@@ -66,6 +67,12 @@ type queryRun struct {
 	// affected accumulates the rows changed by the run's write
 	// statements, for the closing log line.
 	affected int64
+	// outcome is the finished run's one-line summary — "3 rows in 1ms",
+	// "2 rows affected", "cancelled after 4s" — for the editor's status
+	// line. It is set where the worker's messages are reduced, so the
+	// line and the command log can never disagree, and survives running
+	// = false so the summary stays readable next to its result.
+	outcome string
 }
 
 // ---------- messages ----------
@@ -184,7 +191,7 @@ func (j queryJob) run() {
 
 // ---------- the editor panel ----------
 
-// queryEditor is panel [5]. It has two modes: normal mode speaks the vim
+// queryEditor is panel [3]. It has two modes: normal mode speaks the vim
 // dialect implemented in vim.go — motions, x/dd/yy/p, i/a/o/O into
 // insert — plus lazysql's own keys (ctrl+r runs, D clears, digits still
 // jump), and in insert mode every key that is not ctrl+r, ctrl+c or esc
@@ -256,7 +263,7 @@ func (m *Model) setEditing(on bool) {
 	m.applyVim(m.vimBuffer(), false)
 }
 
-// openQueryEditor is `:`: focus panel [5] and start typing. The buffer
+// openQueryEditor is `:`: focus panel [3] and start typing. The buffer
 // survives every focus change, so `:` never costs the user a draft.
 func (m *Model) openQueryEditor() tea.Cmd {
 	m.setFocus(panelQuery)
@@ -275,7 +282,7 @@ func (m *Model) loadIntoEditor(sql string) tea.Cmd {
 	return nil
 }
 
-// clearQuery is `D` on panel [5]. An empty buffer goes without a
+// clearQuery is `D` on panel [3]. An empty buffer goes without a
 // confirmation; anything else is work the user typed.
 func (m *Model) clearQuery() tea.Cmd {
 	if strings.TrimSpace(m.script()) == "" {
@@ -424,7 +431,7 @@ func (m *Model) vimInsertAt(b vimBuffer, col int, changed bool) {
 	m.editor.area.SetCursorColumn(col)
 }
 
-// updateQuery is normal mode on panel [5]: the vim layer first, then the
+// updateQuery is normal mode on panel [3]: the vim layer first, then the
 // panel's own actions. Unclaimed keys fall through to the data grid
 // whenever the main view is showing this editor's result, so paging or
 // inspecting a result never costs the editor its focus.
@@ -554,7 +561,7 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 //
 // It never writes to the buffer. The editor owns its text, and a run
 // started from the history panel must not overwrite what is being
-// written in panel [5].
+// written in panel [3].
 func (m *Model) submitQuery(script string) tea.Cmd {
 	if m.driver == nil {
 		return logCmd("-- run query skipped: not connected")
@@ -745,8 +752,10 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 	switch {
 	case errors.Is(msg.err, context.Canceled):
 		cmds = append(cmds, logCmd("-- cancelled%s after %s", where, formatTook(msg.took)))
+		m.run.outcome = "cancelled after " + formatTook(msg.took)
 	case msg.err != nil:
 		cmds = append(cmds, logCmd("-- FAILED%s: %v", where, msg.err))
+		m.run.outcome = "failed"
 		m.showQueryError(msg.sql, msg.err)
 	case msg.read:
 		rows := 0
@@ -759,6 +768,7 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 		}
 		cmds = append(cmds, logCmd("-- %d rows%s%s in %s",
 			rows, note, where, formatTook(msg.took)))
+		m.run.outcome = fmt.Sprintf("%d rows%s in %s", rows, note, formatTook(msg.took))
 		if msg.rs != nil {
 			m.showQueryResult(msg.sql, msg.exec, msg.args, msg.rs, msg.truncated)
 			m.run.gotRows = true
@@ -767,6 +777,9 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 		m.run.affected += msg.affected
 		cmds = append(cmds, logCmd("-- %s%s in %s",
 			countAffected(msg.affected), where, formatTook(msg.took)))
+		if !m.run.gotRows {
+			m.run.outcome = countAffected(msg.affected) + " in " + formatTook(msg.took)
+		}
 		// A run that only writes still has to show something; a run
 		// that already produced rows keeps them, because the last
 		// SELECT is what the user asked to see.
@@ -786,12 +799,15 @@ func (m *Model) finishQuery(msg queryDoneMsg) tea.Cmd {
 
 	switch {
 	case errors.Is(msg.err, context.Canceled):
+		m.run.outcome = "cancelled after " + formatTook(time.Since(m.run.startedAt))
 		return logCmd("-- query cancelled after %s", formatTook(time.Since(m.run.startedAt)))
 	case msg.err != nil:
 		// The per-statement message already named the error; this line
 		// says how much of the script got as far as running.
+		m.run.outcome = fmt.Sprintf("stopped at statement %d of %d", msg.ran, m.run.total)
 		return logCmd("-- query stopped at statement %d of %d", msg.ran, m.run.total)
 	case m.run.total > 1:
+		m.run.outcome = fmt.Sprintf("%s ok, %s", countStatements(msg.ran), countAffected(m.run.affected))
 		return logCmd("-- %s ok, %s total", countStatements(msg.ran), countAffected(m.run.affected))
 	default:
 		return nil
@@ -883,7 +899,7 @@ func formatElapsed(d time.Duration) string {
 }
 
 // runningIndicator is the spinner frame plus elapsed time shown while a
-// query runs, in the options bar and panel [5]'s preview. Empty when
+// query runs, in the options bar and panel [3]'s preview. Empty when
 // nothing is running, so callers can append it unconditionally.
 func (m Model) runningIndicator() string {
 	if !m.run.running {
@@ -911,7 +927,7 @@ func countAffected(n int64) string {
 // ---------- rendering ----------
 
 // focusResult decides who owns the keyboard once a result lands. A run
-// started in panel [5] leaves the focus there: its main view shows the
+// started in panel [3] leaves the focus there: its main view shows the
 // buffer and the result together, which is the whole point of an editor
 // that stays open. Every other origin — `x` on the history panel, a
 // re-run from the grid — hands the grid the focus, the way it always did.
@@ -922,7 +938,7 @@ func (m *Model) focusResult() {
 	m.setFocus(panelMain)
 }
 
-// queryPanelBody is panel [5] in the side column: the buffer's first
+// queryPanelBody is panel [3] in the side column: the buffer's first
 // lines, and what the editor is currently doing. The column is too
 // narrow to edit in — the editing surface is the main view — so this is
 // a preview, not a second copy of the textarea.
@@ -975,7 +991,7 @@ func blankLines(lines []hlLine) bool {
 	return true
 }
 
-// queryPanelTitle is panel [4]'s border title: number, name and what the
+// queryPanelTitle is panel [3]'s border title: number, name and what the
 // editor is doing. It is the sidePanel.titleLine equivalent for the one
 // side panel that is not a list.
 func (m Model) queryPanelTitle() string {
@@ -997,12 +1013,11 @@ func (m Model) queryPanelTitle() string {
 	return line
 }
 
-// queryContent is the main view while panel [5] is focused: the editor
+// queryContent is the main view while panel [3] is focused: the editor
 // on top, and under it whatever the last run produced. The editor takes
 // what it needs up to half the box, so a one-line query does not push
 // the result off screen.
 func (m Model) queryContent(w, h int) string {
-	s := m.style
 	var body []string
 	rows := h
 	if rows <= 0 {
@@ -1016,14 +1031,14 @@ func (m Model) queryContent(w, h int) string {
 		return clipHeight(strings.Join(body, "\n"), h)
 	}
 
-	body = append(body, s.muted.Render(truncate(m.editorHint(), w)))
+	body = append(body, m.queryStatusLine(w))
 	if rows--; rows > 0 && m.data.open() {
 		body = append(body, m.dataContent(w, rows))
 	}
 	return clipHeight(strings.Join(body, "\n"), h)
 }
 
-// queryTitle is the main view's border title while panel [4] is focused:
+// queryTitle is the main view's border title while panel [3] is focused:
 // what the editor is doing, and against which connection.
 func (m Model) queryTitle() string {
 	s := m.style
@@ -1055,15 +1070,61 @@ func (m Model) editorMode() string {
 	return "normal"
 }
 
-// editorHint is the one-line reminder under the buffer. It names the
-// keys of the mode the editor is actually in, the same ones the options
-// bar shows.
-func (m Model) editorHint() string {
+// queryStatusLine is the line under the buffer in the main view: the
+// mode badge, the run's state, and the few keys that matter in exactly
+// this state. The border titles carry a short mode tag too, but this
+// line lives in the content area, where a first-time user actually
+// looks — it is the editor's answer to "why is my typing not appearing"
+// and to "where did my result go".
+func (m Model) queryStatusLine(w int) string {
+	s := m.style
+	badge := s.modeNormal.Render(" NORMAL ")
+	if m.editor.editing {
+		badge = s.modeInsert.Render(" INSERT ")
+	}
+	line := badge
+	switch {
+	case m.run.running:
+		line += " " + s.pending.Render(m.runningIndicator()+" running — "+
+			m.keys.CancelQuery.Help().Key+" cancels")
+	case m.data.isQuery() && m.data.err != "":
+		line += " " + s.danger.Render("failed — error below")
+	case m.data.isQuery() && m.run.outcome != "":
+		line += " " + s.keyHint.Render(m.run.outcome+" ↓")
+	}
+	if hint := m.queryStatusHint(); hint != "" {
+		line += s.muted.Render("  " + hint)
+	}
+	return ansi.Truncate(line, w, "…")
+}
+
+// queryStatusHint names the mode's key exits, reading the keys from the
+// bindings so a `[keys]` override shows up here too.
+func (m Model) queryStatusHint() string {
+	k := m.keys
+	pair := func(b key.Binding, verb string) string { return b.Help().Key + " " + verb }
 	switch {
 	case m.completion.open:
-		return "↑/↓ select · enter/tab accept · esc close the popup"
+		return strings.Join([]string{
+			pair(k.CompleteNext, "next"), pair(k.AcceptCompletion, "accept"),
+			pair(k.CloseCompletion, "close popup"),
+		}, " · ")
 	case m.editor.editing:
-		return "ctrl+r run · ctrl+e explain · ctrl+space complete · esc normal mode"
+		return strings.Join([]string{
+			"type SQL", pair(k.Complete, "complete"), pair(k.RunEditor, "run"),
+			pair(k.LeaveInsert, "done"),
+		}, " · ")
+	case m.data.isQuery():
+		// A result sits under the buffer: name the keys that reach it from
+		// here, and the tab that focuses the grid for the full set.
+		return strings.Join([]string{
+			pair(k.EditQuery, "edit"), pair(k.RunEditor, "re-run"),
+			pair(k.ViewCell, "cell"), pair(k.NextPage, "page"), "tab grid",
+		}, " · ")
 	}
-	return "i/a/o edit · hjkl move · dd/yy/p line ops · ctrl+r run · ctrl+e explain · backspace history · D clear · esc back"
+	return strings.Join([]string{
+		pair(k.EditQuery, "edit"), pair(k.RunEditor, "run"),
+		pair(k.ExplainQuery, "explain"), pair(k.History, "history"),
+		pair(k.ClearQuery, "clear"),
+	}, " · ")
 }

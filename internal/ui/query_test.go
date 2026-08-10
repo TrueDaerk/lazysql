@@ -41,7 +41,7 @@ func runQuery(t *testing.T, m Model, script string) Model {
 	t.Helper()
 	m = send(t, m, press(':'))
 	if m.focus != panelQuery || !m.editor.editing {
-		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [4]",
+		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [3]",
 			m.focus, m.editor.editing)
 	}
 	m.setScript(script)
@@ -166,7 +166,7 @@ func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "SELECT id FROM q")
 	m.setScript("SELECT 2 -- a draft")
-	m = send(t, m, special(tea.KeyBackspace, 0), special(tea.KeyEnter, 0))
+	m = send(t, m, special(tea.KeyBackspace, 0), press('r'))
 	if m.script() != "SELECT 2 -- a draft" {
 		t.Fatalf("buffer = %q, want the history run to leave it alone", m.script())
 	}
@@ -625,5 +625,47 @@ func TestNoPromptForQuotedOrCommentedPlaceholders(t *testing.T) {
 	}
 	if !m.data.isQuery() || len(m.data.rows) != 3 {
 		t.Fatalf("data = %#v, want the statement to have run", m.data)
+	}
+}
+
+// The mode badge lives in the content area, not only in border titles: a
+// user who does not know what a vim mode is has to see why typing does
+// or does not appear.
+func TestStatusLineShowsModeBadge(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('3'))
+	if line := m.queryStatusLine(120); !strings.Contains(line, "NORMAL") {
+		t.Fatalf("normal-mode status line = %q, want a NORMAL badge", line)
+	}
+	m = send(t, m, press('i'))
+	if line := m.queryStatusLine(120); !strings.Contains(line, "INSERT") {
+		t.Fatalf("insert-mode status line = %q, want an INSERT badge", line)
+	}
+}
+
+// After a run the status line reports the outcome next to the result the
+// Data tab shows, so buffer and result read as one story.
+func TestStatusLineShowsRunOutcome(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id FROM q")
+	line := m.queryStatusLine(200)
+	if !strings.Contains(line, "3 rows in ") {
+		t.Fatalf("status line = %q, want the run's outcome", line)
+	}
+	// A failed statement flips the line to the error state.
+	m = runQuery(t, m, "SELECT nope FROM missing")
+	if line := m.queryStatusLine(200); !strings.Contains(line, "failed") {
+		t.Fatalf("status line = %q, want the failure named", line)
+	}
+}
+
+// While a script runs the status line names the cancel key — the one
+// action that matters mid-flight.
+func TestStatusLineShowsRunningState(t *testing.T) {
+	m := queryable(t)
+	m.run.running = true
+	m.run.startedAt = time.Now()
+	line := m.queryStatusLine(200)
+	if !strings.Contains(line, "running") || !strings.Contains(line, "cancel") {
+		t.Fatalf("status line = %q, want the running state and its cancel key", line)
 	}
 }

@@ -744,6 +744,15 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 				}
 			}
 		}
+		// The date picker's keys are dispatched inside the modal, like the
+		// pane's and the popup's: bound, just not actions.
+		if id == panelMain {
+			for _, b := range k.datePicker() {
+				for _, ks := range b.Keys() {
+					actions[ks] = true
+				}
+			}
+		}
 
 		for _, group := range k.helpGroups(id) {
 			for _, b := range group {

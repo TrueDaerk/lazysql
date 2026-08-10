@@ -503,6 +503,13 @@ func (m Model) renderOptionsBar() string {
 			bindings = m.keys.editorCompletion()
 		}
 	}
+	// The date picker claims every key while it is open, so the bar shows
+	// its own set instead of the grid's — the one modal that rebinds the
+	// bar, because it is the one whose keys are motions rather than a
+	// footer's worth of verbs.
+	if _, ok := m.modal.(*datePickerModal); ok {
+		bindings = m.keys.datePicker()
+	}
 	// A trigger definition is a read-only text block, so the grid's own
 	// actions would only ever be no-ops there: the bar offers the keys
 	// that still act, all of them already documented under `?`.

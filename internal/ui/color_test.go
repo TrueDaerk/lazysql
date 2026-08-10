@@ -35,7 +35,7 @@ func TestInvalidColorDegradesGracefully(t *testing.T) {
 		{Name: "prod", Engine: "sqlite", File: "/tmp/prod.db", Color: "not-a-color"},
 		{Name: "dev", Engine: "sqlite", File: "/tmp/dev.db", Color: "green"},
 	}})
-	m, err := New()
+	m, err := New(false)
 	if err != nil {
 		t.Fatalf("New() failed on an invalid connection color: %v", err)
 	}

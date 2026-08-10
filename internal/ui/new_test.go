@@ -28,7 +28,7 @@ func writeConfig(t *testing.T, cfg *config.Config) {
 // broken connections list, which New() tolerates (see model.go's New doc).
 func TestNewFailsOnUnknownKeyAction(t *testing.T) {
 	writeConfig(t, &config.Config{Keys: map[string]string{"quiet": "x"}})
-	_, err := New()
+	_, err := New(false)
 	if err == nil {
 		t.Fatal("expected New() to fail on an unknown key action")
 	}
@@ -39,7 +39,7 @@ func TestNewFailsOnUnknownKeyAction(t *testing.T) {
 
 func TestNewFailsOnInvalidThemeColor(t *testing.T) {
 	writeConfig(t, &config.Config{Theme: map[string]string{"staged": "not-a-color"}})
-	_, err := New()
+	_, err := New(false)
 	if err == nil {
 		t.Fatal("expected New() to fail on an invalid theme color")
 	}
@@ -54,7 +54,7 @@ func TestNewSucceedsWithValidOverrides(t *testing.T) {
 		Keys:  map[string]string{"quit": "x"},
 		Theme: map[string]string{"theme": "light"},
 	})
-	m, err := New()
+	m, err := New(false)
 	if err != nil {
 		t.Fatalf("New(): %v", err)
 	}

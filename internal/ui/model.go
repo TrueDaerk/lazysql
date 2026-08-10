@@ -16,6 +16,7 @@ import (
 	"lazysql/internal/db"
 	"lazysql/internal/dump"
 	"lazysql/internal/history"
+	"lazysql/internal/session"
 	"lazysql/internal/snippets"
 	"lazysql/internal/sshtunnel"
 )
@@ -110,6 +111,15 @@ type focusPanelMsg struct{ id panelID }
 
 func focusCmd(id panelID) tea.Cmd {
 	return func() tea.Msg { return focusPanelMsg{id: id} }
+}
+
+// restoreStartMsg kicks off the last-session restore once the shell has
+// rendered, so the connections panel is on screen (and esc can cancel)
+// before the dial begins.
+type restoreStartMsg struct{}
+
+func restoreStartCmd() tea.Cmd {
+	return func() tea.Msg { return restoreStartMsg{} }
 }
 
 // historyEntryMsg records a statement in the query history: panel [4]
@@ -229,6 +239,13 @@ type Model struct {
 	completion completion
 	schema     schemaCache
 
+	// restoreSess is the on-disk session's target — connection, database,
+	// table, tab, cursor — while startup is still dialing and navigating
+	// to it. It is consumed (set nil) as each stage lands or fails, and
+	// esc during the dial clears it to abort. nil means no restore is
+	// configured, already finished, or never started.
+	restoreSess *session.Session
+
 	startupErr    string
 	colorWarnings []string
 
@@ -248,7 +265,11 @@ type Model struct {
 // `[keys]` or `[theme]` section is different — those change what the app
 // does when a key is pressed, so New returns an error for the caller to
 // report and exit on, rather than silently running with a broken keymap.
-func New() (Model, error) {
+//
+// noRestore skips the last-session restore for this run — the `--no-restore`
+// flag — even when the config's `restore_session` is enabled. It never
+// touches the saved session file itself, only whether this run reads it.
+func New(noRestore bool) (Model, error) {
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
 		cfg = &config.Config{}
@@ -287,7 +308,16 @@ func New() (Model, error) {
 	}
 	m.panels[panelTables].tabs = relationTabNames[:]
 
-	m.refreshConnections("")
+	selectName := ""
+	if !noRestore && cfg.RestoreSessionEnabled() {
+		if sess, err := session.Load(); err == nil && sess != nil {
+			if _, ok := cfg.Find(sess.Connection); ok {
+				m.restoreSess = sess
+				selectName = sess.Connection
+			}
+		}
+	}
+	m.refreshConnections(selectName)
 	return m, nil
 }
 
@@ -298,6 +328,9 @@ func (m Model) Init() tea.Cmd {
 	}
 	for _, w := range m.colorWarnings {
 		cmds = append(cmds, logCmd("-- warning: %s", w))
+	}
+	if m.restoreSess != nil {
+		cmds = append(cmds, logCmd("-- restoring session: %s …", m.restoreSess.Connection), restoreStartCmd())
 	}
 	return tea.Batch(cmds...)
 }
@@ -502,6 +535,20 @@ func displayDatabase(database string) string {
 	return database
 }
 
+// findDatabaseDisplayName looks up the panel [2] entry (already run through
+// namespaceList) whose driver argument is want — the form m.database and a
+// saved session both store. openDatabase wants the display form back, not
+// the driver argument, so a direct string match against want would miss the
+// pseudo-database entry file engines show for "".
+func findDatabaseDisplayName(dbs []string, want string) (string, bool) {
+	for _, d := range dbs {
+		if databaseArg(d) == want {
+			return d, true
+		}
+	}
+	return "", false
+}
+
 // selectedConnection returns the profile under the cursor of panel [1].
 func (m Model) selectedConnection() (config.Connection, bool) {
 	name := m.panels[panelConnections].selected()
@@ -607,6 +654,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setFocus(msg.id)
 		return m, nil
 
+	case restoreStartMsg:
+		if m.restoreSess == nil {
+			return m, nil
+		}
+		c, ok := m.cfg.Find(m.restoreSess.Connection)
+		if !ok {
+			name := m.restoreSess.Connection
+			m.restoreSess = nil
+			return m, logCmd("-- restore session: connection %q no longer exists", name)
+		}
+		req := dialRequest{conn: c, restore: true}
+		if c.NeedsPassword() && c.AskPassword {
+			prompt := newPasswordPrompt(c, func(pw string) tea.Cmd {
+				next := req
+				next.password, next.hasPassword = pw, true
+				return redialCmd(next)
+			})
+			// esc on the prompt abandons the restore like any other cancel,
+			// rather than leaving it to swallow an unrelated esc later.
+			prompt.onCancel = func(mm *Model) { mm.restoreSess = nil }
+			m.modal = prompt
+			return m, nil
+		}
+		return m, redialCmd(req)
+
 	case connTestedMsg:
 		if msg.err != nil {
 			m.setConnStatus(msg.name, statusError, msg.err.Error())
@@ -625,7 +697,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, logCmd("-- test %s ok in %s (%s)", msg.name, msg.took.Round(time.Millisecond), msg.dsn)
 
 	case connectedMsg:
+		// restoring is only true for the one dial the startup restore
+		// issued, and only while it has not been abandoned — esc during
+		// the dial (or cancelling its password prompt) clears restoreSess
+		// before this reply can land.
+		if msg.req.restore && m.restoreSess == nil {
+			if msg.err == nil {
+				// The dial finished after the restore was cancelled: the
+				// connection is real but unwanted, so it is closed rather
+				// than adopted — cancelling must actually leave the
+				// connections panel disconnected.
+				return m, closeSessionCmd(msg.driver, msg.tunnel)
+			}
+			return m, nil
+		}
+		restoring := msg.req.restore
 		if msg.err != nil {
+			if restoring {
+				sess := *m.restoreSess
+				m.restoreSess = nil
+				return m, logCmd("-- restore session: connect %s FAILED: %v", sess.Connection, msg.err)
+			}
 			m.setConnStatus(msg.name, statusError, msg.err.Error())
 			if mod := sshFailureModal(msg.req, msg.err); mod != nil {
 				m.modal = mod
@@ -652,9 +744,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			closeSessionCmd(prevDriver, prevTunnel),
 			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
 		}
+		dbs := m.panels[panelDatabases].items
+		if restoring {
+			if display, ok := findDatabaseDisplayName(dbs, m.restoreSess.Database); ok {
+				cmds = append(cmds, m.openDatabase(display), focusCmd(panelTables))
+				return m, tea.Batch(cmds...)
+			}
+			sess := *m.restoreSess
+			m.restoreSess = nil
+			cmds = append(cmds, logCmd("-- restore session: database %q not found", displayDatabase(sess.Database)))
+		}
 		// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
 		// go straight to their tables.
-		if dbs := m.panels[panelDatabases].items; len(dbs) == 1 {
+		if len(dbs) == 1 {
 			cmds = append(cmds, m.openDatabase(dbs[0]), focusCmd(panelTables))
 		} else {
 			cmds = append(cmds, focusCmd(panelDatabases))
@@ -682,10 +784,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p := m.panels[panelTables]
 		p.loading = false
 		if msg.err != nil {
+			if m.restoreSess != nil {
+				sess := *m.restoreSess
+				m.restoreSess = nil
+				return m, logCmd("-- restore session: list tables of %s FAILED: %v", displayDatabase(sess.Database), msg.err)
+			}
 			return m, logCmd("-- list tables of %s FAILED: %v", displayDatabase(msg.database), msg.err)
 		}
 		m.relations = msg.relations
 		m.refreshRelations()
+		if m.restoreSess != nil {
+			sess := *m.restoreSess
+			if sess.Table == "" {
+				m.restoreSess = nil
+				return m, nil
+			}
+			if !containsName(db.RelationNames(m.relations), sess.Table) {
+				m.restoreSess = nil
+				return m, logCmd("-- restore session: table %q not found in %s", sess.Table, displayDatabase(sess.Database))
+			}
+			// restoreSess stays set: pageLoadedMsg finishes the restore
+			// with the tab and cursor once the page it names has loaded.
+			return m, tea.Batch(m.openTable(sess.Table), focusCmd(panelMain))
+		}
 		return m, nil
 
 	case pageLoadedMsg:
@@ -697,10 +818,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The previous page stays on screen; the grid and the log
 			// both name the failure.
 			m.data.err = msg.err.Error()
+			if m.restoreSess != nil && m.restoreSess.Table == msg.table {
+				sess := *m.restoreSess
+				m.restoreSess = nil
+				return m, logCmd("-- restore session: select from %s FAILED: %v", sess.Table, msg.err)
+			}
 			return m, logCmd("-- select from %s FAILED: %v", msg.table, msg.err)
 		}
 		m.data.cols = msg.result.Columns
 		m.data.rows = msg.result.Rows
+		if m.restoreSess != nil && m.restoreSess.Table == msg.table {
+			sess := *m.restoreSess
+			m.restoreSess = nil
+			m.data.row, m.data.col = sess.Row, sess.Col
+			m.clampCursor()
+			return m, tea.Batch(
+				logCmd("-- restored session: %s / %s.%s", sess.Connection, displayDatabase(sess.Database), sess.Table),
+				m.setMainTab(mainTab(sess.Tab)),
+			)
+		}
 		m.clampCursor()
 		return m, nil
 
@@ -936,6 +1072,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 	k := m.keys
 	switch {
+	// esc aborts a startup session restore that is still dialing. This
+	// only runs while no modal is open (the routing above hands a modal
+	// every key first), so it never fires while the AskPassword prompt
+	// itself is showing — that path cancels through the prompt's own esc.
+	case key.Matches(msg, k.Back) && m.restoreSess != nil:
+		m.restoreSess = nil
+		return true, m, logCmd("-- restore session cancelled")
+
 	// While a script runs, ctrl+c aborts it instead of quitting. The
 	// binding is disabled the rest of the time, so key.Matches only
 	// takes this branch during a run.
@@ -955,6 +1099,9 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		// Torn down here rather than in a tea.Cmd: tea.Quit can stop the
 		// program before a batched command ever runs, which would leave the
 		// SSH connection and its forwarded sockets to the OS.
+		if m.cfg.RestoreSessionEnabled() {
+			m.saveSession()
+		}
 		m.closeSession()
 		return true, m, tea.Quit
 
@@ -1234,6 +1381,25 @@ func (m *Model) closeSession() {
 		m.tunnel = nil
 	}
 	m.active = ""
+}
+
+// saveSession writes the current connection, database, table, tab and grid
+// cursor as the session to restore on the next startup. Nothing is written
+// when there is no live connection — a quit from the bare connections panel
+// must not clobber a real session with an empty one. Best-effort: a write
+// failure has nowhere to report to on the way out, so it is dropped.
+func (m Model) saveSession() {
+	if m.active == "" {
+		return
+	}
+	_ = session.Save(session.Session{
+		Connection: m.active,
+		Database:   m.database,
+		Table:      m.table,
+		Tab:        int(m.tab),
+		Row:        m.data.row,
+		Col:        m.data.col,
+	})
 }
 
 // drillIn is `enter`: move one step deeper in the connection → database →

@@ -771,3 +771,30 @@ Chronological history of wiki changes, newest last.
   file back — a connection left open across the overwrite could replay the
   old database's WAL onto the new one — and removes the `-wal`/`-shm`/
   `-journal` sidecars afterwards.
+
+## 2026-08-10 — Restore last session on startup (issue #52)
+
+- Added [design/session-restore](design/session-restore.md): the new
+  `internal/session` package, why the restore chain lives on
+  `Model.restoreSess` rather than the connect flow's usual closures, how
+  `dialRequest.restore` plus a nilled `restoreSess` tells a cancelled dial
+  apart from an adopted one, the `formModal.onCancel` hook cancelling the
+  `AskPassword` path needed, and why `restore_session` is a `*bool`.
+- New `internal/session` package: `Session{Connection, Database, Table,
+  Tab, Row, Col}` (no credentials), `Dir`/`Path` under `XDG_STATE_HOME`
+  and atomic `Save`/`SaveTo`, mirroring `internal/history`'s posture. A
+  missing or corrupt file loads as `nil, nil` — a startup restore degrades
+  instead of failing, and the next `Save` overwrites it.
+- `config.Config` gained `RestoreSession *bool` (`restore_session` in
+  TOML) and `RestoreSessionEnabled()` (nil or true → enabled) — the same
+  pointer-for-omitempty trick `connectionFile`/`sshFile` already use for
+  `Port`, needed here because the default has to be *true* while
+  `omitempty` on a plain `bool` can't tell absent from false.
+- `ui.New` takes a `noRestore bool` (the `--no-restore` CLI flag) — a
+  per-run skip that never touches the config or the session file, so a
+  config with restore left enabled restores again next time without the
+  flag.
+- `formModal` gained an `onCancel func(*Model)` hook fired from its `esc`
+  case alongside the existing `onSubmit`, so the restore-triggered
+  `AskPassword` prompt can drop its pending restore on cancel instead of
+  leaving `restoreSess` to swallow a later, unrelated `esc`.

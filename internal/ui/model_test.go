@@ -102,7 +102,7 @@ func drain(cmd tea.Cmd) []tea.Msg {
 }
 
 func sized(w, h int) Model {
-	m, err := New()
+	m, err := New(false)
 	if err != nil {
 		panic(err)
 	}

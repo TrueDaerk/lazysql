@@ -129,6 +129,12 @@ type formModal struct {
 	footer   string
 	onSubmit func(m *Model, f *formModal) (close bool, cmd tea.Cmd)
 
+	// onCancel, when set, runs when esc closes the form without
+	// submitting — cleanup for state a caller set up expecting either a
+	// submit or a cancel, e.g. the restore-session password prompt
+	// dropping its pending restore.
+	onCancel func(m *Model)
+
 	// body, when set, renders extra lines between the title and the
 	// fields. It is called on every draw, so it can reflect what has been
 	// typed — which is what makes the dump/restore preview show the
@@ -235,6 +241,9 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
 	switch msg.String() {
 	case "esc":
+		if f.onCancel != nil {
+			f.onCancel(m)
+		}
 		return true, nil
 	case "tab", "down":
 		f.move(1)

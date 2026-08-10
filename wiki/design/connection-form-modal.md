@@ -59,3 +59,6 @@ SQLite and DuckDB have nothing to authenticate against.
   interface and update routing this plugs into.
 - [design/connection-secrets](connection-secrets.md) — where the typed
   password goes.
+- [design/path-completion-in-forms](path-completion-in-forms.md) — filesystem
+  completion on the `File` field, and why it takes `tab` away from field
+  navigation while candidates are up.

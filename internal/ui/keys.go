@@ -137,6 +137,12 @@ type keyMap struct {
 	// than the one relation ExportTable is scoped to.
 	ExportDatabaseDDL key.Binding
 
+	// Connection form: path completion on the File field, plus the field
+	// navigation tab shares with it.
+	CompletePath key.Binding
+	NextField    key.Binding
+	PrevField    key.Binding
+
 	// Backup opens the dump/restore menu on panels [1] and [2], and
 	// CancelBackup kills the tool it started. Like CancelExport the
 	// cancel key is only enabled while a job runs.
@@ -215,6 +221,13 @@ func newKeyMap() keyMap {
 			key.WithKeys("enter", "tab"), key.WithHelp("enter/tab", "accept suggestion")),
 		CloseCompletion: key.NewBinding(
 			key.WithKeys("esc"), key.WithHelp("esc", "close the popup")),
+
+		CompletePath: key.NewBinding(
+			key.WithKeys("tab"), key.WithHelp("tab", "complete path")),
+		NextField: key.NewBinding(
+			key.WithKeys("down", "tab"), key.WithHelp("↓/tab", "next field")),
+		PrevField: key.NewBinding(
+			key.WithKeys("up", "shift+tab"), key.WithHelp("↑/shift+tab", "prev field")),
 
 		ColLeft:    key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
 		ColRight:   key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
@@ -306,6 +319,14 @@ func (k keyMap) editorCompletion() []key.Binding {
 	return []key.Binding{
 		k.CompleteNext, k.CompletePrev, k.AcceptCompletion, k.CloseCompletion,
 	}
+}
+
+// formPathComplete are the keys the connection form's File field owns while
+// path suggestions are up. Like editorCompletion they are dispatched inside
+// the owning component — formModal.update, since an open modal swallows every
+// key — so this slice is what documents them in `?`.
+func (k keyMap) formPathComplete() []key.Binding {
+	return []key.Binding{k.CompletePath, k.NextField, k.PrevField}
 }
 
 // global returns the bindings handled by the root model.
@@ -520,6 +541,11 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 	// rather than being reachable only from a mode `?` cannot open.
 	if id == panelQuery {
 		groups = append(groups, k.editorNormal(), k.editorInsert(), k.editorCompletion())
+	}
+	// The connection form is opened from the Connections panel, so its
+	// path-completion keys are documented there.
+	if id == panelConnections {
+		groups = append(groups, k.formPathComplete())
 	}
 	return append(groups, k.navigationFor(id), k.global())
 }

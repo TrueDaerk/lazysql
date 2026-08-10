@@ -1038,3 +1038,12 @@ Chronological history of wiki changes, newest last.
   calendar, and the clock wraps per field so a minute nudge cannot move the
   day — and why classification lives in `internal/db` rather than the UI.
 
+
+## 2026-08-10
+
+- Added [reference/ux-audit-2026-08](reference/ux-audit-2026-08.md) (issue #98):
+  end-to-end PTY walkthrough against a seeded SQLite fixture, severity-ordered
+  findings (blocker #103, friction #104–#108, five polish items), consistency
+  check against the CLAUDE.md lazygit conventions, and an explicit
+  verified-fine list. Server-based engines and long-running-query feedback
+  remain uncovered and need a follow-up pass.

@@ -106,6 +106,19 @@ func (mm *menuModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// scroll is the wheel: a menu has a cursor rather than a scroll offset,
+// so the wheel walks the entries the way j/k does. It never selects —
+// only `enter` and the entry's own key do that.
+func (mm *menuModal) scroll(delta int) {
+	mm.cursor += delta
+	if mm.cursor >= len(mm.entries) {
+		mm.cursor = len(mm.entries) - 1
+	}
+	if mm.cursor < 0 {
+		mm.cursor = 0
+	}
+}
+
 func (mm *menuModal) view(s styles, maxW, maxH int) string {
 	rows := maxH - 6 // title, blank, footer, borders
 	if rows < 1 {
@@ -303,6 +316,10 @@ func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// scroll is the wheel. view clamps the offset against the box it ends up
+// with, so an overshoot here costs nothing.
+func (c *cellModal) scroll(delta int) { c.offset += delta }
+
 func (c *cellModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 100)
 	if width < 8 {
@@ -413,6 +430,9 @@ func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) 
 	}
 	return false, nil
 }
+
+// scroll is the wheel; view clamps the offset like it does for the keys.
+func (c *commandLogModal) scroll(delta int) { c.offset += delta }
 
 func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 160)

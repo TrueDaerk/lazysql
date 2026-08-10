@@ -103,6 +103,18 @@ func newRowDetailModal(m Model) (*rowDetailModal, bool) {
 	return rd, true
 }
 
+// scroll is the wheel: the pane has a field cursor rather than a scroll
+// offset — view derives the offset from it — so the wheel walks fields.
+func (rd *rowDetailModal) scroll(delta int) {
+	rd.cursor += delta
+	if rd.cursor >= len(rd.fields) {
+		rd.cursor = len(rd.fields) - 1
+	}
+	if rd.cursor < 0 {
+		rd.cursor = 0
+	}
+}
+
 func (rd *rowDetailModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "x":

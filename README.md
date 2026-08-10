@@ -75,6 +75,26 @@ In the data grid (`enter` on a table, `esc` back):
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
 | `[` / `]` | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
+### Mouse
+
+The mouse is a shortcut for keys that already exist; nothing is
+mouse-only. Clicking a panel focuses it (like its number), clicking a row
+moves the cursor onto it, and clicking the row the cursor is already on
+is `enter` — so a second click drills in. Clicking a `Tables`/`Views`
+header in panel `[3]`, or a `Data`/`Structure`/`Indexes`/`DDL`/`Relations`
+header in the main view, switches that tab.
+
+The wheel scrolls whatever is *under the pointer*, focused or not: a side
+panel's list, the data grid's rows, the query editor, and an open popup
+(help, cell detail, command log, history). In the grid it stops at the
+page boundary — `ctrl+f`/`ctrl+b` turn pages, because that is a query.
+
+Because lazysql now asks the terminal for mouse events, the terminal no
+longer maps the wheel to arrow keys on its own, and dragging to select
+text needs the terminal's override modifier (`shift` in most terminals,
+`option`/`alt` in iTerm2 and Terminal.app). `y` copies from inside the
+app and never needs it.
+
 `/` opens the filter modal on the column under the cursor: pick a column,
 an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,
 `IS NOT NULL`) and a value. The value is always bound as a query

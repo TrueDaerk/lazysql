@@ -405,7 +405,7 @@ func TestFileEngineBackupNeedsAnOpenConnection(t *testing.T) {
 // hidden until there is something to cancel.
 func TestBackupBindings(t *testing.T) {
 	m := sized(120, 40)
-	for _, id := range []panelID{panelConnections, panelDatabases} {
+	for _, id := range []panelID{panelConnections, panelObjects} {
 		var found, cancel bool
 		for _, a := range m.keys.panelActions(id) {
 			switch a.id {

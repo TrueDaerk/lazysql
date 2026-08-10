@@ -27,9 +27,9 @@ When building TUI code, use the `tui:lazygit-style` skill — it contains the Bu
 
 ## Layout & UX conventions (lazygit design language)
 
-- Left column: numbered side panels `[1] Connections`, `[2] Databases`, `[3] Tables`, `[4] Query history`. Right: large main view. Bottom: options bar for the current context.
+- Left column: numbered side panels `[1] Connections`, `[2] Objects` (an expandable tree: database → category → object), `[3] Query`. Right: large main view. Bottom: options bar for the current context.
 - Exactly one focused panel (green border, bold title); main view reflects its selection.
-- `1`–`4` jump, `tab` cycles, `j`/`k` move, `enter` drills in, `esc` backs out, `?` help, `q` quit.
+- `1`–`3` jump, `tab` cycles, `j`/`k` move, `enter` drills in (toggles a tree branch), `l`/`h` expand/collapse, `esc` backs out, `?` help, `q` quit.
 - Every interactive flow is a centered modal (confirm, menu, prompt). `esc` always cancels.
 - Every key in the options bar must be bound; every binding must appear in `?`. Keep one source of truth (`key.Binding` slices per panel).
 

@@ -29,9 +29,9 @@ func readOnlyGrid(t *testing.T) Model {
 	if !m.driver.ReadOnly() {
 		t.Fatal("the session opened read-write for a read-only profile")
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("grid") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("grid") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.focus != panelMain {

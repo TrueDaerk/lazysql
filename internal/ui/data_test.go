@@ -36,9 +36,9 @@ func dataBrowsing(t *testing.T) Model {
 			t.Fatalf("fixture %q: %v", stmt, err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("grid") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("grid") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.focus != panelMain {
@@ -444,13 +444,13 @@ func TestStalePageReplyIsIgnored(t *testing.T) {
 	}
 }
 
-// With a relation open the grid joins the tab cycle after [4]; without
+// With a relation open the grid joins the tab cycle after [3]; without
 // one, tab skips it.
 func TestTabCycleIncludesTheGridWhenOpen(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('4'), special(tea.KeyTab, 0))
+	m = send(t, m, press('3'), special(tea.KeyTab, 0))
 	if m.focus != panelMain {
-		t.Fatalf("focus = %v, want the grid after [4]", m.focus)
+		t.Fatalf("focus = %v, want the grid after [3]", m.focus)
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
 	if m.focus != panelConnections {
@@ -474,14 +474,18 @@ func TestTabCycleIncludesTheGridWhenOpen(t *testing.T) {
 func TestEscLeavesGridAndDatabaseSwitchClosesIt(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want %v", m.focus, panelTables)
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want %v", m.focus, panelObjects)
 	}
 	if !m.data.open() {
 		t.Fatal("esc closed the page instead of only moving focus")
 	}
 
-	m = send(t, m, press('2'), special(tea.KeyEnter, 0))
+	// openDatabase is what a namespace switch runs, whichever way the
+	// tree reaches it.
+	m = send(t, m, focusPanelMsg{id: panelObjects})
+	cmd := m.openDatabase(pseudoDatabase)
+	_ = drain(cmd)
 	if m.data.open() {
 		t.Fatal("the page survived a namespace switch")
 	}
@@ -501,8 +505,8 @@ func TestOpeningAnotherTableResetsQueryShape(t *testing.T) {
 		`CREATE TABLE IF NOT EXISTS other (id INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	m = send(t, m, press('3'), press('R'))
-	m.panels[panelTables].selectByName("other")
+	m = send(t, m, press('2'), press('R'))
+	m.panels[panelObjects].selectByName("other")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
 	if m.data.table != "other" {

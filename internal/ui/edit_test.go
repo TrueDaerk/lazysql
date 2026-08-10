@@ -168,9 +168,9 @@ func TestEditDisabledWithoutPrimaryKey(t *testing.T) {
 		`INSERT INTO nopk (x, y) VALUES (1, 'a')`); err != nil {
 		t.Fatal(err)
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("nopk") {
-		t.Fatalf("nopk not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("nopk") {
+		t.Fatalf("nopk not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0), press('e'))
 	cm, ok := m.modal.(*confirmModal)
@@ -198,8 +198,8 @@ func TestCommitFailureKeepsChangeset(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	m.panels[panelTables].selectByName("strict")
+	m = send(t, m, press('2'), press('R'))
+	m.panels[panelObjects].selectByName("strict")
 	m = send(t, m, special(tea.KeyEnter, 0), press('l'))
 
 	m = stageEdit(t, m, "ok-value")

@@ -75,7 +75,7 @@ func TestTitledBoxKeepsTitleAndBorderStylesApart(t *testing.T) {
 // A side panel spends every content row on rows now that the title moved
 // into the border: a 3-row body shows 3 items, where it used to show 2.
 func TestPanelBodyGainsTheTitleRow(t *testing.T) {
-	p := &sidePanel{id: panelTables}
+	p := &sidePanel{id: panelObjects}
 	p.setItems([]string{"a", "b", "c", "d"})
 	body := p.render(newStyles(), true, 20, 3)
 
@@ -88,7 +88,7 @@ func TestPanelBodyGainsTheTitleRow(t *testing.T) {
 			t.Errorf("row %d = %q, want %q", i, ansi.Strip(lines[i]), want)
 		}
 	}
-	if strings.Contains(ansi.Strip(body), "Tables") {
+	if strings.Contains(ansi.Strip(body), "Objects") {
 		t.Errorf("the title is still in the body:\n%s", body)
 	}
 }

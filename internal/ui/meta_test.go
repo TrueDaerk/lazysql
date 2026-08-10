@@ -35,9 +35,9 @@ func metaBrowsing(t *testing.T) Model {
 			t.Fatalf("fixture %q: %v", stmt, err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("orders") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("orders") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.focus != panelMain {
@@ -251,9 +251,9 @@ func TestSelectingAnotherTableResetsTabState(t *testing.T) {
 		t.Fatal("cursor did not move in the Structure tab")
 	}
 
-	m = send(t, m, press('3'))
-	if !m.panels[panelTables].selectByName("people") {
-		t.Fatalf("people not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'))
+	if !m.panels[panelObjects].selectByName("people") {
+		t.Fatalf("people not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 

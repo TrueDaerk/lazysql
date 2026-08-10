@@ -33,7 +33,7 @@ either the next stage succeeds terminally or fails:
   cleared. Dial succeeds → `findDatabaseDisplayName` checks the saved
   database is still among what the server just listed (comparing through
   `databaseArg`, because the stored value is the *driver* argument, e.g.
-  `""` for a single-namespace engine, while panel `[2]` shows the
+  `""` for a single-namespace engine, while the `[2]` tree shows the
   `pseudoDatabase` display form) and opens it, or degrades to the normal
   post-connect navigation (single-namespace auto-open / multi-namespace
   panel focus) with a log line.

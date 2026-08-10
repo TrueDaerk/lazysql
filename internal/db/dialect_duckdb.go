@@ -184,6 +184,18 @@ func (duckdbDialect) tableIndexes(ctx context.Context, q querier, database, tabl
 	return idx, rows.Err()
 }
 
+// DuckDB has no triggers at all — there is no CREATE TRIGGER statement
+// and no catalog function to list one — so both trigger entry points
+// answer ErrUnsupported rather than an empty list the UI would render as
+// "none defined". See wiki/reference/trigger-introspection.md.
+func (duckdbDialect) listTriggers(context.Context, querier, string) ([]Trigger, error) {
+	return nil, ErrUnsupported
+}
+
+func (duckdbDialect) triggerDDL(context.Context, querier, string, string) (string, error) {
+	return "", ErrUnsupported
+}
+
 func (duckdbDialect) tableDDL(ctx context.Context, q querier, database, table string) (string, error) {
 	cond, args := duckdbDBCond(database)
 	ddls, err := scanStrings(ctx, q,

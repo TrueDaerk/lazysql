@@ -34,7 +34,7 @@ func completing(t *testing.T) Model {
 	}
 	// The relation list is what completion reads; reload it now that the
 	// fixtures exist.
-	m = send(t, m, press('3'), press('R'))
+	m = send(t, m, press('2'), press('R'))
 	if _, ok := m.relationByName("customers"); !ok {
 		t.Fatalf("the fixture relations did not load: %v", db.RelationNames(m.relations))
 	}

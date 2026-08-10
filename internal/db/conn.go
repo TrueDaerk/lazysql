@@ -117,6 +117,22 @@ func (c *conn) ListRelations(ctx context.Context, database string) ([]Relation, 
 	return c.dialect.listRelations(ctx, q, database)
 }
 
+func (c *conn) ListTriggers(ctx context.Context, database string) ([]Trigger, error) {
+	q, err := c.q()
+	if err != nil {
+		return nil, err
+	}
+	return c.dialect.listTriggers(ctx, q, database)
+}
+
+func (c *conn) TriggerDDL(ctx context.Context, database, trigger string) (string, error) {
+	q, err := c.q()
+	if err != nil {
+		return "", err
+	}
+	return c.dialect.triggerDDL(ctx, q, database, trigger)
+}
+
 func (c *conn) TableColumns(ctx context.Context, database, table string) ([]Column, error) {
 	q, err := c.q()
 	if err != nil {

@@ -40,9 +40,9 @@ func relBrowsing(t *testing.T) Model {
 			t.Fatalf("fixture %q: %v", stmt, err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("orders") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("orders") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	return send(t, m, special(tea.KeyEnter, 0))
 }
@@ -153,9 +153,9 @@ func TestRelationsWalkFollowsChain(t *testing.T) {
 	if m.data.filter != nil {
 		t.Errorf("the walk applied a row filter: %+v", m.data.filter)
 	}
-	if m.panels[panelTables].selected() != "customers" {
+	if m.panels[panelObjects].selected() != "customers" {
 		t.Errorf("panel [3] selection = %q, want customers",
-			m.panels[panelTables].selected())
+			m.panels[panelObjects].selected())
 	}
 
 	// customers has one incoming edge (orders) and no outgoing ones, so
@@ -232,10 +232,10 @@ func TestRelationsNarrowDegradesToList(t *testing.T) {
 // A relation with no foreign keys at all says so in both halves.
 func TestRelationsEmptyBothWays(t *testing.T) {
 	m := relBrowsing(t)
-	if !m.panels[panelTables].selectByName("customers") {
+	if !m.panels[panelObjects].selectByName("customers") {
 		t.Fatal("customers is not listed")
 	}
-	m = send(t, m, press('3'), special(tea.KeyEnter, 0))
+	m = send(t, m, press('2'), special(tea.KeyEnter, 0))
 	m = openRelations(t, m)
 
 	// Force the empty case: customers has an incoming edge, so the test

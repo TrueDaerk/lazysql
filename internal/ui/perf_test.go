@@ -76,8 +76,8 @@ func benchPanelModel(b *testing.B) Model {
 	for i := range items {
 		items[i] = fmt.Sprintf("table_%04d", i)
 	}
-	m.panels[panelTables].setItems(items)
-	m.setFocus(panelTables)
+	m.panels[panelObjects].setItems(items)
+	m.setFocus(panelObjects)
 	return m
 }
 

@@ -63,7 +63,8 @@ bound and documented
 tab bar at the top of the main view is the discoverability half —
 `‹Data|Structure|Indexes|DDL|Relations›` with the selected tab
 highlighted, in the
-same idiom as the `[3]` panel's Tables/Views sub-tabs.
+same idiom the `[3]` panel's Tables/Views sub-tabs used before the
+object tree replaced them ([design/object-tree-panel](object-tree-panel.md)).
 
 ## What resets when the relation changes
 

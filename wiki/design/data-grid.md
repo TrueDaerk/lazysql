@@ -99,7 +99,7 @@ Focus is still a single `panelID`, but the enum gained
 `panelMain = panelCount`: a value that takes focus like a side panel yet
 has no number, no `Model.panels` entry and no slot in the side column.
 That keeps one keybinding table, one options bar and one `?` listing
-covering the grid too. `enter` on `[3] Tables` opens the relation and
+covering the grid too. `enter` on a table in `[2] Objects` opens the relation and
 moves focus there; `esc` pops the focus stack straight back.
 
 Any code indexing `Model.panels` or `panelHeights` by focus has to guard

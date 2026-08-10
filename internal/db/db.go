@@ -7,6 +7,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -72,7 +73,7 @@ type ForeignKey struct {
 }
 
 // RelationKind distinguishes the two kinds of listable relation. The UI
-// shows them in separate sub-tabs of the [3] Tables panel.
+// shows them under separate categories of the [2] Objects tree.
 type RelationKind int
 
 const (
@@ -105,6 +106,30 @@ func FilterRelations(rels []Relation, kind RelationKind) []string {
 	}
 	return out
 }
+
+// Trigger is one entry of a namespace's trigger listing. Table names the
+// relation the trigger fires on; it is empty when the engine reports no
+// owning relation.
+type Trigger struct {
+	Name  string
+	Table string
+}
+
+// TriggerNames extracts the names of a trigger slice, keeping order.
+func TriggerNames(trs []Trigger) []string {
+	out := make([]string, 0, len(trs))
+	for _, t := range trs {
+		out = append(out, t.Name)
+	}
+	return out
+}
+
+// ErrUnsupported marks introspection an engine has no concept of at all —
+// DuckDB has no triggers, so listing them is not a failure to report but
+// a fact about the engine. UI code shows it as a note on the node rather
+// than as an error, which is why it is a sentinel and not a plain error
+// string.
+var ErrUnsupported = errors.New("db: not supported by this engine")
 
 // ResultSet is a fully materialized, driver-agnostic query result.
 // Cell values are nil (SQL NULL), string, int64, float64, bool or
@@ -186,6 +211,15 @@ type Driver interface {
 	ListTables(ctx context.Context, database string) ([]string, error)
 	// ListRelations is ListTables with the table/view distinction kept.
 	ListRelations(ctx context.Context, database string) ([]Relation, error)
+	// ListTriggers returns the triggers defined in the given namespace,
+	// ordered by name. An engine without triggers answers ErrUnsupported
+	// rather than an empty list, so "none defined" and "no such concept"
+	// stay distinguishable.
+	ListTriggers(ctx context.Context, database string) ([]Trigger, error)
+	// TriggerDDL returns the CREATE TRIGGER statement, as the engine
+	// stores it where it stores one and synthesized from the catalog where
+	// it does not.
+	TriggerDDL(ctx context.Context, database, trigger string) (string, error)
 	TableColumns(ctx context.Context, database, table string) ([]Column, error)
 	TableIndexes(ctx context.Context, database, table string) ([]Index, error)
 	TableForeignKeys(ctx context.Context, database, table string) ([]ForeignKey, error)
@@ -254,6 +288,11 @@ type Dialect interface {
 	// listRelations returns tables and views with their kind; the
 	// name-only ListTables is derived from it.
 	listRelations(ctx context.Context, q querier, database string) ([]Relation, error)
+	// listTriggers returns the namespace's triggers, or ErrUnsupported for
+	// an engine that has none.
+	listTriggers(ctx context.Context, q querier, database string) ([]Trigger, error)
+	// triggerDDL returns one trigger's CREATE statement.
+	triggerDDL(ctx context.Context, q querier, database, trigger string) (string, error)
 	tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error)
 	tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error)
 	tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error)

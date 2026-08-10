@@ -48,7 +48,14 @@ type keyMap struct {
 	Refresh        key.Binding
 	Actions        key.Binding
 	Filter         key.Binding
-	ToggleTab      key.Binding
+
+	// The [2] Objects tree. ExpandNode opens the branch under the cursor
+	// (and steps into it when it is already open), CollapseNode closes it
+	// (and steps out to the parent when it is already closed) — `enter`
+	// toggles the same branch, so the two are the lazygit-style shortcut,
+	// not the only way in.
+	ExpandNode   key.Binding
+	CollapseNode key.Binding
 
 	// Query editor, panel [4]. EditQuery enters insert mode, where every
 	// key that is not RunEditor, CancelQuery or Back types into the
@@ -132,7 +139,7 @@ type keyMap struct {
 	CopyMenu     key.Binding
 	ExportTable  key.Binding
 	CancelExport key.Binding
-	// ExportDatabaseDDL lives on the Tables panel, not the main view: it
+	// ExportDatabaseDDL lives on the Objects panel, not the main view: it
 	// exports every relation of the browsed database in one file, rather
 	// than the one relation ExportTable is scoped to.
 	ExportDatabaseDDL key.Binding
@@ -157,7 +164,7 @@ func newKeyMap() keyMap {
 		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "drill in")),
 		Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 
-		Jump:      key.NewBinding(key.WithKeys("1", "2", "3", "4"), key.WithHelp("1-4", "jump to panel")),
+		Jump:      key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1-3", "jump to panel")),
 		NextPanel: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
 		PrevPanel: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev panel")),
 
@@ -181,7 +188,10 @@ func newKeyMap() keyMap {
 		Refresh:        key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
-		ToggleTab:      key.NewBinding(key.WithKeys("[", "]"), key.WithHelp("[/]", "tables/views")),
+
+		ExpandNode: key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "expand")),
+		CollapseNode: key.NewBinding(
+			key.WithKeys("h", "left"), key.WithHelp("h/←", "collapse")),
 
 		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
 		RunEditor: key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
@@ -353,7 +363,8 @@ const (
 	actSchemaDiff
 	actRefresh
 	actFilter
-	actToggleTab
+	actExpandNode
+	actCollapseNode
 	actEditQuery
 	actRunEditor
 	actExplainQuery
@@ -432,19 +443,15 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
 		}
-	case panelDatabases:
+	case panelObjects:
 		return []action{
+			{actExpandNode, k.ExpandNode},
+			{actCollapseNode, k.CollapseNode},
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
-		}
-	case panelTables:
-		return []action{
-			{actRefresh, k.Refresh},
-			{actFilter, k.Filter},
-			{actToggleTab, k.ToggleTab},
-			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 		}
 	case panelQuery:
 		return []action{
@@ -574,7 +581,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
 		{"schema-diff", &k.SchemaDiff},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
-		{"toggle-tab", &k.ToggleTab},
+		{"expand-node", &k.ExpandNode}, {"collapse-node", &k.CollapseNode},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},
 		{"explain-query", &k.ExplainQuery}, {"clear-query", &k.ClearQuery},

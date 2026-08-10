@@ -10,6 +10,12 @@ generated:
 
 # TUI shell architecture
 
+> **Renumbered (issue #79).** The panel set is now `[1] Connections`,
+> `[2] Objects` (an expandable tree), `[3] Query`, plus the unnumbered
+> `panelMain`; `[2] Databases` and `[3] Tables` were merged — see
+> [design/object-tree-panel](object-tree-panel.md). The structure below
+> is unchanged; read `[4] Query` as `[3] Query` and `1`–`4` as `1`–`3`.
+
 The shell lives in `internal/ui`; `main.go` only constructs `ui.New()` and runs
 the Bubbletea program.
 

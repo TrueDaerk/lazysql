@@ -28,9 +28,9 @@ func raw(m Model, msg tea.Msg) (Model, tea.Cmd) {
 	return next.(Model), cmd
 }
 
-// A 120x40 model lays out a 40-cell side column of four boxes — heights
-// 9, 9, 9, 12 — and an 80-cell main column split into a 30-row main view
-// and a 9-row command log. hitTest has to reproduce exactly that.
+// A 120x40 model lays out a 40-cell side column of three boxes — 13 rows
+// each — and an 80-cell main column split into a 30-row main view and a
+// 9-row command log. hitTest has to reproduce exactly that.
 func TestHitTestMapsTheLayout(t *testing.T) {
 	m := sized(120, 40)
 	cases := []struct {
@@ -43,10 +43,10 @@ func TestHitTestMapsTheLayout(t *testing.T) {
 	}{
 		{"connections title", 5, 0, zoneSide, panelConnections, true, -1},
 		{"connections first row", 5, 1, zoneSide, panelConnections, false, 0},
-		{"databases box", 5, 10, zoneSide, panelDatabases, false, 0},
-		{"tables title", 5, 18, zoneSide, panelTables, true, -1},
-		{"tables first row", 5, 19, zoneSide, panelTables, false, 0},
-		{"query box", 5, 28, zoneSide, panelQuery, false, 0},
+		{"objects title", 5, 13, zoneSide, panelObjects, true, -1},
+		{"objects first row", 5, 14, zoneSide, panelObjects, false, 0},
+		{"objects third row", 5, 16, zoneSide, panelObjects, false, 2},
+		{"query box", 5, 27, zoneSide, panelQuery, false, 0},
 		{"main view", 60, 5, zoneMain, 0, false, 4},
 		{"main view title", 60, 0, zoneMain, 0, true, -1},
 		{"command log", 60, 32, zoneLog, 0, false, 1},
@@ -75,11 +75,11 @@ func TestHitTestIgnoresTinyTerminal(t *testing.T) {
 // Clicking a panel focuses it, exactly like pressing its number.
 func TestClickFocusesSidePanel(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, click(5, 19)) // [3] Tables, first row
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want the tables panel", m.focus)
+	m = send(t, m, click(5, 14)) // [2] Objects, first row
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want the objects panel", m.focus)
 	}
-	m = send(t, m, click(5, 28)) // [4] Query
+	m = send(t, m, click(5, 27)) // [3] Query
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
@@ -89,20 +89,20 @@ func TestClickFocusesSidePanel(t *testing.T) {
 // the row the cursor is already on is `enter`.
 func TestClickSelectsRowAndSecondClickDrillsIn(t *testing.T) {
 	m := sized(120, 40)
-	// Row 2 of [3] Tables: the box starts at y=18, so its content does
-	// at y=19.
-	m = send(t, m, click(5, 21))
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want the tables panel", m.focus)
+	// Row 2 of [2] Objects: the box starts at y=13, so its content does
+	// at y=14. Row 0 is the Tables category, so row 2 is a table.
+	m = send(t, m, click(5, 16))
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want the objects panel", m.focus)
 	}
-	if got := m.panels[panelTables].cursor; got != 2 {
+	if got := m.panels[panelObjects].cursor; got != 2 {
 		t.Fatalf("cursor = %d, want the clicked row", got)
 	}
 	if m.table != "" {
 		t.Fatalf("table = %q, want the first click to select only", m.table)
 	}
-	m = send(t, m, click(5, 21))
-	if got := m.panels[panelTables].selected(); m.table != got {
+	m = send(t, m, click(5, 16))
+	if got := m.panels[panelObjects].selected(); m.table != got {
 		t.Fatalf("table = %q, want the second click to open %q", m.table, got)
 	}
 }
@@ -111,58 +111,12 @@ func TestClickSelectsRowAndSecondClickDrillsIn(t *testing.T) {
 // does not drill in: only a click on the row under the cursor does.
 func TestClickOnAnotherRowOnlySelects(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('3'), click(5, 22))
-	if got := m.panels[panelTables].cursor; got != 3 {
+	m = send(t, m, press('2'), click(5, 17))
+	if got := m.panels[panelObjects].cursor; got != 3 {
 		t.Fatalf("cursor = %d, want the clicked row", got)
 	}
 	if m.table != "" {
 		t.Fatalf("table = %q, want no drill-in from a first click", m.table)
-	}
-}
-
-// The Tables/Views headers ride the box's top border, so clicking one
-// switches the sub-tab the way `t` does.
-func TestClickTabHeaderSwitchesRelationTab(t *testing.T) {
-	m := sized(120, 40)
-	// "[3] Tables" is 10 cells, then a space and `‹`; the title itself
-	// starts two cells in from the box's left edge.
-	views := 2 + len("[3] Tables") + 1 + 1 + len("Tables") + 1
-	m = send(t, m, click(views, 18))
-	if m.tableTab != tabViews {
-		t.Fatalf("tab = %v, want Views", m.tableTab)
-	}
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want the tables panel", m.focus)
-	}
-	tables := 2 + len("[3] Tables") + 1 + 1
-	m = send(t, m, click(tables, 18))
-	if m.tableTab != tabTables {
-		t.Fatalf("tab = %v, want Tables back", m.tableTab)
-	}
-}
-
-func TestTabHitOffsets(t *testing.T) {
-	p := &sidePanel{id: panelTables, tabs: relationTabNames[:]}
-	prefix := len("[3] Tables") + 1 + 1 // name, space, `‹`
-	cases := []struct {
-		col  int
-		want int
-		ok   bool
-	}{
-		{prefix - 1, 0, false},  // the `‹`
-		{prefix, 0, true},       // first cell of "Tables"
-		{prefix + 5, 0, true},   // last cell of "Tables"
-		{prefix + 6, 0, false},  // the `|`
-		{prefix + 7, 1, true},   // first cell of "Views"
-		{prefix + 11, 1, true},  // last cell of "Views"
-		{prefix + 12, 0, false}, // the `›`
-		{-1, 0, false},
-	}
-	for _, c := range cases {
-		got, ok := p.tabHit(c.col)
-		if ok != c.ok || (ok && got != c.want) {
-			t.Errorf("tabHit(%d) = %d,%v, want %d,%v", c.col, got, ok, c.want, c.ok)
-		}
 	}
 }
 
@@ -189,24 +143,24 @@ func TestMainTabHitOffsets(t *testing.T) {
 // unfocused panel scrolls that one and leaves the focus alone.
 func TestWheelScrollsHoveredPanelNotFocusedOne(t *testing.T) {
 	m := sized(120, 40)
-	m.panels[panelTables].setItems(manyItems(20))
+	m.panels[panelObjects].setItems(manyItems(20))
 	if m.focus != panelConnections {
 		t.Fatalf("focus = %v, want the connections panel to start", m.focus)
 	}
-	m, _ = raw(m, wheelDown(5, 20)) // over [3] Tables
+	m, _ = raw(m, wheelDown(5, 20)) // over [2] Objects
 	if m.focus != panelConnections {
 		t.Fatalf("focus = %v, want the wheel to leave the focus alone", m.focus)
 	}
-	if got := m.panels[panelTables].cursor; got != wheelStep {
-		t.Fatalf("tables cursor = %d, want %d", got, wheelStep)
+	if got := m.panels[panelObjects].cursor; got != wheelStep {
+		t.Fatalf("objects cursor = %d, want %d", got, wheelStep)
 	}
 	if got := m.panels[panelConnections].cursor; got != 0 {
 		t.Fatalf("connections cursor = %d, want the focused panel untouched", got)
 	}
 	m, _ = raw(m, wheelUp(5, 20))
 	m, _ = raw(m, wheelFlushMsg{gen: m.wheel.gen})
-	if got := m.panels[panelTables].cursor; got != 0 {
-		t.Fatalf("tables cursor = %d, want the wheel back at the top", got)
+	if got := m.panels[panelObjects].cursor; got != 0 {
+		t.Fatalf("objects cursor = %d, want the wheel back at the top", got)
 	}
 }
 
@@ -215,13 +169,13 @@ func TestWheelScrollsHoveredPanelNotFocusedOne(t *testing.T) {
 // keeps a fast wheel from queueing scrolls behind the renderer.
 func TestWheelCoalescesABurst(t *testing.T) {
 	m := sized(120, 40)
-	m.panels[panelTables].setItems(manyItems(60))
+	m.panels[panelObjects].setItems(manyItems(60))
 
 	m, cmd := raw(m, wheelDown(5, 20))
 	if cmd == nil {
 		t.Fatal("the first event of a burst must arm a flush")
 	}
-	if got := m.panels[panelTables].cursor; got != wheelStep {
+	if got := m.panels[panelObjects].cursor; got != wheelStep {
 		t.Fatalf("cursor = %d, want the first notch applied at once", got)
 	}
 	for i := 0; i < 3; i++ {
@@ -231,7 +185,7 @@ func TestWheelCoalescesABurst(t *testing.T) {
 			t.Fatalf("event %d armed a second flush, want it coalesced", i)
 		}
 	}
-	if got := m.panels[panelTables].cursor; got != wheelStep {
+	if got := m.panels[panelObjects].cursor; got != wheelStep {
 		t.Fatalf("cursor = %d, want the burst still queued", got)
 	}
 	if got := m.wheel.pending; got != 3*wheelStep {
@@ -240,7 +194,7 @@ func TestWheelCoalescesABurst(t *testing.T) {
 
 	gen := m.wheel.gen
 	m, cmd = raw(m, wheelFlushMsg{gen: gen})
-	if got := m.panels[panelTables].cursor; got != 4*wheelStep {
+	if got := m.panels[panelObjects].cursor; got != 4*wheelStep {
 		t.Fatalf("cursor = %d, want the whole burst applied", got)
 	}
 	if m.wheel.pending != 0 {
@@ -252,7 +206,7 @@ func TestWheelCoalescesABurst(t *testing.T) {
 	// A tick from the burst that just ended is stale and must not move
 	// anything.
 	m, _ = raw(m, wheelFlushMsg{gen: gen})
-	if got := m.panels[panelTables].cursor; got != 4*wheelStep {
+	if got := m.panels[panelObjects].cursor; got != 4*wheelStep {
 		t.Fatalf("cursor = %d, want a stale flush ignored", got)
 	}
 	// The next real flush finds nothing pending and disarms.
@@ -266,17 +220,17 @@ func TestWheelCoalescesABurst(t *testing.T) {
 // was aimed at, never to the new one.
 func TestWheelRetargetFlushesTheOldPanel(t *testing.T) {
 	m := sized(120, 40)
-	m.panels[panelTables].setItems(manyItems(60))
-	m.panels[panelDatabases].setItems(manyItems(60))
+	m.panels[panelObjects].setItems(manyItems(60))
+	m.panels[panelConnections].setItems(manyItems(60))
 
-	m, _ = raw(m, wheelDown(5, 20)) // [3] Tables
+	m, _ = raw(m, wheelDown(5, 20)) // [2] Objects
 	m, _ = raw(m, wheelDown(5, 20))
-	m, _ = raw(m, wheelDown(5, 12)) // [2] Databases
-	if got := m.panels[panelTables].cursor; got != 2*wheelStep {
-		t.Fatalf("tables cursor = %d, want the queued notches flushed to it", got)
+	m, _ = raw(m, wheelDown(5, 5)) // [1] Connections
+	if got := m.panels[panelObjects].cursor; got != 2*wheelStep {
+		t.Fatalf("objects cursor = %d, want the queued notches flushed to it", got)
 	}
-	if got := m.panels[panelDatabases].cursor; got != wheelStep {
-		t.Fatalf("databases cursor = %d, want only the new notch", got)
+	if got := m.panels[panelConnections].cursor; got != wheelStep {
+		t.Fatalf("connections cursor = %d, want only the new notch", got)
 	}
 }
 
@@ -298,7 +252,7 @@ func TestWheelOverQueryPanelIsInert(t *testing.T) {
 // it does not.
 func TestWheelInModalScrollsTheModalOnly(t *testing.T) {
 	m := sized(120, 40)
-	m.panels[panelTables].setItems(manyItems(60))
+	m.panels[panelObjects].setItems(manyItems(60))
 	for i := 0; i < 40; i++ {
 		m.commandLog = append(m.commandLog, logLine{text: fmt.Sprintf("-- line %d", i)})
 	}
@@ -308,12 +262,12 @@ func TestWheelInModalScrollsTheModalOnly(t *testing.T) {
 		t.Fatalf("modal = %T, want the command log", m.modal)
 	}
 	before := lm.offset
-	m, _ = raw(m, wheelUp(5, 20)) // over [3] Tables, but a modal is open
+	m, _ = raw(m, wheelUp(5, 20)) // over [2] Objects, but a modal is open
 	if got := lm.offset; got != before-wheelStep {
 		t.Fatalf("modal offset = %d, want %d", got, before-wheelStep)
 	}
-	if got := m.panels[panelTables].cursor; got != 0 {
-		t.Fatalf("tables cursor = %d, want the view behind the modal untouched", got)
+	if got := m.panels[panelObjects].cursor; got != 0 {
+		t.Fatalf("objects cursor = %d, want the view behind the modal untouched", got)
 	}
 }
 
@@ -348,9 +302,9 @@ func TestClickOnUnfocusableChromeDoesNothing(t *testing.T) {
 // picks the cell under the pointer.
 func TestClickGridFocusesThenSelectsACell(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('3')) // hand the focus to a side panel first
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want the tables panel", m.focus)
+	m = send(t, m, press('2')) // hand the focus to a side panel first
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want the objects panel", m.focus)
 	}
 	// The main view box starts at x=40,y=0; its content at 41,1. The
 	// grid's first data row is the fourth content row (names, types,
@@ -414,7 +368,7 @@ func TestClickMainTabHeaderSwitchesTab(t *testing.T) {
 // derives its window from the caret rather than storing an offset.
 func TestWheelScrollsQueryEditor(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('4'))
+	m = send(t, m, press('3'))
 	var script string
 	for i := 0; i < 40; i++ {
 		script += fmt.Sprintf("SELECT %d;\n", i)

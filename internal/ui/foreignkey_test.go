@@ -40,9 +40,9 @@ func fkBrowsing(t *testing.T) Model {
 			t.Fatalf("fixture %q: %v", stmt, err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("orders") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("orders") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.focus != panelMain {
@@ -126,7 +126,7 @@ func TestFollowFKSingleColumn(t *testing.T) {
 	}
 	// The [3] panel follows along so the shell does not claim another
 	// relation is open.
-	if got := m.panels[panelTables].selected(); got != "customers" {
+	if got := m.panels[panelObjects].selected(); got != "customers" {
 		t.Errorf("panel [3] selection = %q, want customers", got)
 	}
 }
@@ -240,10 +240,10 @@ func TestBrowseBackRestoresPreviousState(t *testing.T) {
 // the cursor and jumps to the matching rows.
 func TestIncomingRefsJumpsToReferencingRows(t *testing.T) {
 	m := fkBrowsing(t)
-	if !m.panels[panelTables].selectByName("customers") {
-		t.Fatalf("customers not listed: %v", m.panels[panelTables].items)
+	if !m.panels[panelObjects].selectByName("customers") {
+		t.Fatalf("customers not listed: %v", m.panels[panelObjects].items)
 	}
-	m = send(t, m, press('3'), special(tea.KeyEnter, 0))
+	m = send(t, m, press('2'), special(tea.KeyEnter, 0))
 	if m.data.table != "customers" {
 		t.Fatalf("table = %q, want customers", m.data.table)
 	}

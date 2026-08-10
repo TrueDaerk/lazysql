@@ -243,6 +243,9 @@ func countRowsCmd(drv db.Driver, d dataView, req int) tea.Cmd {
 // sort belong to the relation that was open, so they do not carry over.
 func (m *Model) openTable(name string) tea.Cmd {
 	m.table = name
+	// The relation replaces whatever the main view was showing, trigger
+	// definition included.
+	m.trigger = nil
 	// The metadata described the relation being closed. The selected
 	// tab survives — walking a table list with Structure open is the
 	// point of the tabs — but its contents and scroll positions do not.
@@ -434,6 +437,11 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 // place of updateFocused, so navigation keys mean cells here.
 func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+	// A trigger definition owns the main view while it is up: it is a
+	// read-only text block, so only scrolling and esc mean anything.
+	if m.trigger != nil {
+		return m.updateTriggerKeys(msg)
+	}
 	switch {
 	// Down/Up go through the wheel's coalescer: applyScroll routes a
 	// zoneMain delta to the grid or the metadata tabs exactly like the
@@ -498,7 +506,7 @@ func (m *Model) focusBack() {
 		m.focus = back
 		return
 	}
-	m.focus = panelTables
+	m.focus = panelObjects
 }
 
 // dataActions handles the main view's context actions. It is called

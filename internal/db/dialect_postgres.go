@@ -195,6 +195,56 @@ func (d postgresDialect) tableIndexes(ctx context.Context, q querier, database, 
 	return idx, rows.Err()
 }
 
+// listTriggers reads pg_trigger directly rather than
+// information_schema.triggers: the view reports one row per event
+// (INSERT/UPDATE/DELETE) of the same trigger and hides triggers the
+// caller does not own, while pg_trigger has exactly one row per trigger.
+// tgisinternal excludes the rows PostgreSQL creates for foreign-key
+// enforcement, which are not user triggers.
+func (postgresDialect) listTriggers(ctx context.Context, q querier, database string) ([]Trigger, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT t.tgname, c.relname
+		 FROM pg_catalog.pg_trigger t
+		 JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND NOT t.tgisinternal
+		 ORDER BY t.tgname`,
+		pgSchema(database))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Trigger
+	for rows.Next() {
+		var name, table string
+		if err := rows.Scan(&name, &table); err != nil {
+			return nil, err
+		}
+		out = append(out, Trigger{Name: name, Table: table})
+	}
+	return out, rows.Err()
+}
+
+// triggerDDL uses pg_get_triggerdef, the server's own deparser: it
+// renders the exact CREATE TRIGGER statement including the WHEN clause
+// and the function arguments, which no information_schema column carries.
+func (postgresDialect) triggerDDL(ctx context.Context, q querier, database, trigger string) (string, error) {
+	ddls, err := scanStrings(ctx, q,
+		`SELECT pg_catalog.pg_get_triggerdef(t.oid, true)
+		 FROM pg_catalog.pg_trigger t
+		 JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND t.tgname = $2 AND NOT t.tgisinternal`,
+		pgSchema(database), trigger)
+	if err != nil {
+		return "", err
+	}
+	if len(ddls) == 0 {
+		return "", fmt.Errorf("db: no DDL for trigger %q", trigger)
+	}
+	return ddls[0], nil
+}
+
 // PostgreSQL does not keep the original CREATE TABLE text, so the DDL
 // is synthesized from the introspected columns, indexes and foreign
 // keys. It is a faithful description, not a byte-identical replay of

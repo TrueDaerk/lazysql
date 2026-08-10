@@ -176,6 +176,9 @@ func (m *Model) stageChange(c db.CellChange) tea.Cmd {
 		return logCmd("-- not staged: %s.%s is unchanged", c.Table, c.Column)
 	}
 	m.changes.Stage(c)
+	// This previews the single-cell edit just staged, not the merged
+	// statement it may end up part of — Changeset.Statements groups it
+	// with any other staged edits of the same row only at commit time.
 	st := db.UpdateSQL(m.driver.Dialect(), c)
 	return logCmd("-- stage: %s;  -- args %v", st.SQL, st.Args)
 }

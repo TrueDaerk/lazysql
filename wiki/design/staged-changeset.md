@@ -95,6 +95,35 @@ columns from any staged change of the table, which is how staged cells
 stay highlighted (yellow, showing the staged value) after the metadata
 cache was reset.
 
+### Multi-column edits of one row merge into one UPDATE at render time
+
+Staging stays per-cell — `Stage`/`Unstage`/`Lookup` and the per-cell
+replace-on-restage rule above are unchanged — but `Changeset.Statements`
+(the single choke point the commit modal and `commitChangesCmd` both go
+through) groups `CellChange`s that target the same row (same database,
+table and typed PK values) into one `UPDATE … SET a = ?, b = ? WHERE …`
+instead of rendering N single-column UPDATEs. Column order in `SET` is
+first-staged order; `multiUpdateSQL` builds it, and `UpdateSQL` (still
+used for the single-cell case, and for the per-edit preview line logged
+at stage time) is now a one-cell call into it. `d.Placeholder(n)` keeps
+counting across the merged `SET` clauses into the `WHERE`, so PostgreSQL
+still gets `$1..$n` in order.
+
+The merge rule is "a row's cell edits combine unless a `RowDelete` for
+that row is anywhere in the changeset" — checked directly in
+`Statements` by pre-scanning `cs.ops` for delete row-identities, not
+inferred from adjacency. That makes it safe regardless of how the ops
+slice is ordered: `StageDelete` already drops a row's pending cell
+edits when the delete lands, and the UI refuses to stage a new edit on
+a row with a pending delete (`openEditModal` checks `DeleteStaged`), so
+in practice a delete and cell edits of the same row never coexist — but
+`Statements` does not lean on either of those holding. If they ever did
+coexist, the affected cells fall back to individual single-column
+UPDATEs (still correct, just unmerged) rather than risk merging across
+a delete into an order that was never staged. A `RowInsert` can never
+collide with a row identity — it has no primary key until the engine
+assigns one — so it never blocks a merge.
+
 ### Commit is one transaction, and failure keeps the changeset
 
 `ExecTx` wraps all statements — UPDATEs, DELETEs and INSERTs alike — in

@@ -316,16 +316,30 @@ type Statement struct {
 // value and every key value travel as parameters, identifiers get the
 // dialect's quoting. Nothing user-supplied reaches the statement text.
 func UpdateSQL(d Dialect, c CellChange) Statement {
+	return multiUpdateSQL(d, []CellChange{c})
+}
+
+// multiUpdateSQL renders every staged cell edit of one row as a single
+// UPDATE with one SET clause per column, in the order cells is given.
+// The caller is responsible for cells all sharing one row (same
+// database, table and primary key) — see Statements.
+func multiUpdateSQL(d Dialect, cells []CellChange) Statement {
+	first := cells[0]
 	var b strings.Builder
-	args := make([]any, 0, 1+len(c.PKVals))
+	args := make([]any, 0, len(cells)+len(first.PKVals))
 	b.WriteString("UPDATE ")
-	b.WriteString(qualifiedTable(d, c.Database, c.Table))
+	b.WriteString(qualifiedTable(d, first.Database, first.Table))
 	b.WriteString(" SET ")
-	b.WriteString(d.QuoteIdent(c.Column))
-	b.WriteString(" = ")
-	b.WriteString(d.Placeholder(1))
-	args = append(args, c.NewValue)
-	args = writeKeyPredicates(&b, d, c.PKCols, c.PKVals, args)
+	for i, c := range cells {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(d.QuoteIdent(c.Column))
+		b.WriteString(" = ")
+		b.WriteString(d.Placeholder(len(args) + 1))
+		args = append(args, c.NewValue)
+	}
+	args = writeKeyPredicates(&b, d, first.PKCols, first.PKVals, args)
 	return Statement{SQL: b.String(), Args: args}
 }
 
@@ -392,11 +406,72 @@ func writeKeyPredicates(b *strings.Builder, d Dialect, cols []string, vals, args
 	return args
 }
 
-// Statements renders the whole changeset in commit order.
+// rowIdentity encodes the database, table and primary-key values that
+// identify one row, for grouping cell changes that target the same row.
+func rowIdentity(database, table string, pkVals []any) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\x00%s", database, table)
+	writeKeyVals(&b, pkVals)
+	return b.String()
+}
+
+// Statements renders the whole changeset in commit order. Cell edits
+// that target the same row merge into one multi-column UPDATE, columns
+// ordered by when they were first staged; every other change (a row
+// delete, a row insert, or a cell edit that cannot be safely merged)
+// renders on its own, at the position of its first occurrence.
+//
+// Merging is safe under the "no delete/insert for that row" rule: a
+// row's cell edits only combine if no RowDelete targeting the same row
+// appears anywhere in the changeset. That is always true in practice —
+// StageDelete drops a row's staged cell edits when the delete is staged,
+// and the UI refuses to stage a new edit on a row with a pending delete
+// — but Statements does not lean on either of those to hold; it checks
+// directly, so a row with a (theoretically) coexisting delete and cell
+// edits still commits each cell edit as its own UPDATE rather than
+// merging across the delete and risking an order it was never staged
+// in. A RowInsert can never collide with a row identity: it has no
+// primary key of its own until the engine assigns one.
 func (cs *Changeset) Statements(d Dialect) []Statement {
-	out := make([]Statement, 0, len(cs.ops))
+	deletedRows := make(map[string]bool)
 	for _, c := range cs.ops {
-		out = append(out, c.Statement(d))
+		if r, ok := c.(RowDelete); ok {
+			deletedRows[rowIdentity(r.Database, r.Table, r.PKVals)] = true
+		}
 	}
-	return out
+
+	out := make([]Statement, len(cs.ops))
+	kept := make([]bool, len(cs.ops))
+	firstAt := make(map[string]int)
+	cellsFor := make(map[string][]CellChange)
+	for i, c := range cs.ops {
+		cc, ok := c.(CellChange)
+		if !ok {
+			out[i] = c.Statement(d)
+			kept[i] = true
+			continue
+		}
+		rid := rowIdentity(cc.Database, cc.Table, cc.PKVals)
+		if deletedRows[rid] {
+			out[i] = cc.Statement(d)
+			kept[i] = true
+			continue
+		}
+		if _, seen := firstAt[rid]; !seen {
+			firstAt[rid] = i
+			kept[i] = true
+		}
+		cellsFor[rid] = append(cellsFor[rid], cc)
+	}
+	for rid, i := range firstAt {
+		out[i] = multiUpdateSQL(d, cellsFor[rid])
+	}
+
+	result := make([]Statement, 0, len(out))
+	for i, k := range kept {
+		if k {
+			result = append(result, out[i])
+		}
+	}
+	return result
 }

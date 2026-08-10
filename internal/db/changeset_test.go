@@ -312,6 +312,142 @@ func TestChangesetKeysAreTyped(t *testing.T) {
 	}
 }
 
+// Editing several columns of one row must commit as one UPDATE with one
+// SET clause per column, in the order the columns were first staged —
+// and must not disturb edits of other rows or tables.
+func TestStatementsMergesSameRowEdits(t *testing.T) {
+	cs := NewChangeset()
+	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(1)}, Column: "b", NewValue: "b1"})
+	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(1)}, Column: "a", NewValue: "a1"})
+	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(2)}, Column: "b", NewValue: "b2"})
+	cs.Stage(CellChange{Table: "other", PKCols: []string{"id"}, PKVals: []any{int64(1)}, Column: "b", NewValue: "bx"})
+
+	stmts := cs.Statements(dialect(t, EngineSQLite))
+	wantSQL := []string{
+		`UPDATE "t" SET "b" = ?, "a" = ? WHERE "id" = ?`,
+		`UPDATE "t" SET "b" = ? WHERE "id" = ?`,
+		`UPDATE "other" SET "b" = ? WHERE "id" = ?`,
+	}
+	if len(stmts) != len(wantSQL) {
+		t.Fatalf("statements = %d, want %d: %+v", len(stmts), len(wantSQL), stmts)
+	}
+	for i, want := range wantSQL {
+		if stmts[i].SQL != want {
+			t.Errorf("statement %d = %q, want %q", i, stmts[i].SQL, want)
+		}
+	}
+	if !slices.Equal(stmts[0].Args, []any{any("b1"), any("a1"), any(int64(1))}) {
+		t.Errorf("merged args = %v", stmts[0].Args)
+	}
+}
+
+// A composite primary key merges the same way, and PostgreSQL's
+// positional placeholders keep counting across the merged SET clauses
+// into the WHERE predicates.
+func TestStatementsMergeCompositeKeyPlaceholders(t *testing.T) {
+	cs := NewChangeset()
+	pk := []string{"student", "course"}
+	pv := []any{int64(1), "math"}
+	cs.Stage(CellChange{Table: "grades", PKCols: pk, PKVals: pv, Column: "grade", NewValue: "A"})
+	cs.Stage(CellChange{Table: "grades", PKCols: pk, PKVals: pv, Column: "credit", NewValue: int64(3)})
+
+	stmts := cs.Statements(dialect(t, EnginePostgres))
+	if len(stmts) != 1 {
+		t.Fatalf("statements = %d, want 1 merged UPDATE", len(stmts))
+	}
+	want := `UPDATE "grades" SET "grade" = $1, "credit" = $2 WHERE "student" = $3 AND "course" = $4`
+	if stmts[0].SQL != want {
+		t.Errorf("SQL = %q, want %q", stmts[0].SQL, want)
+	}
+	if !slices.Equal(stmts[0].Args, []any{any("A"), any(int64(3)), any(int64(1)), any("math")}) {
+		t.Errorf("args = %v", stmts[0].Args)
+	}
+
+	// MySQL/SQLite use the same "?" placeholder for every parameter.
+	mysqlStmt := cs.Statements(dialect(t, EngineMySQL))[0]
+	wantMySQL := "UPDATE `grades` SET `grade` = ?, `credit` = ? WHERE `student` = ? AND `course` = ?"
+	if mysqlStmt.SQL != wantMySQL {
+		t.Errorf("MySQL SQL = %q, want %q", mysqlStmt.SQL, wantMySQL)
+	}
+}
+
+// Unstaging one of several edits on a row must drop just that column
+// from the merged UPDATE, not the whole statement.
+func TestStatementsUnstageFromMergedRow(t *testing.T) {
+	cs := NewChangeset()
+	pk, pv := []string{"id"}, []any{int64(1)}
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "a", NewValue: "a1"})
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "b", NewValue: "b1"})
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "c", NewValue: "c1"})
+
+	if !cs.Unstage("", "t", pv, "b") {
+		t.Fatal("Unstage missed a staged cell in a merged row")
+	}
+	stmts := cs.Statements(dialect(t, EngineSQLite))
+	if len(stmts) != 1 {
+		t.Fatalf("statements = %d, want 1", len(stmts))
+	}
+	want := `UPDATE "t" SET "a" = ?, "c" = ? WHERE "id" = ?`
+	if stmts[0].SQL != want {
+		t.Errorf("SQL = %q, want %q", stmts[0].SQL, want)
+	}
+}
+
+// edit(rowA.x) -> delete(rowA) -> unstage the delete -> edit(rowA.y)
+// must never apply x and y out of the order they were staged in. Since
+// StageDelete already drops a row's staged cell edits when the delete
+// is staged, x is gone by the time the delete lands, so only y survives
+// to commit — the interleaved delete cannot resurrect it.
+func TestStatementsInterleavedDeleteDoesNotReorder(t *testing.T) {
+	cs := NewChangeset()
+	pk, pv := []string{"id"}, []any{int64(1)}
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "x", NewValue: "x1"})
+	cs.StageDelete(RowDelete{Table: "t", PKCols: pk, PKVals: pv})
+	if !cs.UnstageDelete("", "t", pv) {
+		t.Fatal("UnstageDelete missed the staged delete")
+	}
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "y", NewValue: "y1"})
+
+	stmts := cs.Statements(dialect(t, EngineSQLite))
+	if len(stmts) != 1 {
+		t.Fatalf("statements = %d, want 1: %+v", len(stmts), stmts)
+	}
+	want := `UPDATE "t" SET "y" = ? WHERE "id" = ?`
+	if stmts[0].SQL != want {
+		t.Errorf("SQL = %q, want %q (x must not resurface)", stmts[0].SQL, want)
+	}
+}
+
+// Statements only merges a row's cell edits when no staged delete of
+// that row exists anywhere in the changeset. Stage cannot itself be
+// reached this way through the UI (it refuses to stage an edit on a
+// row that has a pending delete), but Statements checks directly rather
+// than trust that invariant, so even a changeset built to coexist a
+// delete with cell edits of the same row still renders each edit as
+// its own UPDATE instead of merging across the delete.
+func TestStatementsDoesNotMergeAcrossACoexistingDelete(t *testing.T) {
+	cs := NewChangeset()
+	pk, pv := []string{"id"}, []any{int64(1)}
+	cs.StageDelete(RowDelete{Table: "t", PKCols: pk, PKVals: pv})
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "a", NewValue: "a1"})
+	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "b", NewValue: "b1"})
+
+	stmts := cs.Statements(dialect(t, EngineSQLite))
+	wantSQL := []string{
+		`DELETE FROM "t" WHERE "id" = ?`,
+		`UPDATE "t" SET "a" = ? WHERE "id" = ?`,
+		`UPDATE "t" SET "b" = ? WHERE "id" = ?`,
+	}
+	if len(stmts) != len(wantSQL) {
+		t.Fatalf("statements = %d, want %d: %+v", len(stmts), len(wantSQL), stmts)
+	}
+	for i, want := range wantSQL {
+		if stmts[i].SQL != want {
+			t.Errorf("statement %d = %q, want %q", i, stmts[i].SQL, want)
+		}
+	}
+}
+
 // The whole commit is one transaction: a failing statement rolls back
 // the ones before it.
 func TestExecTxRollsBackOnError(t *testing.T) {

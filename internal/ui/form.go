@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -262,14 +263,14 @@ func (f *formModal) suggestField() *formField {
 
 func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
-	switch msg.String() {
-	case "esc":
+	switch {
+	case msg.String() == "esc":
 		f.sugg.clear()
 		if f.onCancel != nil {
 			f.onCancel(m)
 		}
 		return true, nil
-	case "tab":
+	case msg.String() == "tab":
 		// While path candidates are up, tab completes the path; ↑↓ (and
 		// shift+tab) stay the way to walk fields. With no candidates tab
 		// keeps its usual meaning.
@@ -280,13 +281,13 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		}
 		f.move(1)
 		return false, nil
-	case "down":
+	case msg.String() == "down":
 		f.move(1)
 		return false, nil
-	case "shift+tab", "up":
+	case msg.String() == "shift+tab", msg.String() == "up":
 		f.move(-1)
 		return false, nil
-	case "enter":
+	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
 		if f.onSubmit == nil {
 			f.sugg.clear()
 			return true, nil
@@ -413,12 +414,12 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	}
 	footer := f.footer
 	if footer == "" {
-		footer = "tab/↑↓ field · ←→ change · enter save · esc cancel"
+		footer = "tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel"
 	}
 	if sugRows > 0 {
 		// tab is taken by completion here, so the bar must stop advertising
 		// it as the way to move between fields.
-		footer = "tab complete path · ↑↓ field · enter save · esc cancel"
+		footer = "tab complete path · ↑↓ field · enter/ctrl+enter save · esc cancel"
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())

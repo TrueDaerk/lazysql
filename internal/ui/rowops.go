@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -371,26 +372,26 @@ func (f *insertRowModal) current() *insertField {
 
 func (f *insertRowModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
-	switch msg.String() {
-	case "esc":
+	switch {
+	case msg.String() == "esc":
 		return true, nil
-	case "tab", "down":
+	case msg.String() == "tab", msg.String() == "down":
 		f.move(1)
 		return false, nil
-	case "shift+tab", "up":
+	case msg.String() == "shift+tab", msg.String() == "up":
 		f.move(-1)
 		return false, nil
-	case "ctrl+n":
+	case msg.String() == "ctrl+n":
 		if cur != nil {
 			cur.mode = toggleMode(cur.mode, insertNull)
 		}
 		return false, nil
-	case "ctrl+d":
+	case msg.String() == "ctrl+d":
 		if cur != nil {
 			cur.mode = toggleMode(cur.mode, insertDefault)
 		}
 		return false, nil
-	case "enter":
+	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
 		r, problem := f.build()
 		if problem != "" {
 			f.err = problem
@@ -536,7 +537,7 @@ func (f *insertRowModal) view(s styles, maxW, maxH int) string {
 		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
 	}
 	b.WriteString("\n" + s.muted.Render(
-		"tab/↑↓ field · ctrl+n NULL · ctrl+d default · enter stage · esc cancel"))
+		"tab/↑↓ field · ctrl+n NULL · ctrl+d default · enter/ctrl+enter stage · esc cancel"))
 	return s.modal.Render(b.String())
 }
 

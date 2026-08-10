@@ -332,7 +332,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setEditing(false)
 		return m, nil
 
-	case key.Matches(msg, k.RunEditor), msg.String() == "ctrl+enter":
+	case key.Matches(msg, k.RunEditor):
 		// A run ends insert mode so the result is immediately
 		// navigable — paging, `v`, the tabs — without an extra esc.
 		m.closeCompletion()

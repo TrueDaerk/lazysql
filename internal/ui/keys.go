@@ -18,6 +18,13 @@ type keyMap struct {
 	Enter key.Binding
 	Back  key.Binding
 
+	// AcceptChanges is ctrl+enter / cmd+enter, matched alongside plain enter
+	// everywhere enter accepts, confirms, submits or commits a change: the
+	// edit cell modal, the insert row form, the generic form, confirm
+	// modals, and (aliasing `c`) the commit-staged-changes action. See
+	// acceptKeys below for the terminal-support caveat.
+	AcceptChanges key.Binding
+
 	// Panel switching.
 	Jump      key.Binding
 	NextPanel key.Binding
@@ -171,12 +178,24 @@ type keyMap struct {
 	CancelBackup key.Binding
 }
 
+// acceptKeys are the ctrl+enter / cmd+enter ("super+enter") key strings
+// Bubble Tea v2 reports on terminals that support the kitty keyboard
+// protocol's key-disambiguation extension. Bubble Tea always asks the
+// terminal for it, but not every terminal answers — the rest keep sending
+// plain \r for ctrl+enter, indistinguishable from enter, so every binding
+// built from acceptKeys must leave plain enter working on its own.
+var acceptKeys = []string{"ctrl+enter", "super+enter"}
+
 func newKeyMap() keyMap {
 	return keyMap{
 		Up:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
 		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "drill in")),
 		Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+
+		AcceptChanges: key.NewBinding(
+			key.WithKeys(acceptKeys...),
+			key.WithHelp("ctrl+enter", "accept (alias for enter; needs terminal support)")),
 
 		Jump:      key.NewBinding(key.WithKeys("1", "2", "3"), key.WithHelp("1-3", "jump to panel")),
 		NextPanel: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
@@ -208,10 +227,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("h", "left"), key.WithHelp("h/←", "collapse")),
 
 		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert)")),
-		// ctrl+enter is a documented alias: most terminals send plain
-		// enter for it, but where it arrives it means run, like ctrl+r.
+		// ctrl+enter/cmd+enter are the acceptKeys alias: where the terminal
+		// reports them (see acceptKeys above), they mean run, like ctrl+r.
 		RunEditor: key.NewBinding(
-			key.WithKeys("ctrl+r", "ctrl+enter"), key.WithHelp("ctrl+r", "run")),
+			key.WithKeys(append([]string{"ctrl+r"}, acceptKeys...)...), key.WithHelp("ctrl+r", "run")),
 		ExplainQuery: key.NewBinding(
 			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear buffer")),
@@ -286,11 +305,16 @@ func newKeyMap() keyMap {
 		BrowseBack: key.NewBinding(
 			key.WithKeys("ctrl+o"), key.WithHelp("ctrl+o", "back to previous table")),
 
-		EditCell:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
-		DeleteRow:      key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stage row delete")),
-		InsertRow:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "insert row")),
-		DuplicateRow:   key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "duplicate row")),
-		CommitChanges:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit staged changes")),
+		EditCell:     key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit cell")),
+		DeleteRow:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stage row delete")),
+		InsertRow:    key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "insert row")),
+		DuplicateRow: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "duplicate row")),
+		// ctrl+enter/cmd+enter alias `c` here too, through the same
+		// acceptKeys as everywhere else — opening the confirm modal, never
+		// bypassing it.
+		CommitChanges: key.NewBinding(
+			key.WithKeys(append([]string{"c"}, acceptKeys...)...),
+			key.WithHelp("c", "commit staged changes")),
 		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
 
@@ -619,6 +643,7 @@ type bindingSlot struct {
 func (k *keyMap) slots() []bindingSlot {
 	return []bindingSlot{
 		{"up", &k.Up}, {"down", &k.Down}, {"enter", &k.Enter}, {"back", &k.Back},
+		{"accept-changes", &k.AcceptChanges},
 
 		{"jump", &k.Jump}, {"next-panel", &k.NextPanel}, {"prev-panel", &k.PrevPanel},
 

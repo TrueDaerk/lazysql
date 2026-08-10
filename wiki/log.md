@@ -702,3 +702,39 @@ Chronological history of wiki changes, newest last.
   before the run starts, the options bar drops the write keys while `?`
   keeps them, and `sidePanel.decor` puts the 🔒 in front of a read-only
   profile's name without disturbing the filter or `selectByName`.
+
+## 2026-08-10 — Per-connection color tags for environment safety (issue #50)
+
+- Added [design/connection-color-tags](design/connection-color-tags.md).
+  `Connection.Color` (`color = "red"`, an ANSI name/256-index/hex,
+  resolved by the existing `[theme]` parser `resolveColor`) is optional
+  and absent means no tag, so existing configs load unchanged.
+- The tag rides the main view's top border only
+  (`Style.BorderTopForeground`, lipgloss v2), never the whole border: the
+  focused-panel green stays the sole "your keys go here" signal, and a
+  tagged connection can be on screen unfocused (just browsing) without
+  fighting it. `Model.activeTagColor` (`internal/ui/connections.go`)
+  resolves the live connection's tag for `renderMainColumn`.
+- Panel `[1]` marks every color-tagged connection with a `●`
+  (`tagMarker`), independent of read-only's 🔒 and independent of
+  whether that connection is the live one — new `sidePanel.tagColor`
+  (keyed like `decor`, but rendered separately so its color survives the
+  row's status/selection styling instead of being overridden). The same
+  marker (`Model.tagMarkerFor`) precedes the connection name in the main
+  view wherever it already appeared in text.
+- The changeset commit modal and the unguarded DELETE/UPDATE confirm
+  (issue #31's guard) both name the connection through
+  `Model.taggedConnName` — bold, in its tag color — for salience right
+  before a destructive action runs against it.
+- Invalid colors never fail config load, unlike `[keys]`/`[theme]`:
+  `validateConnectionColors` runs once in `New()`, and `Init()` logs one
+  command-log warning per offending connection naming it; every
+  render-time call site (`connTagColor`) just treats invalid/empty
+  identically as "no tag".
+- The connection form's "Color tag" field is a picker (`none` + the six
+  named colors from the issue + `custom…`) backed by a `color_hex` text
+  field that only shows for `custom` and accepts anything `resolveColor`
+  does, not just hex; editing a profile whose stored value isn't one of
+  the six named choices reopens with `custom…` preselected and the raw
+  value carried over, so a hand-edited config value is never silently
+  dropped on the next save.

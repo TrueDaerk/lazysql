@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
 	"strings"
 	"time"
@@ -222,7 +223,8 @@ type Model struct {
 	completion completion
 	schema     schemaCache
 
-	startupErr string
+	startupErr    string
+	colorWarnings []string
 
 	keys  keyMap
 	help  help.Model
@@ -273,6 +275,7 @@ func New() (Model, error) {
 	if cfgErr != nil {
 		m.startupErr = cfgErr.Error()
 	}
+	m.colorWarnings = validateConnectionColors(cfg.Connections)
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id}
 	}
@@ -287,12 +290,19 @@ func (m Model) Init() tea.Cmd {
 	if m.startupErr != "" {
 		cmds = append(cmds, logCmd("-- config error: %s", m.startupErr))
 	}
+	for _, w := range m.colorWarnings {
+		cmds = append(cmds, logCmd("-- warning: %s", w))
+	}
 	return tea.Batch(cmds...)
 }
 
 // lockMark is the read-only indicator: it precedes a read-only profile's
 // name in panel [1] and marks the main view of its connection.
 const lockMark = "🔒"
+
+// tagMarker precedes a connection's name — in panel [1] and in the main
+// view — when it carries a valid environment color tag (config.Connection.Color).
+const tagMarker = "●"
 
 // readOnly reports whether the live connection refuses writes. The driver
 // is asked rather than the profile: the session's own guard is what
@@ -314,15 +324,22 @@ func (m *Model) refreshConnections(selectName string) {
 	names := m.cfg.Names()
 	status := make([]itemStatus, len(names))
 	marks := map[string]string{}
+	tags := map[string]color.Color{}
 	for i, n := range names {
 		status[i] = m.connState[n].status
 		if m.connReadOnly(n) {
 			marks[n] = lockMark + " "
 		}
+		if c, ok := m.cfg.Find(n); ok {
+			if tc, ok := connTagColor(c); ok {
+				tags[n] = tc
+			}
+		}
 	}
 	p := m.panels[panelConnections]
 	prev := p.selected()
 	p.decor = marks
+	p.tagColor = tags
 	p.setItemsWithStatus(names, status)
 	if selectName == "" {
 		selectName = prev

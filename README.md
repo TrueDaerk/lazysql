@@ -238,6 +238,27 @@ for PostgreSQL and `transaction_read_only=1` for MySQL/MariaDB. A
 read-only profile is marked with a 🔒 next to its name and in the main
 view's title.
 
+### Color tags
+
+A connection can carry an environment color tag — set it in the
+connection form's "Color tag" field: pick one of the six named colors, or
+"custom…" for any ANSI name, 256-color index, or hex value the `[theme]`
+section also accepts. It is entirely optional; an untagged connection
+looks exactly as before.
+
+While a tagged connection is active, a `●` in its tag color precedes its
+name in panel `[1]` and in the main view, and the main view's top border
+is tinted the same color. Only the top border changes — the
+sides/bottom (and the panel focus color generally) keep signalling focus
+the way they always have, so a tag can never be mistaken for "this panel
+is focused". Confirm modals for a changeset commit and for an unguarded
+DELETE/UPDATE (see above) render the connection's name in its tag color
+too, for extra salience right before something destructive runs.
+
+An invalid color value (a typo, an unrecognized name) never blocks
+startup: the connection loads with no tag, and lazysql logs a warning
+naming the offending connection.
+
 ## Configuration
 
 lazysql reads `${XDG_CONFIG_HOME:-~/.config}/lazysql/config.toml`. Besides

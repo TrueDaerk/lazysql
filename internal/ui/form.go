@@ -128,6 +128,18 @@ type formModal struct {
 	err      string
 	footer   string
 	onSubmit func(m *Model, f *formModal) (close bool, cmd tea.Cmd)
+
+	// body, when set, renders extra lines between the title and the
+	// fields. It is called on every draw, so it can reflect what has been
+	// typed — which is what makes the dump/restore preview show the
+	// command the form is actually about to run.
+	body func(f *formModal) []string
+}
+
+// withBody attaches the lines rendered above the fields.
+func (f *formModal) withBody(fn func(*formModal) []string) *formModal {
+	f.body = fn
+	return f
 }
 
 func newFormModal(title string, fields []*formField, onSubmit func(*Model, *formModal) (bool, tea.Cmd)) *formModal {
@@ -277,6 +289,12 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render(f.title) + "\n\n")
+	if f.body != nil {
+		for _, line := range f.body(f) {
+			b.WriteString(truncate(line, maxInt(maxW-6, 8)) + "\n")
+		}
+		b.WriteString("\n")
+	}
 	for i, fl := range vis {
 		if fl.kind == fieldText || fl.kind == fieldPassword {
 			fl.input.SetWidth(inputW)

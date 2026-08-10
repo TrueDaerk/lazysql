@@ -212,6 +212,12 @@ const (
 // readKeywords are the leading keywords that only ever produce rows.
 // EXPLAIN is one of them by convention even though `EXPLAIN ANALYZE`
 // really does execute its statement on PostgreSQL — see the wiki note.
+//
+// VACUUM and EXPORT are here only for the two spellings that dump a
+// database to a file — `VACUUM INTO 'file'` (SQLite) and `EXPORT
+// DATABASE 'dir'` (DuckDB). Neither changes the connected database, so a
+// read-only connection can still be backed up; every other VACUUM/EXPORT
+// falls through to StatementWrite below.
 var readKeywords = map[string]bool{
 	"SELECT":   true,
 	"WITH":     true,
@@ -222,6 +228,8 @@ var readKeywords = map[string]bool{
 	"VALUES":   true,
 	"TABLE":    true,
 	"PRAGMA":   true,
+	"VACUUM":   true,
+	"EXPORT":   true,
 }
 
 // writeInCTE are the keywords that turn a `WITH` into a writing
@@ -269,6 +277,20 @@ func ClassifyStatementFor(engine Engine, sql string) StatementKind {
 				return StatementWrite
 			}
 		}
+	case "VACUUM":
+		// Only `VACUUM INTO 'file'` reads: it writes a copy of the
+		// database to a new file and leaves the source untouched. A bare
+		// VACUUM rewrites the database in place.
+		if !secondWordIs(toks, "INTO") {
+			return StatementWrite
+		}
+	case "EXPORT":
+		// Same shape for DuckDB: `EXPORT DATABASE 'dir'` writes files,
+		// not rows. Anything else spelled with EXPORT is unknown, so it
+		// is treated as a write.
+		if !secondWordIs(toks, "DATABASE") {
+			return StatementWrite
+		}
 	case "PRAGMA":
 		// `PRAGMA x = y` sets, `PRAGMA x` reads. The `=` has to be a real
 		// operator: `PRAGMA table_info('a=b')` still only reads.
@@ -279,6 +301,13 @@ func ClassifyStatementFor(engine Engine, sql string) StatementKind {
 		}
 	}
 	return StatementRead
+}
+
+// secondWordIs reports whether the token after the leading keyword is the
+// bare word want. A quoted identifier or a literal spelled the same way
+// does not count, which is what keeps `VACUUM "INTO"` a write.
+func secondWordIs(toks []sqlToken, want string) bool {
+	return len(toks) >= 2 && toks[1].word && strings.EqualFold(toks[1].text, want)
 }
 
 // sqlToken is one significant token of a statement: its text plus the two

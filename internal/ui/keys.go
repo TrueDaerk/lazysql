@@ -136,6 +136,12 @@ type keyMap struct {
 	// exports every relation of the browsed database in one file, rather
 	// than the one relation ExportTable is scoped to.
 	ExportDatabaseDDL key.Binding
+
+	// Backup opens the dump/restore menu on panels [1] and [2], and
+	// CancelBackup kills the tool it started. Like CancelExport the
+	// cancel key is only enabled while a job runs.
+	Backup       key.Binding
+	CancelBackup key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -248,6 +254,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("X"), key.WithHelp("X", "cancel export"), key.WithDisabled()),
 		ExportDatabaseDDL: key.NewBinding(
 			key.WithKeys("E"), key.WithHelp("E", "export database DDL")),
+
+		Backup: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "dump / restore…")),
+		CancelBackup: key.NewBinding(
+			key.WithKeys("X"), key.WithHelp("X", "cancel dump/restore"), key.WithDisabled()),
 	}
 }
 
@@ -370,6 +380,14 @@ const (
 	actExportDDL
 	actCancelExport
 	actExportDatabaseDDL
+
+	// Dump and restore through the engine's own external tool. actBackup
+	// opens the menu; the two directions are its entries, dispatched
+	// through runAction like every other menu.
+	actBackup
+	actDumpDatabase
+	actRestoreDump
+	actCancelBackup
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -390,11 +408,15 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDropConnection, k.DropConnection},
 			{actTestConnection, k.TestConnection},
 			{actSchemaDiff, k.SchemaDiff},
+			{actBackup, k.Backup},
+			{actCancelBackup, k.CancelBackup},
 		}
 	case panelDatabases:
 		return []action{
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+			{actBackup, k.Backup},
+			{actCancelBackup, k.CancelBackup},
 		}
 	case panelTables:
 		return []action{
@@ -560,6 +582,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"copy-menu", &k.CopyMenu}, {"export-table", &k.ExportTable}, {"cancel-export", &k.CancelExport},
 		{"export-database-ddl", &k.ExportDatabaseDDL},
+		{"backup", &k.Backup}, {"cancel-backup", &k.CancelBackup},
 	}
 }
 

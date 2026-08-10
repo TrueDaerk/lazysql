@@ -56,6 +56,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 | `y` | Copy (cell/row/table submenu) |
 | `:` | Focus the SQL query editor, panel `[4]` |
 | `c` | Commit staged changes |
+| `B` | Dump / restore the database (panels `[1]` and `[2]`) |
 | `?` | Help / all bindings |
 | `q` | Quit |
 
@@ -258,6 +259,43 @@ too, for extra salience right before something destructive runs.
 An invalid color value (a typo, an unrecognized name) never blocks
 startup: the connection loads with no tag, and lazysql logs a warning
 naming the offending connection.
+
+### Dump and restore
+
+`B` on panel `[1]` or `[2]` opens a two-entry menu — dump the database to
+a file, or restore such a file back into it. Both open a form that shows
+the exact command about to run, with an editable arguments line and a
+path field.
+
+lazysql drives the engine's own tool rather than serializing the database
+itself, so what comes out is actually restorable:
+
+| Engine | Dump | Restore |
+|--------|------|---------|
+| PostgreSQL | `pg_dump` | `psql` |
+| MySQL | `mysqldump` | `mysql` |
+| MariaDB | `mariadb-dump` (or `mysqldump`) | `mariadb` (or `mysql`) |
+| SQLite | `VACUUM INTO` | copy the file back |
+| DuckDB | `EXPORT DATABASE` (a directory) | `IMPORT DATABASE` |
+
+Host, port, user and database are prefilled from the connection; the
+password comes from the OS keyring like everywhere else. **It never
+reaches the tool's argv** — where `ps` would show it to every user on the
+machine — nor the environment. It travels in a temporary `0600` file (a
+`.pgpass` named by `PGPASSFILE`, or a MySQL option file named by
+`--defaults-extra-file`) that is deleted the moment the tool exits, and it
+appears in neither the previewed command nor the command log.
+
+The tool's stderr is streamed into the command log as it runs; `X` cancels
+a running job and kills the tool's whole process group, and a cancelled or
+failed dump has its partial file removed. A missing binary is reported by
+name before any prompt appears. When the connection runs through an SSH
+tunnel, lazysql opens a loopback-only local forward for the run and points
+the tool at that.
+
+A restore overwrites data and cannot be undone, so it does not run until
+the database name has been typed into a confirmation field, and it is
+refused outright on a read-only connection.
 
 ## Configuration
 

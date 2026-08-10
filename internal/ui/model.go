@@ -14,6 +14,7 @@ import (
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
+	"lazysql/internal/dump"
 	"lazysql/internal/history"
 	"lazysql/internal/snippets"
 	"lazysql/internal/sshtunnel"
@@ -187,6 +188,11 @@ type Model struct {
 	// export is the file export in flight, if any. At most one runs at
 	// a time; `X` cancels it.
 	export exportState
+
+	// backup is the dump or restore in flight, if any — an external tool
+	// (pg_dump, mysqldump) or the file engines' own SQL. Like the export
+	// only one runs at a time and `X` cancels it.
+	backup backupState
 
 	// dbDDLExport guards a whole-database DDL export the same way: only
 	// one runs at a time. It has no cancel key of its own — one round
@@ -385,6 +391,11 @@ func (m *Model) resetBrowse() {
 	// So does a whole-database DDL export.
 	if m.dbDDLExport.running && m.dbDDLExport.cancel != nil {
 		m.dbDDLExport.cancel()
+	}
+	// A dump of a file engine runs its SQL through the same driver, and
+	// a tunnelled dump runs through the tunnel that is about to close.
+	if m.backup.running && m.backup.cancel != nil {
+		m.backup.cancel()
 	}
 	// So does a running script.
 	if m.run.running && m.run.cancel != nil {
@@ -831,6 +842,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.finishExport(msg)
 		return m, cmd
 
+	case backupPasswordMsg:
+		// Bind the command first: openBackupModal sets the modal on m,
+		// and Go may otherwise copy the pre-call model into the return.
+		cmd := m.openBackupModal(msg.action, msg.password)
+		return m, cmd
+
+	case backupLineMsg:
+		if msg.id != m.backup.id || !m.backup.running {
+			return m, nil
+		}
+		return m, tea.Batch(
+			logCmd("-- %s: %s", m.backup.action, msg.line),
+			waitBackupCmd(m.backup.ch),
+		)
+
+	case backupDoneMsg:
+		if msg.id != m.backup.id {
+			return m, nil
+		}
+		// Bind the command first: finishBackup clears the in-flight state
+		// on m, and Go may otherwise copy the pre-call model into the
+		// return value.
+		cmd := m.finishBackup(msg)
+		return m, cmd
+
 	case databaseDDLExportedMsg:
 		if msg.id != m.dbDDLExport.id {
 			return m, nil
@@ -1119,6 +1155,22 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 
 	case actExportDatabaseDDL:
 		cmd := m.startDatabaseDDLExport()
+		return m, cmd
+
+	case actBackup:
+		cmd := m.openBackupMenu()
+		return m, cmd
+
+	case actDumpDatabase:
+		cmd := m.startBackup(dump.Dump)
+		return m, cmd
+
+	case actRestoreDump:
+		cmd := m.startBackup(dump.Restore)
+		return m, cmd
+
+	case actCancelBackup:
+		cmd := m.cancelBackup()
 		return m, cmd
 
 	case actHistory:

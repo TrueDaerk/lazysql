@@ -111,6 +111,17 @@ func TestClassifyStatement(t *testing.T) {
 		{"VALUES (1)", StatementRead},
 		{"PRAGMA table_info(t)", StatementRead},
 		{"PRAGMA journal_mode = WAL", StatementWrite},
+		// The two dump statements read the connected database and write
+		// a file, so a read-only connection can still be backed up.
+		{"VACUUM INTO '/tmp/backup.db'", StatementRead},
+		{"vacuum into '/tmp/backup.db'", StatementRead},
+		{"EXPORT DATABASE '/tmp/export'", StatementRead},
+		// Every other spelling of either keyword rewrites something.
+		{"VACUUM", StatementWrite},
+		{"VACUUM main", StatementWrite},
+		{`VACUUM "INTO"`, StatementWrite},
+		{"EXPORT SOMETHING ELSE", StatementWrite},
+		{"IMPORT DATABASE '/tmp/export'", StatementWrite},
 		{"INSERT INTO t VALUES (1)", StatementWrite},
 		{"UPDATE t SET a = 1", StatementWrite},
 		{"DELETE FROM t", StatementWrite},

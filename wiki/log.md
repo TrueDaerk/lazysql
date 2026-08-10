@@ -738,3 +738,36 @@ Chronological history of wiki changes, newest last.
   the six named choices reopens with `custom…` preselected and the raw
   value carried over, so a hand-edited config value is never silently
   dropped on the next save.
+
+## 2026-08-10 — Integrated dump/restore via external engine tools (issue #51)
+
+- Added [design/dump-and-restore](design/dump-and-restore.md) (Playbook):
+  the per-engine command matrix, the credential-file rule, the process
+  lifecycle, and the tunnel exception. New concept; index updated.
+- New `internal/dump` package: `Request`/`Command`, `Build` (creates the
+  temporary credential file) and `Preview` (assembles the same argv with
+  `CredPlaceholder` and no secret, and doubles as the upfront
+  `exec.LookPath` check), per-engine builders, `.pgpass`/option-file
+  writing with per-format escaping, and a runner that streams stderr,
+  keeps the last ten lines for the failure message and kills the child's
+  whole process group on cancel.
+- `internal/sshtunnel` gained `Tunnel.Listen` — a loopback-only local
+  forward. It is a deliberate exception to
+  [design/ssh-tunnels](design/ssh-tunnels.md)'s "a tunnel is a transport,
+  not a port" rule: an external tool cannot be handed a `DialFunc`. Its
+  lifetime is one job's, and the request's host/port are substituted
+  before the command is built so the `.pgpass` host field matches what
+  libpq actually connected to.
+- `db.ClassifyStatementFor` now reads `VACUUM INTO 'file'` and
+  `EXPORT DATABASE 'dir'` as *reads*, so a read-only connection can still
+  be dumped. Only those two spellings: a bare `VACUUM` rewrites in place
+  and `IMPORT DATABASE` writes rows, and both stay writes. The check goes
+  through `secondWordIs`, which ignores quoted spellings, mirroring the
+  existing `WITH`/`PRAGMA` special cases.
+- `formModal` gained an optional `body` hook rendered between the title
+  and the fields; the dump/restore form uses it for a live preview of the
+  command it is about to run.
+- A SQLite restore closes the session synchronously before copying the
+  file back — a connection left open across the overwrite could replay the
+  old database's WAL onto the new one — and removes the `-wal`/`-shm`/
+  `-journal` sidecars afterwards.

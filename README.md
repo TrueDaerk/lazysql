@@ -69,8 +69,15 @@ nothing attached) skip the database level entirely.
 | `c` | Commit staged changes |
 | `B` | Dump / restore the database (panels `[1]` and `[2]`) |
 | `E` | Export the selected database's DDL (panel `[2]`) |
+| `@` (or `L`) | Expand the command log |
 | `?` | Help / all bindings |
 | `q` | Quit |
+
+The second spelling of a binding is there for non-US keyboards: `@`,
+`[` and `]` are AltGr chords on German QWERTZ and French AZERTY, which
+terminals may not deliver at all, so `L`, `,` and `.` reach the same
+actions. Both spellings stay bound, and either can be replaced through
+the `[keys]` config section.
 
 In the data grid (`enter` on a table, `esc` back):
 
@@ -85,7 +92,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
-| `[` / `]` | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
+| `[` / `]` (or `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
 ### Mouse
 

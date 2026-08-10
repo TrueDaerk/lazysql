@@ -468,8 +468,14 @@ func newCommandLogModal(lines []logLine) *commandLogModal {
 }
 
 func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	// The opener closes it again, whichever of its keys was used — read
+	// from the keymap rather than hard-coding `@`, so the QWERTZ alias
+	// (and any `[keys]` override) toggles the modal too.
+	if key.Matches(msg, m.keys.CommandLog) {
+		return true, nil
+	}
 	switch msg.String() {
-	case "esc", "q", "@":
+	case "esc", "q":
 		return true, nil
 	case "down", "j":
 		c.offset++

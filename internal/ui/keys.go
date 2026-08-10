@@ -208,7 +208,11 @@ func newKeyMap() keyMap {
 		LeaveInsert: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "normal mode")),
 		CancelQuery: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel query"), key.WithDisabled()),
-		CommandLog: key.NewBinding(key.WithKeys("@"), key.WithHelp("@", "expand command log")),
+		// `@` is AltGr+q on QWERTZ/AZERTY and often never reaches the
+		// program, so `L` (for log) is bound next to it as the
+		// layout-neutral alias. It is free in every panel and in the
+		// editor's vim mode, and global keys are matched before either.
+		CommandLog: key.NewBinding(key.WithKeys("@", "L"), key.WithHelp("@/L", "expand command log")),
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
@@ -265,10 +269,12 @@ func newKeyMap() keyMap {
 		VimYankLine:   key.NewBinding(key.WithKeys("y"), key.WithHelp("yy", "yank line")),
 		VimPaste:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "paste")),
 
-		// `ctrl+@` is what a terminal sends for ctrl+space; both spellings
-		// are bound so the key works wherever it is reported either way.
+		// `ctrl+@` used to be bound as the second spelling terminals use
+		// for ctrl+space. It is dropped: Bubble Tea v2 normalises that
+		// byte to ctrl+space, and on QWERTZ/AZERTY the literal chord
+		// (ctrl+AltGr+q) cannot be typed at all.
 		Complete: key.NewBinding(
-			key.WithKeys("ctrl+space", "ctrl+@", "tab"),
+			key.WithKeys("ctrl+space", "tab"),
 			key.WithHelp("ctrl+space/tab", "complete")),
 		CompleteNext: key.NewBinding(
 			key.WithKeys("down", "ctrl+n"), key.WithHelp("↓/ctrl+n", "next suggestion")),
@@ -318,8 +324,12 @@ func newKeyMap() keyMap {
 		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
 
-		PrevMainTab: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev tab")),
-		NextMainTab: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next tab")),
+		// `[` / `]` are AltGr+8 / AltGr+9 on QWERTZ (and AZERTY), which
+		// terminals may deliver as alt-chords or swallow outright. `,`
+		// and `.` sit on the same physical keys on both layouts and are
+		// free in the main view, so they are the portable alias.
+		PrevMainTab: key.NewBinding(key.WithKeys("[", ","), key.WithHelp("[/,", "prev tab")),
+		NextMainTab: key.NewBinding(key.WithKeys("]", "."), key.WithHelp("]/.", "next tab")),
 
 		CopyMenu:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy…")),
 		ExportTable: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "export to file")),

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -71,6 +72,13 @@ type sidePanel struct {
 	// rendering only: the filter, the cursor and selectByName all keep
 	// working on the undecorated names.
 	decor map[string]string
+
+	// tagColor renders a colored bullet ahead of decor, keyed the same
+	// way — panel [1] marks its color-tagged connections that way. It is
+	// styled on its own rather than folded into decor because its color
+	// must survive the row's status/selection styling, not be overridden
+	// by it.
+	tagColor map[string]color.Color
 
 	// tabs are the sub-tab labels drawn next to the title ([3] Tables).
 	tabs []string
@@ -284,17 +292,29 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 	}
 	for i, item := range p.visible(rows) {
 		idx := p.offset + i
-		line := truncate(p.decor[item]+item, w)
+		selected := focused && idx == p.cursor
+
+		marker := ""
+		if tc, ok := p.tagColor[item]; ok {
+			ms := lipgloss.NewStyle().Foreground(tc)
+			if selected {
+				ms = ms.Background(colorSelectionBg)
+			}
+			marker = ms.Render(tagMarker + " ")
+		}
+		markerW := lipgloss.Width(marker)
+
 		style := lipgloss.NewStyle()
-		if focused && idx == p.cursor {
-			style = s.selected.Width(w)
+		if selected {
+			style = s.selected.Width(maxInt(w-markerW, 0))
 		}
 		// Status color survives selection: the selected row keeps its
 		// highlight background and only swaps foreground.
 		if fg, ok := statusColor(p.statusAt(idx)); ok {
 			style = style.Foreground(fg)
 		}
-		b.WriteString("\n" + style.Render(line))
+		line := truncate(p.decor[item]+item, maxInt(w-markerW, 0))
+		b.WriteString("\n" + marker + style.Render(line))
 	}
 	return b.String()
 }

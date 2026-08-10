@@ -629,7 +629,7 @@ func (m *Model) vetQuery(stmts []string, args []any, display string) tea.Cmd {
 	}
 	m.modal = &confirmModal{
 		title:     unguardedWriteTitle(unguarded),
-		body:      unguardedWriteBody(unguarded, m.active),
+		body:      unguardedWriteBody(unguarded, m.taggedConnName(m.active)),
 		danger:    true,
 		onConfirm: func(mm *Model) tea.Cmd { return mm.startQuery(stmts, args, display) },
 	}
@@ -651,7 +651,9 @@ func unguardedWriteTitle(ws []db.UnguardedWrite) string {
 }
 
 // unguardedWriteBody spells out what each offending statement will do
-// and asks for the run to be confirmed against the live connection.
+// and asks for the run to be confirmed against the live connection. active
+// is the connection name, already rendered by taggedConnName so a
+// color-tagged connection stands out in the confirmation.
 func unguardedWriteBody(ws []db.UnguardedWrite, active string) string {
 	verb := map[string]string{"DELETE": "delete every row", "UPDATE": "update every row"}
 	lines := make([]string, 0, len(ws))

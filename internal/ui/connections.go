@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
@@ -28,6 +30,85 @@ const dialTimeout = 15 * time.Second
 type connState struct {
 	status  itemStatus
 	lastErr string
+}
+
+// ---------- color tags ----------
+
+// connTagColor resolves a connection profile's optional environment color
+// tag ("red", "#ff8800", a 256-color index, …) via the same resolveColor
+// [theme] uses. An empty or invalid value reports ok=false: the invalid
+// case is already flagged once at startup by validateConnectionColors, so
+// every other call site just treats it like "no tag" without erroring
+// again.
+func connTagColor(c config.Connection) (color.Color, bool) {
+	if strings.TrimSpace(c.Color) == "" {
+		return nil, false
+	}
+	col, err := resolveColor(c.Color)
+	if err != nil {
+		return nil, false
+	}
+	return col, true
+}
+
+// validateConnectionColors checks every profile's color tag at startup,
+// returning one warning line per invalid value. Unlike [keys]/[theme] this
+// never fails config load — an invalid tag just means no tag, same as an
+// absent one — so the warnings are only ever logged, never returned as an
+// error.
+func validateConnectionColors(conns []config.Connection) []string {
+	var warnings []string
+	for _, c := range conns {
+		if strings.TrimSpace(c.Color) == "" {
+			continue
+		}
+		if _, err := resolveColor(c.Color); err != nil {
+			warnings = append(warnings, fmt.Sprintf("connection %q: %v (no tag applied)", c.Name, err))
+		}
+	}
+	return warnings
+}
+
+// activeTagColor is the live connection's color tag, if any.
+func (m Model) activeTagColor() (color.Color, bool) {
+	if m.active == "" {
+		return nil, false
+	}
+	c, ok := m.cfg.Find(m.active)
+	if !ok {
+		return nil, false
+	}
+	return connTagColor(c)
+}
+
+// taggedConnName renders a connection name in bold plus its tag color, for
+// extra salience in confirm modals guarding a destructive action against
+// the wrong environment. A connection without a (valid) tag renders plain.
+func (m Model) taggedConnName(name string) string {
+	c, ok := m.cfg.Find(name)
+	if !ok {
+		return name
+	}
+	tc, ok := connTagColor(c)
+	if !ok {
+		return name
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(tc).Render(name)
+}
+
+// tagMarkerFor renders the ● environment marker for a connection name
+// (trailing space included), or "" when it carries no (valid) color tag —
+// the main view's counterpart to the panel [1] list marker.
+func (m Model) tagMarkerFor(name string) string {
+	c, ok := m.cfg.Find(name)
+	if !ok {
+		return ""
+	}
+	tc, ok := connTagColor(c)
+	if !ok {
+		return ""
+	}
+	return lipgloss.NewStyle().Foreground(tc).Render(tagMarker) + " "
 }
 
 // ---------- messages ----------
@@ -365,6 +446,48 @@ func isFileEngine(f *formModal) bool {
 
 func isServerEngine(f *formModal) bool { return !isFileEngine(f) }
 
+// namedTagColors are the picker's fixed choices — the six colors the issue
+// calls out by name. Anything else (another ANSI name, a 256-color index,
+// a hex value) goes through the "custom" choice's free-text field instead.
+var namedTagColors = []string{"red", "yellow", "green", "blue", "magenta", "cyan"}
+
+// isCustomColor reports whether the picker should show its "custom" choice
+// selected, i.e. the stored value is neither empty nor one of namedTagColors.
+func isCustomColor(color string) bool {
+	if color == "" {
+		return false
+	}
+	for _, n := range namedTagColors {
+		if color == n {
+			return false
+		}
+	}
+	return true
+}
+
+// colorFormFields builds the "Color tag" picker: a select field over
+// none/the six named colors/custom, plus a text field that only shows up
+// for "custom" and carries the raw value (any string resolveColor accepts —
+// another ANSI name, a 256-color index, or hex).
+func colorFormFields(c config.Connection) []*formField {
+	values := append([]string{""}, namedTagColors...)
+	values = append(values, "custom")
+	labels := append([]string{"none"}, namedTagColors...)
+	labels = append(labels, "custom…")
+
+	selected, custom := c.Color, ""
+	if isCustomColor(c.Color) {
+		selected, custom = "custom", c.Color
+	}
+
+	return []*formField{
+		newSelectField("color", "Color tag", labels, values, selected).
+			withHelp("environment tag: panel [1] marker + main view border"),
+		newTextField("color_hex", "Custom color", custom, "#ff8800 or an ANSI name/index").
+			withVisible(func(f *formModal) bool { return f.rawValue("color") == "custom" }),
+	}
+}
+
 // newConnectionForm builds the create/edit popup. oldName is empty when
 // creating; otherwise it is the profile being replaced.
 func newConnectionForm(title string, c config.Connection, oldName string) *formModal {
@@ -409,6 +532,7 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 		newBoolField("read_only", "Read-only", c.ReadOnly).
 			withHelp("block all writes on this connection"),
 	}
+	fields = append(fields, colorFormFields(c)...)
 	fields = append(fields, sshFields(c, oldName)...)
 
 	return newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
@@ -477,6 +601,16 @@ func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
 	}
 	c.Options = opts
 	c.ReadOnly = f.value("read_only") == "true"
+	color := f.value("color")
+	if color == "custom" {
+		color = strings.TrimSpace(f.value("color_hex"))
+	}
+	if color != "" {
+		if _, err := resolveColor(color); err != nil {
+			return c, sec, fmt.Errorf("color: %w", err)
+		}
+	}
+	c.Color = color
 	if err := c.Validate(); err != nil {
 		return c, sec, err
 	}

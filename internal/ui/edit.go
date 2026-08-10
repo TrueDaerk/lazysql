@@ -276,7 +276,8 @@ func (m *Model) openCommitModal() tea.Cmd {
 	m.modal = &confirmModal{
 		title: "Commit " + countChanges(n),
 		body: strings.Join(lines, "\n") +
-			"\n\nAll statements run in one transaction: on error nothing is applied and the changeset is kept.",
+			"\n\nAll statements run in one transaction: on error nothing is applied and the changeset is kept." +
+			"\n\nConnection: " + m.taggedConnName(m.active),
 		danger:    true,
 		onConfirm: func(mm *Model) tea.Cmd { return commitChangesCmd(mm.driver, stmts) },
 	}

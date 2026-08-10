@@ -48,6 +48,13 @@ type Connection struct {
 	// written before the flag existed load unchanged.
 	ReadOnly bool `toml:"read_only,omitempty"`
 
+	// Color is an optional environment tag: an ANSI name (e.g. "red"), a
+	// 256-color index, or a hex value. internal/ui parses and applies it —
+	// this package only stores the string, same split as Keys/Theme. An
+	// invalid value never fails config load; it degrades to no tag with a
+	// startup warning.
+	Color string `toml:"color,omitempty"`
+
 	Options map[string]string `toml:"options,omitempty"`
 
 	// SSH is the optional jump host this connection is tunnelled through.
@@ -203,8 +210,9 @@ type connectionFile struct {
 	Database string `toml:"database,omitempty"`
 	File     string `toml:"file,omitempty"`
 
-	AskPassword bool `toml:"ask_password,omitempty"`
-	ReadOnly    bool `toml:"read_only,omitempty"`
+	AskPassword bool   `toml:"ask_password,omitempty"`
+	ReadOnly    bool   `toml:"read_only,omitempty"`
+	Color       string `toml:"color,omitempty"`
 
 	Options map[string]string `toml:"options,omitempty"`
 
@@ -244,6 +252,7 @@ func (c *Config) forEncoding() configFile {
 			File:        conn.File,
 			AskPassword: conn.AskPassword,
 			ReadOnly:    conn.ReadOnly,
+			Color:       conn.Color,
 			Options:     conn.Options,
 		}
 		if conn.Port != 0 {

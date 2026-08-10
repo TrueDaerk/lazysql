@@ -173,6 +173,13 @@ func (m Model) renderMainColumn(w, h int) string {
 	if m.focus == panelMain || (m.focus == panelQuery && m.screen == screenFull) {
 		border = m.style.focusedBorder
 	}
+	// The active connection's color tag tints only the top border segment,
+	// never the sides/bottom that carry focus/blur — see
+	// wiki/design/connection-color-tags.md for why the tag rides the top
+	// border instead of replacing the focus color.
+	if tc, ok := m.activeTagColor(); ok {
+		border = border.BorderTopForeground(tc)
+	}
 	main := border.
 		Width(w).Height(mainH).
 		Render(m.mainContent(maxInt(w-2, 1), maxInt(mainH-2, 1)))
@@ -301,7 +308,7 @@ func (m Model) mainContent(w, h int) string {
 	}
 	if m.active != "" {
 		lines = append(lines,
-			"connection: "+m.active,
+			"connection: "+m.tagMarkerFor(m.active)+m.active,
 			"database: "+displayDatabase(m.database),
 			fmt.Sprintf("relations: %d tables · %d views",
 				len(db.FilterRelations(m.relations, db.RelationTable)),
@@ -352,7 +359,7 @@ func (m Model) connectionDetail(w, h int) string {
 		access, accessStyle = lockMark+" read-only", m.style.pending
 	}
 	lines = append(lines,
-		"name    "+c.Name,
+		"name    "+m.tagMarkerFor(c.Name)+c.Name,
 		"engine  "+engine,
 		"status  "+statusStyle.Render(status),
 		"access  "+accessStyle.Render(access),

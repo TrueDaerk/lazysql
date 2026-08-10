@@ -317,3 +317,64 @@ func TestReadOnlyReachesParamsAndClone(t *testing.T) {
 		t.Fatal("Clone dropped the read-only flag")
 	}
 }
+
+// The color tag round trips, is written only when set, and a config from
+// before the field existed still loads with no tag.
+func TestColorRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{Connections: []Connection{
+		{Name: "prod", Engine: db.EnginePostgres, Host: "db.example", Port: 5432, Color: "red"},
+		{Name: "dev", Engine: db.EngineSQLite, File: "/tmp/dev.sqlite"},
+	}}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `color = "red"`) {
+		t.Fatalf("color not written:\n%s", raw)
+	}
+	if strings.Count(string(raw), "color") != 1 {
+		t.Fatalf("color written for the untagged profile too:\n%s", raw)
+	}
+
+	back, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prod, _ := back.Find("prod"); prod.Color != "red" {
+		t.Fatalf("color did not round trip: got %q", prod.Color)
+	}
+	if dev, _ := back.Find("dev"); dev.Color != "" {
+		t.Fatalf("a profile without color loaded with one: %q", dev.Color)
+	}
+}
+
+// A config file written before the color field existed loads unchanged.
+func TestConfigWithoutColorLoadsUntagged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	old := "[[connections]]\nname = \"legacy\"\nengine = \"sqlite\"\nfile = \"/tmp/legacy.db\"\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Connections[0].Color != "" {
+		t.Fatal("an absent color key loaded with a tag")
+	}
+}
+
+// Clone keeps the color tag — it is a plain string field, but this guards
+// against a future refactor that turns it into something Clone must deep-copy.
+func TestColorReachesClone(t *testing.T) {
+	cfg := &Config{Connections: []Connection{
+		{Name: "prod", Engine: db.EngineSQLite, File: "/tmp/p.db", Color: "#ff8800"},
+	}}
+	if got := cfg.Clone().Connections[0].Color; got != "#ff8800" {
+		t.Fatalf("Clone dropped the color tag: got %q", got)
+	}
+}

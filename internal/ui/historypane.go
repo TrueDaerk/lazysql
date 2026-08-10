@@ -64,6 +64,19 @@ func (hm *historyModal) rowCount() int {
 	return len(hm.entries)
 }
 
+// scroll is the wheel: it walks the active section's cursor, which is
+// what the pane scrolls by — the offset is derived from it at render.
+func (hm *historyModal) scroll(delta int) {
+	cur := &hm.cursor[hm.section]
+	*cur += delta
+	if *cur >= hm.rowCount() {
+		*cur = hm.rowCount() - 1
+	}
+	if *cur < 0 {
+		*cur = 0
+	}
+}
+
 func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := &hm.cursor[hm.section]
 	switch msg.String() {

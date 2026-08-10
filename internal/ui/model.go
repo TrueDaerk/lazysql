@@ -265,6 +265,10 @@ type Model struct {
 	help  help.Model
 	style styles
 
+	// wheel coalesces mouse wheel bursts into one scroll per frame, so a
+	// fast wheel cannot queue up behind the renderer. See mouse.go.
+	wheel wheelState
+
 	// spin animates the running indicator in the options bar. It ticks
 	// only while a query runs — the message handler drops any tick that
 	// outlives its run — so it costs nothing the rest of the time.
@@ -577,7 +581,10 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
 // keys) → an open `/` filter → the query editor in insert mode → global
 // keys → focused panel. A bracketed paste takes the same order through
-// updatePaste, minus the steps that only make sense for a key.
+// updatePaste, minus the steps that only make sense for a key, and a
+// mouse event through updateMouse — where a click that moves the focus
+// is the "global" step and the wheel is aimed by the pointer rather than
+// by the focus.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -1058,6 +1065,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// it is made of, and is routed like one — see paste.go for why
 		// it cannot simply follow the key path.
 		return m.updatePaste(msg)
+
+	case wheelFlushMsg:
+		// One frame's worth of accumulated wheel notches — see mouse.go.
+		cmd := m.flushWheel(msg)
+		return m, cmd
+
+	case tea.MouseMsg:
+		// Clicks and the wheel take the same routing order a key does,
+		// with one difference: the wheel goes to the panel under the
+		// pointer, not to the focused one. See mouse.go.
+		return m.updateMouse(msg)
 
 	case tea.KeyPressMsg:
 		// 1. A modal swallows every key. esc always cancels.

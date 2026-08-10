@@ -20,6 +20,11 @@ func (m Model) View() tea.View {
 	v := tea.NewView("")
 	v.AltScreen = true
 	v.WindowTitle = appName
+	// Cell-motion tracking: clicks, releases and the wheel, but no motion
+	// reports — nothing in the UI follows a drag, and all-motion would put
+	// a message on the queue for every cell the pointer crosses. See
+	// wiki/design/mouse-support.md.
+	v.MouseMode = tea.MouseModeCellMotion
 
 	if m.width <= 0 || m.height <= 0 {
 		v.SetContent("")

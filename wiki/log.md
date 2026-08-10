@@ -909,3 +909,37 @@ Chronological history of wiki changes, newest last.
   native macOS copy landing on the system clipboard, the same copy emitting
   `ESC]52;c;MQ==BEL` (decoded back to the cell value) once `pbcopy` is off
   `PATH`, and the temp-file spill still happening with `LAZYSQL_NO_OSC52=1`.
+
+## 2026-08-10 — Basic mouse support (issue #77)
+
+- Added [design/mouse-support](design/mouse-support.md): why tracking is
+  cell-motion level and set on the `tea.View` rather than as a program option,
+  why hit-testing recomputes the layout from `sideWidth`/`panelHeights`/
+  `commandLogHeight` instead of caching panel rects, why the drill-in gesture
+  is a second click rather than a double-click, why the wheel is aimed by the
+  pointer while a click is aimed by focus, and the wheel-coalescing scheme that
+  answers the scroll-backlog issue (#78).
+- `internal/ui/view.go`: `View()` sets `v.MouseMode = tea.MouseModeCellMotion`.
+- Added `internal/ui/mouse.go`: `rect`/`hit`/`hitTest`/`boxHit` geometry, the
+  `wheelState` coalescer (`wheelAt`, `flushWheel`, `wheelFlushMsg` on a 16ms
+  `tea.Tick`, `gen` dropping stale ticks), `applyScroll`/`scrollMain`/
+  `scrollGrid`/`scrollEditor`, `clickSide`/`clickMain`/`clickGrid`, the
+  optional `wheelHandler` modal interface, and `sidePanel.tabHit`/`mainTabHit`.
+- `internal/ui/model.go`: `Model.wheel wheelState`, plus `tea.MouseMsg` and
+  `wheelFlushMsg` cases in `Update`; the routing-order comment now names the
+  mouse path.
+- `scroll` implemented on `menuModal`, `cellModal`, `commandLogModal`,
+  `rowDetailModal` and `historyModal`; every other modal still swallows the
+  wheel so it can never reach the view behind an open popup.
+- Behaviour: a click focuses a panel and selects a row, a second click on the
+  selected row is `enter`, the `Tables`/`Views` and main-view tab headers are
+  clickable in the box's top border, and the wheel scrolls the hovered side
+  panel list, the grid's rows (clamped at the page boundary — no round trip),
+  the query editor's caret, the plan and the schema diff, and a scrollable
+  popup. Panel `[4]`'s side box is inert: it previews the buffer from line 1.
+- Tests: `mouse_test.go` covers the layout hit map (including the too-small
+  guard), click-to-focus/select/drill-in, both tab-header hit tests, the wheel
+  scrolling the hovered rather than the focused panel, the coalescer (first
+  event applies, the rest accumulate, the flush drains, a stale `gen` is
+  ignored, an empty flush disarms), retargeting mid-burst, modal swallowing,
+  the grid's cell click and page-boundary clamp, and the editor caret scroll.

@@ -465,6 +465,30 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 	return append(out, k.Jump, k.NextPanel, k.OpenEditor, k.CancelQuery, k.Help, k.Quit)
 }
 
+// writeBindings are the keys that stage or apply a change. A read-only
+// connection drops them from the options bar — they would only ever
+// answer with "connection is read-only" — while `?` keeps listing them,
+// so every binding is still documented in exactly one place.
+func (k keyMap) writeBindings() []key.Binding {
+	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges}
+}
+
+// withoutBindings drops every binding of hide from all, matching on the
+// help text — the only comparable part of a key.Binding.
+func withoutBindings(all, hide []key.Binding) []key.Binding {
+	drop := make(map[key.Help]bool, len(hide))
+	for _, b := range hide {
+		drop[b.Help()] = true
+	}
+	out := make([]key.Binding, 0, len(all))
+	for _, b := range all {
+		if !drop[b.Help()] {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 // helpGroups is the full `?` listing for the focused panel, drawn from the
 // same bindings as the options bar.
 func (k keyMap) helpGroups(id panelID) [][]key.Binding {

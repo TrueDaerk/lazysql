@@ -290,16 +290,39 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
+// lockMark is the read-only indicator: it precedes a read-only profile's
+// name in panel [1] and marks the main view of its connection.
+const lockMark = "🔒"
+
+// readOnly reports whether the live connection refuses writes. The driver
+// is asked rather than the profile: the session's own guard is what
+// enforces the mode, and a profile edited after connecting must not make
+// the UI believe writes are back.
+func (m Model) readOnly() bool { return m.driver != nil && m.driver.ReadOnly() }
+
+// connReadOnly reports whether the named profile is configured read-only.
+// It answers for connections that are not open, which is what the panel's
+// lock marks need.
+func (m Model) connReadOnly(name string) bool {
+	c, ok := m.cfg.Find(name)
+	return ok && c.ReadOnly
+}
+
 // refreshConnections rebuilds the [1] Connections panel from the config plus
 // the live status map, keeping (or moving to) the named selection.
 func (m *Model) refreshConnections(selectName string) {
 	names := m.cfg.Names()
 	status := make([]itemStatus, len(names))
+	marks := map[string]string{}
 	for i, n := range names {
 		status[i] = m.connState[n].status
+		if m.connReadOnly(n) {
+			marks[n] = lockMark + " "
+		}
 	}
 	p := m.panels[panelConnections]
 	prev := p.selected()
+	p.decor = marks
 	p.setItemsWithStatus(names, status)
 	if selectName == "" {
 		selectName = prev

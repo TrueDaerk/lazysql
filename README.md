@@ -215,6 +215,29 @@ highlighted; `enter` runs the selected one (through the same placeholder
 prompt), `e` loads it into the editor without running it, and `d` deletes
 it after a confirmation.
 
+### Read-only connections
+
+A connection can be marked read-only in the connection form (`e` on panel
+`[1]`), which writes `read_only = true` on its `[[connections]]` entry.
+Everything that would change data or schema is then refused:
+
+- the query editor rejects DML and DDL — including a data-modifying CTE
+  such as `WITH … DELETE` — before the run starts, while `SELECT` and
+  `EXPLAIN` work as usual;
+- cell edits, row inserts, row deletes and the changeset commit answer
+  with `connection is read-only` instead of staging, and their keys drop
+  out of the options bar;
+- every blocked attempt is appended to the command log, marked
+  `-- REJECTED (read-only)`.
+
+The refusal lives in the driver session, so nothing can route around it.
+On top of that, lazysql asks the engine itself for a read-only session
+where one exists: `mode=ro` for SQLite, `access_mode=read_only` for
+DuckDB (a file-backed database only), `default_transaction_read_only=on`
+for PostgreSQL and `transaction_read_only=1` for MySQL/MariaDB. A
+read-only profile is marked with a 🔒 next to its name and in the main
+view's title.
+
 ## Configuration
 
 lazysql reads `${XDG_CONFIG_HOME:-~/.config}/lazysql/config.toml`. Besides

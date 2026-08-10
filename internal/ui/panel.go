@@ -66,6 +66,12 @@ type sidePanel struct {
 	// identity.
 	idx []int
 
+	// decor prefixes a row with a marker, keyed by the row's own text —
+	// panel [1] marks its read-only profiles that way. It decorates the
+	// rendering only: the filter, the cursor and selectByName all keep
+	// working on the undecorated names.
+	decor map[string]string
+
 	// tabs are the sub-tab labels drawn next to the title ([3] Tables).
 	tabs []string
 	tab  int
@@ -278,7 +284,7 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 	}
 	for i, item := range p.visible(rows) {
 		idx := p.offset + i
-		line := truncate(item, w)
+		line := truncate(p.decor[item]+item, w)
 		style := lipgloss.NewStyle()
 		if focused && idx == p.cursor {
 			style = s.selected.Width(w)

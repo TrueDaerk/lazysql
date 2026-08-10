@@ -561,6 +561,13 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	if len(stmts) == 0 {
 		return logCmd("-- run query skipped: nothing to run")
 	}
+	// A read-only session would refuse the write anyway, statement by
+	// statement and only once the run was under way. Refusing the whole
+	// script here instead means the script never half-runs and the reason
+	// names the offending statement.
+	if cmd := m.rejectReadOnlyRun(stmts); cmd != nil {
+		return cmd
+	}
 
 	// A single statement with placeholders — a positional `?` or a named
 	// `:name`, detected by the tokenizer so a `?` inside a string or a
@@ -584,6 +591,24 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 		}
 	}
 	return m.vetQuery(stmts, nil, "")
+}
+
+// rejectReadOnlyRun stops a script that would write on a read-only
+// connection, naming the first offending statement in the command log and
+// in the Data tab. It returns nil — meaning "carry on" — for a connection
+// that writes, and for a script that only reads.
+func (m *Model) rejectReadOnlyRun(stmts []string) tea.Cmd {
+	if !m.readOnly() {
+		return nil
+	}
+	writes := db.WriteStatements(m.driver.Engine(), stmts)
+	if len(writes) == 0 {
+		return nil
+	}
+	err := fmt.Errorf("%s rejected: %w", db.FirstKeyword(writes[0]), db.ErrReadOnly)
+	m.showQueryError(writes[0], err)
+	return logCmd("-- run query REJECTED: %s of %s would write, and %v",
+		countStatements(len(writes)), countStatements(len(stmts)), db.ErrReadOnly)
 }
 
 // vetQuery is the tail of submitQuery once the statements and their bound

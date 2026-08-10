@@ -42,12 +42,22 @@ func commitChangesCmd(drv db.Driver, stmts []db.Statement) tea.Cmd {
 
 // ---------- model wiring ----------
 
+// readOnlyBlocked is the status line every write entry point refuses
+// with. The wording matches db.ErrReadOnly, so the message is the same
+// whether the UI stopped the action or the driver session did.
+func readOnlyBlocked(what string) tea.Cmd {
+	return logCmd("-- %s blocked: %v", what, db.ErrReadOnly)
+}
+
 // startEdit is `e` on the Data tab. The primary key comes from the
 // cached metadata; when no tab has fetched it yet the fetch is started
 // and the modal opens when the reply lands, like `y` does for the DDL.
 func (m *Model) startEdit() tea.Cmd {
 	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
+	}
+	if m.readOnly() {
+		return readOnlyBlocked("edit")
 	}
 	if m.onPhantomRow() {
 		return logCmd("-- edit skipped: the cursor is on a staged insert (u unstages it)")
@@ -247,6 +257,12 @@ func (m *Model) confirmDiscard() tea.Cmd {
 func (m *Model) openCommitModal() tea.Cmd {
 	if m.driver == nil {
 		return nil
+	}
+	// Nothing can normally be staged on a read-only connection, but a
+	// changeset staged before the connection changed must not find a way
+	// out either.
+	if m.readOnly() {
+		return readOnlyBlocked("commit")
 	}
 	n := m.changes.Len()
 	if n == 0 {

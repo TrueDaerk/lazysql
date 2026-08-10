@@ -37,6 +37,12 @@ func (m Model) mainTabBar(w int) string {
 	} else {
 		line += m.style.muted.Render(" "+displayDatabase(m.data.database)+".") + m.data.table
 	}
+	// The lock rides in the main view's title, not only in panel [1]: the
+	// grid is where a write would be attempted, so that is where the mode
+	// has to be visible.
+	if m.readOnly() {
+		line += " " + m.style.pending.Render(lockMark+" read-only")
+	}
 	if m.tab == mainTabData && m.data.loading || m.tab.metadata() && m.meta.loading {
 		line += " " + m.style.pending.Render("loading…")
 	}

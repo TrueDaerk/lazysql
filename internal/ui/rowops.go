@@ -61,6 +61,9 @@ func (m *Model) startDelete() tea.Cmd {
 	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
+	if m.readOnly() {
+		return readOnlyBlocked("delete")
+	}
 	if m.onPhantomRow() {
 		return logCmd("-- delete skipped: the row is a staged insert (u unstages it)")
 	}
@@ -104,6 +107,12 @@ func (m *Model) stageDeleteAtCursor() tea.Cmd {
 func (m *Model) startInsert(duplicate bool) tea.Cmd {
 	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
+	}
+	if m.readOnly() {
+		if duplicate {
+			return readOnlyBlocked("duplicate")
+		}
+		return readOnlyBlocked("insert")
 	}
 	if duplicate {
 		if m.onPhantomRow() {

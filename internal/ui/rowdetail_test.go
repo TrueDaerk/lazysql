@@ -112,9 +112,9 @@ func TestRowDetailScrolls(t *testing.T) {
 	if _, err := m.driver.Exec(ctx, insert); err != nil {
 		t.Fatal(err)
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("wide") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("wide") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	m = send(t, m, tea.WindowSizeMsg{Width: 120, Height: 20})

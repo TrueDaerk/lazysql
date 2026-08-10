@@ -199,7 +199,7 @@ func TestExplainFailureIsReported(t *testing.T) {
 // Every key in the options bar is documented in `?`, ctrl+e included.
 func TestExplainIsDocumented(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('4'))
+	m = send(t, m, press('3'))
 	m = send(t, m, press('?'))
 	if m.modal == nil {
 		t.Fatal("`?` opened no modal")

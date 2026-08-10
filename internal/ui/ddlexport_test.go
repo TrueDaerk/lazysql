@@ -121,7 +121,7 @@ func TestExportDatabaseDDLOrdersByForeignKey(t *testing.T) {
 	path := filepath.Join(dir, "db-ddl.sql")
 
 	m := ddlDatabaseBrowsing(t)
-	if m.focus != panelTables {
+	if m.focus != panelObjects {
 		t.Fatalf("focus = %v, want the Tables panel", m.focus)
 	}
 	m = send(t, m, press('E'))

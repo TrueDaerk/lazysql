@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -68,8 +67,7 @@ const (
 // hit is where a mouse event landed: the box, and the cell inside it.
 // row/col are content coordinates — 0,0 is the first cell inside the
 // border — and are -1 when the cell is not a content cell. title marks
-// the box's top border line, where renderTitledBox splices the title
-// (and, for [3] Tables, the sub-tab headers).
+// the box's top border line, where renderTitledBox splices the title.
 type hit struct {
 	zone  hitZone
 	panel panelID
@@ -304,6 +302,10 @@ func (m *Model) scrollMain(row, delta int) {
 			return
 		}
 		m.scrollEditor(delta)
+	case m.trigger != nil:
+		// The trigger definition owns the main view while it is up, the
+		// same way the plan does for panel [3].
+		m.scrollTrigger(delta)
 	case m.data.open():
 		if m.tab.metadata() {
 			mm, _ := m.updateMetaKeys(delta)
@@ -436,16 +438,6 @@ func (m Model) clickSide(h hit) (tea.Model, tea.Cmd) {
 	p := m.panels[h.panel]
 
 	if h.title {
-		// The sub-tab headers ride the title line — [3] Tables/Views.
-		if i, ok := p.tabHit(h.col); ok && h.panel == panelTables {
-			m.setFocus(h.panel)
-			if t := relationTab(i); t != m.tableTab {
-				m.tableTab = t
-				p.clearFilter()
-				m.refreshRelations()
-			}
-			return m, nil
-		}
 		m.setFocus(h.panel)
 		return m, nil
 	}
@@ -506,7 +498,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if !m.data.open() {
+	if !m.data.open() && m.trigger == nil {
 		// With nothing open the main view has no cursor to give; taking
 		// the focus would only replace the focused panel's summary with
 		// "no relation open".
@@ -514,7 +506,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 	}
 	wasMain := m.focus == panelMain
 	m.setFocus(panelMain)
-	if !wasMain || h.row < 0 || m.tab != mainTabData {
+	if !wasMain || h.row < 0 || m.tab != mainTabData || m.trigger != nil {
 		// The first click focuses; the second one, now that the grid is
 		// what the box shows, picks a cell in it.
 		return m, nil
@@ -572,28 +564,6 @@ func gridColumnAt(cols []gridColumn, x int) (int, bool) {
 }
 
 // ---------- tab hit-testing ----------
-
-// tabHit maps a cell offset inside the title line onto a sub-tab index.
-// The offsets follow titleLine's own layout: `[n] Name`, a space, `‹`,
-// then the labels with a `|` between them.
-func (p *sidePanel) tabHit(col int) (int, bool) {
-	if len(p.tabs) == 0 || col < 0 {
-		return 0, false
-	}
-	at := lipgloss.Width(fmt.Sprintf("[%d] %s", int(p.id)+1, panelTitles[p.id])) +
-		lipgloss.Width(" ") + lipgloss.Width("‹")
-	for i, t := range p.tabs {
-		if i > 0 {
-			at += lipgloss.Width("|")
-		}
-		w := lipgloss.Width(t)
-		if col >= at && col < at+w {
-			return i, true
-		}
-		at += w
-	}
-	return 0, false
-}
 
 // mainTabHit maps a cell offset inside the main view's title onto a tab.
 // mainTabBar opens with `‹` and separates the labels with `|`.

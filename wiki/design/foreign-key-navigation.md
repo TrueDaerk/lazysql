@@ -66,7 +66,7 @@ stored ones on screen until the reply lands, so the grid never blinks
 empty.
 
 `esc` pops the history *before* the focus stack. Opening a relation from
-panel `[3]`, or switching namespace, clears the history: those are fresh
+the `[2]` tree, or switching namespace, clears the history: those are fresh
 starts, not steps in a chain.
 
 ### The reverse direction scans the namespace once
@@ -102,7 +102,7 @@ entry so a schema change is picked up.
 
 - Following a key across schemas works: `db.SplitQualified` splits a
   `schema.table` target so the page query addresses the right namespace,
-  and the `[3]` panel only follows along when the target is in the
+  and the `[2]` tree only follows along when the target is in the
   namespace being browsed.
 - A column belonging to several constraints opens a menu instead of
   guessing; so does `G` with several referencing tables.

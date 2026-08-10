@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"sort"
@@ -174,13 +175,25 @@ type Model struct {
 	// whenever driver is, including on quit.
 	tunnel *sshtunnel.Tunnel
 
-	// Browsing state: the namespace panel [3] currently shows, the
-	// relations it was filled from (both kinds, one round trip) and which
-	// sub-tab is selected.
+	// Browsing state: the namespace the main view belongs to, its relation
+	// listing (both kinds, one round trip) and the relation on screen.
+	// relations is a mirror of the [2] tree's cache for that namespace —
+	// syncRelations is the one place it is filled.
 	database  string
 	relations []db.Relation
-	tableTab  relationTab
 	table     string // the relation the main view is showing
+
+	// tree is the [2] Objects panel's model: databases, their object
+	// categories and the objects themselves, with the listings each was
+	// lazily loaded from. It is a pointer so every copied Model shares one
+	// tree, the way changes shares one changeset.
+	tree *objectTree
+
+	// trigger is the read-only trigger definition on the main view, nil
+	// when none is open. triggerReq drops a reply for a trigger that has
+	// already been left. See triggerview.go.
+	trigger    *triggerView
+	triggerReq int
 
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
@@ -329,7 +342,7 @@ func New(noRestore bool) (Model, error) {
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id}
 	}
-	m.panels[panelTables].tabs = relationTabNames[:]
+	m.tree = newObjectTree(nil)
 
 	if st, err := config.LoadState(); err == nil && st != nil {
 		m.screen = screenModeFromName(st.ScreenMode)
@@ -463,13 +476,14 @@ func (m *Model) resetBrowse() {
 	}
 	// A plan describes a statement against the connection being left.
 	m.plan = nil
+	// So does a trigger definition.
+	m.trigger = nil
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
 	m.tab = mainTabData
 	m.resetMeta()
 	m.relations = nil
-	m.tableTab = tabTables
 	// The foreign-key caches and the jump history describe relations of
 	// the connection being left behind.
 	m.fkCache = map[fkKey][]db.ForeignKey{}
@@ -478,47 +492,44 @@ func (m *Model) resetBrowse() {
 	m.browseStack = nil
 	m.fkAfter = actNone
 	if m.focus == panelMain {
-		m.focus = panelTables
+		m.focus = panelObjects
 	}
-	for _, id := range []panelID{panelDatabases, panelTables} {
-		p := m.panels[id]
-		p.loading = false
-		p.clearFilter()
-		p.setItems(nil)
-	}
-	m.panels[panelTables].tab = int(m.tableTab)
+	// rebuildTree drops the tree, its cached listings and the panel's
+	// filter; only the in-flight marker is not its business.
+	m.panels[panelObjects].loading = false
+	m.rebuildTree(nil)
 }
 
-// openDatabase makes name the browsed namespace and starts the table load.
-// The panel keeps its old rows until the reply lands.
+// openDatabase makes name the browsed namespace and expands its Tables
+// category, which is what starts the listing. The tree keeps its old rows
+// until the reply lands.
 func (m *Model) openDatabase(name string) tea.Cmd {
 	m.database = databaseArg(name)
 	// The open page belongs to the namespace we are leaving, and so does
 	// every state the jump history could go back to.
 	m.table = ""
 	m.data = dataView{}
+	m.trigger = nil
 	m.browseStack = nil
 	m.fkAfter = actNone
 	m.resetMeta()
+	m.syncRelations()
 	if m.focus == panelMain {
-		m.focus = panelTables
+		m.focus = panelObjects
 	}
-	p := m.panels[panelTables]
-	p.clearFilter()
-	if m.driver == nil {
-		return nil
+	var cmds []tea.Cmd
+	if !m.tree.single {
+		for _, root := range m.tree.roots {
+			if root.database == m.database {
+				cmds = append(cmds, m.expandNode(root))
+			}
+		}
 	}
-	m.relations = nil
-	p.loading = true
-	return loadRelationsCmd(m.active, m.driver, m.database)
-}
-
-// refreshRelations repaints panel [3] from the cached relation list for the
-// selected sub-tab — switching tabs never hits the server.
-func (m *Model) refreshRelations() {
-	p := m.panels[panelTables]
-	p.tab = int(m.tableTab)
-	p.setItems(db.FilterRelations(m.relations, m.tableTab.kind()))
+	if c := m.tree.category(m.database, catTables); c != nil {
+		cmds = append(cmds, m.expandNode(c))
+	}
+	m.refreshTree()
+	return tea.Batch(cmds...)
 }
 
 // reloadFocused re-runs the server query behind the focused panel.
@@ -527,18 +538,8 @@ func (m *Model) reloadFocused() tea.Cmd {
 		return logCmd("-- reload %s skipped: not connected", panelTitles[m.focus])
 	}
 	switch m.focus {
-	case panelDatabases:
-		m.panels[panelDatabases].loading = true
-		return tea.Batch(
-			logCmd("-- reload databases of %s", m.active),
-			loadDatabasesCmd(m.active, m.driver),
-		)
-	case panelTables:
-		m.panels[panelTables].loading = true
-		return tea.Batch(
-			logCmd("-- reload tables of %s", displayDatabase(m.database)),
-			loadRelationsCmd(m.active, m.driver, m.database),
-		)
+	case panelObjects:
+		return m.reloadNode()
 	case panelMain:
 		if m.tab.metadata() {
 			return m.reloadMeta()
@@ -552,6 +553,16 @@ func (m *Model) reloadFocused() tea.Cmd {
 		return tea.Batch(m.reloadPage(), m.ensureFKs())
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
+}
+
+// engineName is the live connection's engine as the UI spells it, and a
+// placeholder when nothing is connected — a load reply can outlive the
+// driver it was started on.
+func (m Model) engineName() string {
+	if m.driver == nil {
+		return "this engine"
+	}
+	return m.driver.Dialect().DisplayName()
 }
 
 // displayDatabase names the browsed namespace for logs and the main view.
@@ -770,15 +781,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.active = msg.name
 		m.setConnStatus(msg.name, statusOK, "")
 		m.resetBrowse()
-		m.panels[panelDatabases].setItems(namespaceList(msg.driver.Engine(), msg.databases))
+		dbs := namespaceList(msg.driver.Engine(), msg.databases)
+		m.rebuildTree(dbs)
 		cmds := []tea.Cmd{
 			closeSessionCmd(prevDriver, prevTunnel),
 			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
 		}
-		dbs := m.panels[panelDatabases].items
 		if restoring {
 			if display, ok := findDatabaseDisplayName(dbs, m.restoreSess.Database); ok {
-				cmds = append(cmds, m.openDatabase(display), focusCmd(panelTables))
+				cmds = append(cmds, m.openDatabase(display), focusCmd(panelObjects))
 				return m, tea.Batch(cmds...)
 			}
 			sess := *m.restoreSess
@@ -786,12 +797,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, logCmd("-- restore session: database %q not found", displayDatabase(sess.Database)))
 		}
 		// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
-		// go straight to their tables.
+		// the tree skips the database level entirely, so its Tables
+		// category is opened straight away.
 		if len(dbs) == 1 {
-			cmds = append(cmds, m.openDatabase(dbs[0]), focusCmd(panelTables))
-		} else {
-			cmds = append(cmds, focusCmd(panelDatabases))
+			cmds = append(cmds, m.openDatabase(dbs[0]))
 		}
+		cmds = append(cmds, focusCmd(panelObjects))
 		return m, tea.Batch(cmds...)
 
 	case databasesLoadedMsg:
@@ -799,22 +810,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.conn != m.active {
 			return m, nil
 		}
-		p := m.panels[panelDatabases]
+		p := m.panels[panelObjects]
 		p.loading = false
 		if msg.err != nil {
-			// The panel keeps its previous content; only the log knows.
+			// The tree keeps its previous content; only the log knows.
 			return m, logCmd("-- list databases FAILED: %v", msg.err)
 		}
-		p.setItems(namespaceList(m.driver.Engine(), msg.databases))
+		dbs := namespaceList(m.driver.Engine(), msg.databases)
+		// A re-listing drops every cached object list with it: that is
+		// what makes `R` on the database level a real refresh.
+		m.rebuildTree(dbs)
+		m.syncRelations()
+		if len(dbs) == 1 {
+			return m, m.openDatabase(dbs[0])
+		}
 		return m, nil
 
 	case relationsLoadedMsg:
-		if msg.conn != m.active || msg.database != m.database {
+		if msg.conn != m.active {
 			return m, nil
 		}
-		p := m.panels[panelTables]
-		p.loading = false
 		if msg.err != nil {
+			m.categoryFailed(msg.database, catTables, msg.err)
+			m.refreshTree()
 			if m.restoreSess != nil {
 				sess := *m.restoreSess
 				m.restoreSess = nil
@@ -822,9 +840,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, logCmd("-- list tables of %s FAILED: %v", displayDatabase(msg.database), msg.err)
 		}
-		m.relations = msg.relations
-		m.refreshRelations()
-		if m.restoreSess != nil {
+		m.applyRelations(msg.database, msg.relations)
+		m.refreshTree()
+		if m.restoreSess != nil && msg.database == m.database {
 			sess := *m.restoreSess
 			if sess.Table == "" {
 				m.restoreSess = nil
@@ -839,6 +857,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.openTable(sess.Table), focusCmd(panelMain))
 		}
 		return m, nil
+
+	case triggersLoadedMsg:
+		if msg.conn != m.active {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.categoryFailed(msg.database, catTriggers, msg.err)
+			m.refreshTree()
+			if errors.Is(msg.err, db.ErrUnsupported) {
+				return m, logCmd("-- %s has no triggers", m.engineName())
+			}
+			return m, logCmd("-- list triggers of %s FAILED: %v",
+				displayDatabase(msg.database), msg.err)
+		}
+		m.applyTriggers(msg.database, msg.triggers)
+		m.refreshTree()
+		return m, nil
+
+	case triggerDDLMsg:
+		// Bind the command first: applyTriggerDDL replaces the view on m,
+		// and Go may otherwise copy the pre-call model into the return.
+		cmd := m.applyTriggerDDL(msg)
+		return m, cmd
 
 	case pageLoadedMsg:
 		if !m.fresh(msg.req, msg.conn, msg.table) {
@@ -1355,10 +1396,12 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		// every keystroke and esc restores the full list.
 		m.panels[m.focus].filtering = true
 
-	case actToggleTab:
-		m.tableTab = (m.tableTab + 1) % relationTabCount
-		m.panels[panelTables].clearFilter()
-		m.refreshRelations()
+	case actExpandNode:
+		cmd := m.expandSelected()
+		return m, cmd
+
+	case actCollapseNode:
+		m.collapseSelected()
 
 	case actExportDatabaseDDL:
 		cmd := m.startDatabaseDDLExport()
@@ -1462,35 +1505,56 @@ func (m Model) saveSession() {
 	})
 }
 
-// drillIn is `enter`: move one step deeper in the connection → database →
-// table chain, and record the resulting statement in the history panel.
+// drillIn is `enter` on the object tree: a branch expands or collapses, a
+// relation opens in the main view and a trigger shows its definition
+// there.
 func (m *Model) drillIn() tea.Cmd {
-	sel := m.panels[m.focus].selected()
-	if sel == "" {
+	if m.focus != panelObjects {
 		return nil
 	}
-	switch m.focus {
-	case panelDatabases:
-		return tea.Batch(logCmd("USE %s;", sel), m.openDatabase(sel), focusCmd(panelTables))
-	case panelTables:
-		// Opening a relation loads its first page and hands focus to the
-		// grid; `esc` there comes straight back here.
-		return tea.Batch(m.openTable(sel), focusCmd(panelMain))
+	n := m.selectedNode()
+	if n == nil {
+		return nil
 	}
-	return nil
+	if !n.leaf() {
+		return m.toggleNode(n)
+	}
+	if n.cat == catTriggers {
+		return tea.Batch(m.openTrigger(n), focusCmd(panelMain))
+	}
+	// Opening a relation loads its first page and hands focus to the
+	// grid; `esc` there comes straight back here.
+	return tea.Batch(m.openObject(n), focusCmd(panelMain))
 }
 
-// cycleFocus is the `tab` order: the four numbered panels, and the main
-// view too whenever a relation is open in it. Without an open relation
-// the grid has nothing to show, so tab skips it.
+// openObject opens a table or a view from the tree, switching the browsed
+// namespace first when the object lives in another one.
+func (m *Model) openObject(n *treeNode) tea.Cmd {
+	var cmds []tea.Cmd
+	if n.database != m.database {
+		m.database = n.database
+		m.syncRelations()
+		// The jump history and the schema cache describe the namespace
+		// being left.
+		m.browseStack = nil
+		m.fkAfter = actNone
+		cmds = append(cmds, logCmd("USE %s;", displayDatabase(n.database)))
+	}
+	m.trigger = nil
+	return tea.Batch(append(cmds, m.openTable(n.name))...)
+}
+
+// cycleFocus is the `tab` order: the numbered panels, and the main view
+// too whenever it has something to show. With nothing open the main view
+// has no cursor to hand over, so tab skips it.
 func (m Model) cycleFocus(delta int) panelID {
 	n := int(panelCount)
-	if m.data.open() {
+	if m.data.open() || m.trigger != nil {
 		n++
 	}
 	cur := int(m.focus)
 	if cur >= n {
-		cur = int(panelTables)
+		cur = int(panelObjects)
 	}
 	return panelID(((cur+delta)%n + n) % n)
 }

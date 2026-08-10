@@ -25,7 +25,7 @@ DDL out" build on the same key rather than a new one:
   goroutine, no channel and no progress messages — the streaming
   machinery in `internal/ui/export.go` exists for tables that can be
   megabytes, and a DDL statement never is.
-- On the **Tables panel** (`[3]`), `E` exports every relation of the
+- On the **Objects panel** (`[2]`), `E` exports every relation of the
   browsed database into one `.sql` file: a header comment, then
   `-- table: name` followed by that table's DDL, in dependency order.
 

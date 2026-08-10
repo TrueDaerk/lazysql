@@ -137,11 +137,11 @@ func TestPasteIntoAConfirmModalIsIgnored(t *testing.T) {
 
 // The inline `/` filter takes a paste as a pattern, on one line.
 func TestPasteIntoAPanelFilter(t *testing.T) {
-	m := send(t, sized(120, 40), press('3'), press('/'), paste("audit\nlog"))
-	if got := m.panels[panelTables].filter; got != "audit log" {
+	m := send(t, sized(120, 40), press('2'), press('/'), paste("audit\nlog"))
+	if got := m.panels[panelObjects].filter; got != "audit log" {
 		t.Fatalf("filter = %q, want the pasted pattern flattened", got)
 	}
-	if !m.panels[panelTables].filtering {
+	if !m.panels[panelObjects].filtering {
 		t.Fatal("a paste closed the filter prompt")
 	}
 }

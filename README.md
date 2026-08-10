@@ -29,23 +29,32 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 ┌─[1] Connections──┐┌─Main: Data | Structure | DDL ─────────────┐
 │ ▸ local-mariadb  ││ id │ name    │ email                      │
 │   prod-pg        ││ 1  │ alice   │ alice@example.com          │
-├─[2] Databases────┤│ 2  │ bob     │ bob@example.com            │
-│ ▸ shop           ││ …                                         │
-├─[3] Tables───────┤│                                           │
-│ ▸ users          ││                                           │
-│   orders         │├─Command log───────────────────────────────┤
-├─[4] Query────────┤│ SELECT * FROM users LIMIT 100;            │
+├─[2] Objects──────┤│ 2  │ bob     │ bob@example.com            │
+│ ▾ shop           ││ …                                         │
+│     ▾ Tables     ││                                           │
+│         users    ││                                           │
+│         orders   │├─Command log───────────────────────────────┤
+│     ▸ Views      ││ SELECT * FROM users LIMIT 100;            │
+│     ▸ Triggers   ││                                           │
+├─[3] Query────────┤│                                           │
 │ SELECT * FROM u… ││                                           │
-│                  ││                                           │
 └──────────────────┘└───────────────────────────────────────────┘
- 1-4 jump  tab cycle  enter open  e edit  d delete  ? help  q quit
+ 1-3 jump  tab cycle  enter open  l/h expand  ? help  q quit
 ```
+
+The `[2] Objects` panel is one tree: databases (or schemas) expand into
+object categories — **Tables**, **Views**, **Triggers** — and each
+category expands into its objects. A category's contents are read from
+the server the first time it is expanded and cached until `R` reloads
+them. `enter` toggles a branch and opens a leaf; `l`/`h` expand and
+collapse lazygit-style. Single-namespace connections (SQLite, DuckDB with
+nothing attached) skip the database level entirely.
 
 ## Key bindings (core)
 
 | Key | Action |
 |-----|--------|
-| `1`–`5` | Jump to panel |
+| `1`–`3` | Jump to panel |
 | `tab` / `shift+tab` | Cycle panels |
 | `j`/`k`, `↑`/`↓` | Move within panel |
 | `enter` | Drill in / open |
@@ -54,9 +63,12 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 | `d` | Delete row (confirm) |
 | `n` | New (connection/row, context-sensitive) |
 | `y` | Copy (cell/row/table submenu) |
-| `:` | Focus the SQL query editor, panel `[4]` |
+| `l`/`h`, `→`/`←` | Expand / collapse a node in `[2] Objects` |
+| `R` | Reload the focused panel's level from the server |
+| `:` | Focus the SQL query editor, panel `[3]` |
 | `c` | Commit staged changes |
 | `B` | Dump / restore the database (panels `[1]` and `[2]`) |
+| `E` | Export the selected database's DDL (panel `[2]`) |
 | `?` | Help / all bindings |
 | `q` | Quit |
 
@@ -80,9 +92,10 @@ In the data grid (`enter` on a table, `esc` back):
 The mouse is a shortcut for keys that already exist; nothing is
 mouse-only. Clicking a panel focuses it (like its number), clicking a row
 moves the cursor onto it, and clicking the row the cursor is already on
-is `enter` — so a second click drills in. Clicking a `Tables`/`Views`
-header in panel `[3]`, or a `Data`/`Structure`/`Indexes`/`DDL`/`Relations`
-header in the main view, switches that tab.
+is `enter` — so a second click drills in, which on a tree branch means
+expand or collapse. Clicking a
+`Data`/`Structure`/`Indexes`/`DDL`/`Relations` header in the main view
+switches that tab.
 
 The wheel scrolls whatever is *under the pointer*, focused or not: a side
 panel's list, the data grid's rows, the query editor, and an open popup
@@ -141,7 +154,7 @@ Within one engine family type synonyms are normalized (SQLite `INT` =
 the report header. The report is read-only — it generates no migration
 SQL.
 
-The query editor is panel `[4]`, not a popup: it stays in the layout, and
+The query editor is panel `[3]`, not a popup: it stays in the layout, and
 running a script never closes it or clears the buffer. It has two
 vim-style modes; the panel gains focus in normal mode:
 

@@ -23,7 +23,7 @@ the main view and the command log strip — names itself in its top border
 line rather than spending the first content row on a title:
 
 ```
-╭─[3] Tables ‹Tables|Views›─────╮
+╭─[2] Objects───────────────────╮
 │ users                         │
 ╰───────────────────────────────╯
 ```
@@ -49,8 +49,8 @@ the top line is always `lipgloss.Width(...) == w`, which is what keeps
 
 Two details it must not get wrong:
 
-- **The title is pre-styled and multi-coloured.** `[3]` and the name carry
-  the focus colour, the sub-tabs carry three different ones, the loading
+- **The title is pre-styled and multi-coloured.** `[2]` and the name carry
+  the focus colour, the main view's tab bar carries three different ones, the loading
   marker is yellow. So truncation is `ansi.Truncate` from
   `github.com/charmbracelet/x/ansi` (already an indirect dep via lipgloss,
   now direct) — `len()` or a rune slice would cut an escape sequence in

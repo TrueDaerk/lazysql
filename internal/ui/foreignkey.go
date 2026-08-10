@@ -376,10 +376,10 @@ func (m *Model) jumpTo(database, table string, f *db.Filter) tea.Cmd {
 		filter:   f,
 		req:      m.data.req,
 	}
-	// The [3] panel follows along whenever the target is in the browsed
+	// The [2] tree follows along whenever the target is in the browsed
 	// namespace, so the shell does not claim a different relation is open.
 	if database == m.database {
-		m.panels[panelTables].selectByName(table)
+		m.selectRelation(database, table)
 	}
 	return tea.Batch(
 		logCmd("-- follow to %s.%s WHERE %s", displayDatabase(database), table, f.Raw),
@@ -421,7 +421,7 @@ func (m *Model) browseBack() tea.Cmd {
 	m.tab = st.tab
 	m.resetMeta()
 	if st.data.database == m.database {
-		m.panels[panelTables].selectByName(st.data.table)
+		m.selectRelation(st.data.database, st.data.table)
 	}
 	return tea.Batch(
 		logCmd("-- back to %s.%s", displayDatabase(st.data.database), st.data.table),

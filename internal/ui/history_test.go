@@ -27,7 +27,7 @@ func withHistoryPane(t *testing.T) Model {
 		{SQL: "UPDATE t SET a = 1", Engine: "postgres", At: at.Add(time.Minute)},
 		{SQL: "SELECT 1", Engine: "sqlite", At: at},
 	}
-	m = send(t, m, press('4'), special(tea.KeyBackspace, 0))
+	m = send(t, m, press('3'), special(tea.KeyBackspace, 0))
 	if _, ok := m.modal.(*historyModal); !ok {
 		t.Fatalf("backspace opened %T, want the history pane", m.modal)
 	}
@@ -157,20 +157,20 @@ func drainInit(t *testing.T, m Model) []tea.Msg {
 	return drain(m.Init())
 }
 
-// The panel list has no history panel any more: digits stop at [4] and
-// tab cycles the four panels without a gap.
+// The panel list has no history panel any more: digits stop at [3] and
+// tab cycles the three panels without a gap.
 func TestPanelNumberingHasNoHistoryPanel(t *testing.T) {
 	m := sized(120, 40)
 	out := m.View().Content
 	if strings.Contains(out, "Query history") {
 		t.Fatalf("the layout still has a history panel:\n%s", out)
 	}
-	if !strings.Contains(out, "[4] Query") {
-		t.Fatalf("the layout has no [4] Query panel:\n%s", out)
+	if !strings.Contains(out, "[3] Query") {
+		t.Fatalf("the layout has no [3] Query panel:\n%s", out)
 	}
-	m = send(t, m, press('5'))
+	m = send(t, m, press('4'))
 	if m.focus != panelConnections {
-		t.Fatalf("`5` moved focus to %v, want it ignored", m.focus)
+		t.Fatalf("`4` moved focus to %v, want it ignored", m.focus)
 	}
 }
 

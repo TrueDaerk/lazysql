@@ -954,3 +954,35 @@ Chronological history of wiki changes, newest last.
 - Cross-reference: [design/mouse-support](design/mouse-support.md)'s
   `wheelState` is now the shared coalescer for wheel notches *and* repeated
   navigation keys.
+- Added [design/object-tree-panel](design/object-tree-panel.md) with the
+  merged object panel (issue #79): `[2] Databases` and `[3] Tables` became one
+  expandable `[2] Objects` tree (database → category → object), so the panel
+  set is now `[1] Connections`, `[2] Objects`, `[3] Query` and `jump` is
+  `1`–`3`. The tree is flattened into the existing cursor-over-slice panel
+  (`sidePanel.rows`), so scrolling, the cursor and the selection needed no
+  tree awareness; only rendering (indent + `▸`/`▾` + trailing note) and the
+  filter branch on it. Categories load lazily on first expand and are cached
+  until `R` drops them for the level under the cursor; `Tables` and `Views`
+  still share one `ListRelations` round trip. `enter` toggles a branch,
+  `l`/`h` expand/collapse lazygit-style. The `Tables`/`Views` sub-tab
+  mechanism (`relationTab`, `sidePanel.tabs`, `tabHit`, the `toggle-tab` key
+  action) is removed; `expand-node`/`collapse-node` replace it in `[keys]`.
+- Documented the filter decision there: `/` narrows the *expanded* rows and
+  keeps a branch whose subtree matches, rather than searching collapsed
+  categories that have not been read from the server yet.
+- Added Triggers as a first-class category, with
+  [reference/trigger-introspection](reference/trigger-introspection.md):
+  SQLite reads `sqlite_master`, PostgreSQL reads `pg_trigger` (one row per
+  trigger, unlike `information_schema.triggers`) plus `pg_get_triggerdef`,
+  MySQL/MariaDB synthesize the statement from `information_schema.triggers`
+  because `SHOW CREATE TRIGGER` needs a privilege and changes column count
+  across versions, and DuckDB has no triggers at all and answers the new
+  `db.ErrUnsupported` sentinel. `enter` on a trigger opens its definition
+  read-only in the main view (`triggerView`).
+- Updated [design/catalog-browsing](design/catalog-browsing.md) with a
+  superseded note (its async-load, stale-reply, pseudo-database and fuzzy
+  filter rules still hold) and
+  [design/db-driver-abstraction](design/db-driver-abstraction.md) with the new
+  `ListTriggers`/`TriggerDDL` pair; renumbering notes added to
+  [design/tui-shell-architecture](design/tui-shell-architecture.md) and the
+  concepts that named `[2]`/`[3]` by number.

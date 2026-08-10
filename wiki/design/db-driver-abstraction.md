@@ -40,9 +40,16 @@ Key choices:
   promptly.
 - **Relations carry their kind** — the dialect method is
   `listRelations`, returning `[]Relation` (name + table/view). The
-  name-only `Driver.ListTables` is derived from it, so the `[3] Tables`
-  panel can split its sub-tabs from one query — see
-  [design/catalog-browsing](catalog-browsing.md).
+  name-only `Driver.ListTables` is derived from it, so the `[2]` tree's
+  `Tables` and `Views` categories come from one query — see
+  [design/object-tree-panel](object-tree-panel.md).
+- **Triggers are a listing of their own** — `ListTriggers` /
+  `TriggerDDL` (dialect: `listTriggers` / `triggerDDL`) sit next to the
+  relation calls rather than inside them: a trigger is not a relation and
+  has no columns, indexes or pages. An engine that has no triggers at all
+  answers the `ErrUnsupported` sentinel instead of an empty slice, so the
+  UI can say "not supported" rather than "none defined" — see
+  [reference/trigger-introspection](../reference/trigger-introspection.md).
 - **Namespaces** — `ListDatabases` means: databases (MySQL/MariaDB),
   schemas of the connected database (PostgreSQL, which cannot query
   across databases on one connection), attached databases (SQLite,

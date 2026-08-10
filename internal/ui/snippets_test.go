@@ -40,7 +40,7 @@ func withSnippets(t *testing.T) Model {
 // section, the way a user does: `4`, backspace, tab.
 func snippetsPane(t *testing.T, m Model) (Model, *historyModal) {
 	t.Helper()
-	m = send(t, m, press('4'), special(tea.KeyBackspace, 0), special(tea.KeyTab, 0))
+	m = send(t, m, press('3'), special(tea.KeyBackspace, 0), special(tea.KeyTab, 0))
 	hm, ok := m.modal.(*historyModal)
 	if !ok {
 		t.Fatalf("the pane is %T, want the history pane", m.modal)
@@ -104,7 +104,7 @@ func TestSaveSnippetKeepsInsertModeAndTheBuffer(t *testing.T) {
 func TestSaveSnippetRefusesAnEmptyBuffer(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m := sized(120, 40)
-	m = send(t, m, press('4'), ctrl('s'))
+	m = send(t, m, press('3'), ctrl('s'))
 	if m.modal != nil {
 		t.Fatalf("ctrl+s on an empty buffer opened %T, want nothing to save", m.modal)
 	}
@@ -178,7 +178,7 @@ func TestSaveSnippetFromAHistoryEntry(t *testing.T) {
 	m.history = []history.Entry{
 		{SQL: "SELECT from history", Engine: "sqlite", At: time.Now()},
 	}
-	m = send(t, m, press('4'), special(tea.KeyBackspace, 0), press('s'))
+	m = send(t, m, press('3'), special(tea.KeyBackspace, 0), press('s'))
 	if _, ok := m.modal.(*promptModal); !ok {
 		t.Fatalf("`s` in the history section opened %T, want the name prompt", m.modal)
 	}

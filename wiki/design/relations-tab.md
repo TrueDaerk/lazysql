@@ -58,7 +58,7 @@ its cache: `refsCache`, keyed by connection + namespace. Opening the tab
 after pressing `G`, or vice versa, costs nothing the second time.
 
 The scan is started from `ensureMeta` rather than from each call site.
-Every path that opens a relation — picking one in `[3]`, a `g`/`G` jump,
+Every path that opens a relation — picking one in the `[2]` tree, a `g`/`G` jump,
 `ctrl+o` back, a Relations walk — already calls it, so putting the
 condition there is what keeps the two fetches in step without five
 copies of the same batching. `ensureMeta` therefore no longer returns

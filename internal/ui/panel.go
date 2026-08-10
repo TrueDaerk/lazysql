@@ -13,8 +13,11 @@ type panelID int
 
 const (
 	panelConnections panelID = iota
-	panelDatabases
-	panelTables
+	// panelObjects is the object tree: databases, their object categories
+	// (Tables, Views, Triggers) and the objects themselves, in one panel.
+	// It replaced the separate Databases and Tables panels — see
+	// objtree.go and wiki/design/object-tree-panel.md.
+	panelObjects
 	panelQuery
 	panelCount
 )
@@ -27,8 +30,7 @@ const panelMain = panelCount
 
 var panelTitles = [panelCount + 1]string{
 	"Connections",
-	"Databases",
-	"Tables",
+	"Objects",
 	"Query",
 	"Data",
 }
@@ -80,9 +82,11 @@ type sidePanel struct {
 	// by it.
 	tagColor map[string]color.Color
 
-	// tabs are the sub-tab labels drawn next to the title ([3] Tables).
-	tabs []string
-	tab  int
+	// rows is the flattened object tree behind panel [2], parallel to all.
+	// It is nil for a plain list panel, and its presence is what switches
+	// the filter and the renderer into their tree behaviour — see
+	// objtree.go.
+	rows []treeRow
 
 	// loading marks an in-flight reload: the previous content stays on
 	// screen with a "loading…" marker in the title.
@@ -129,6 +133,9 @@ func (p *sidePanel) setItemsWithStatus(items []string, status []itemStatus) {
 	keep := p.selected()
 	p.all = items
 	p.allStatus = status
+	// A plain list replaces whatever tree the panel held: setTreeRows is
+	// the only way back into the tree behaviour.
+	p.rows = nil
 	p.applyFilter()
 	if keep == "" || !p.selectByName(keep) {
 		p.cursor, p.offset = 0, 0
@@ -165,7 +172,7 @@ func (p *sidePanel) applyFilter() {
 	idx := make([]int, 0, len(p.all))
 	var status []itemStatus
 	for i, it := range p.all {
-		if !fuzzyMatch(p.filter, it) {
+		if !p.keepRow(i, it) {
 			continue
 		}
 		items = append(items, it)
@@ -181,6 +188,16 @@ func (p *sidePanel) applyFilter() {
 	p.items, p.status, p.idx = items, status, idx
 	p.cursor, p.offset = 0, 0
 	p.move(0)
+}
+
+// keepRow reports whether row i of all survives the current filter. A
+// plain list tests the row's own name; the object tree tests its whole
+// subtree, so a match keeps the branches it hangs under — see treeKeep.
+func (p *sidePanel) keepRow(i int, name string) bool {
+	if p.rows != nil && i < len(p.rows) {
+		return p.treeKeep(i)
+	}
+	return fuzzyMatch(p.filter, name)
 }
 
 // sourceIndex maps a visible row back onto the unfiltered list, so a
@@ -236,8 +253,8 @@ func (p *sidePanel) visible(rows int) []string {
 	return p.items[p.offset:end]
 }
 
-// titleLine is the panel header: number, name, sub-tabs and load state. It
-// is spliced into the panel's top border by renderTitledBox, not written as
+// titleLine is the panel header: number, name and load state. It is
+// spliced into the panel's top border by renderTitledBox, not written as
 // a content row.
 func (p *sidePanel) titleLine(s styles, focused bool) string {
 	titleStyle := s.title
@@ -245,17 +262,6 @@ func (p *sidePanel) titleLine(s styles, focused bool) string {
 		titleStyle = s.titleFocused
 	}
 	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(p.id)+1, panelTitles[p.id]))
-	if len(p.tabs) > 0 {
-		parts := make([]string, 0, len(p.tabs))
-		for i, t := range p.tabs {
-			if i == p.tab {
-				parts = append(parts, s.keyHint.Render(t))
-				continue
-			}
-			parts = append(parts, s.muted.Render(t))
-		}
-		line += " " + s.muted.Render("‹") + strings.Join(parts, s.muted.Render("|")) + s.muted.Render("›")
-	}
 	if p.loading {
 		line += " " + s.pending.Render("loading…")
 	}
@@ -306,19 +312,45 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 		}
 		markerW := lipgloss.Width(marker)
 
+		// A tree row's indent and chevron ride in front of the name and a
+		// load/detail note behind it. Like the color tag the note is
+		// rendered on its own rather than folded into the row's text: its
+		// color has to survive the selection highlight, not be swallowed
+		// by it.
+		prefix, note, noteSt := "", "", noteMuted
+		if r, ok := p.rowAt(idx); ok {
+			prefix = r.prefix()
+			if text, st := r.note(); text != "" {
+				note, noteSt = " "+text, st
+			}
+		}
+		noteW := lipgloss.Width(note)
+		avail := maxInt(w-markerW-noteW, 0)
+
 		style := lipgloss.NewStyle()
 		if selected {
-			style = s.selected.Width(maxInt(w-markerW, 0))
+			style = s.selected.Width(avail)
 		}
 		// Status color survives selection: the selected row keeps its
 		// highlight background and only swaps foreground.
 		if fg, ok := statusColor(p.statusAt(idx)); ok {
 			style = style.Foreground(fg)
 		}
-		line := truncate(p.decor[item]+item, maxInt(w-markerW, 0))
-		lines = append(lines, marker+style.Render(line))
+		line := truncate(prefix+p.decor[item]+item, avail)
+		lines = append(lines, marker+style.Render(line)+noteStyleOf(s, noteSt).Render(note))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// noteStyleOf maps a tree row's note kind onto the panel's styles.
+func noteStyleOf(s styles, n noteStyle) lipgloss.Style {
+	switch n {
+	case notePending:
+		return s.pending
+	case noteDanger:
+		return s.danger
+	}
+	return s.muted
 }
 
 // fuzzyMatch reports whether pattern occurs in s as a case-insensitive

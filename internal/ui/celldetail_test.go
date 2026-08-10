@@ -119,9 +119,9 @@ func binaryBrowsing(t *testing.T) Model {
 			t.Fatalf("fixture %q: %v", stmt, err)
 		}
 	}
-	m = send(t, m, press('3'), press('R'))
-	if !m.panels[panelTables].selectByName("blobs") {
-		t.Fatalf("fixture table not listed: %v", m.panels[panelTables].items)
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("blobs") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.focus != panelMain {

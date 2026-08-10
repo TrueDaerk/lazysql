@@ -246,7 +246,7 @@ func editorAt(t *testing.T, script string) Model {
 	t.Helper()
 	m := sized(120, 40)
 	m.setScript(script)
-	m = send(t, m, press('4'))
+	m = send(t, m, press('3'))
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
@@ -360,7 +360,7 @@ func TestDeleteCharUnderCursor(t *testing.T) {
 
 func TestPendingChordDoesNotSurviveLeavingThePanel(t *testing.T) {
 	m := editorAt(t, "one\ntwo")
-	m = send(t, m, press('d'), press('1'), press('4'), press('d'))
+	m = send(t, m, press('d'), press('1'), press('3'), press('d'))
 	if m.script() != "one\ntwo" {
 		t.Fatalf("a chord split across a panel detour deleted: %q", m.script())
 	}

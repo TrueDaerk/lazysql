@@ -66,6 +66,43 @@ func (d sqliteDialect) listRelations(ctx context.Context, q querier, database st
 		 ORDER BY name`)
 }
 
+// listTriggers reads sqlite_master, which stores triggers next to the
+// tables and views. tbl_name is the relation the trigger fires on.
+func (d sqliteDialect) listTriggers(ctx context.Context, q querier, database string) ([]Trigger, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT name, tbl_name FROM `+sqliteSchema(d, database)+`.sqlite_master
+		 WHERE type = 'trigger' ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Trigger
+	for rows.Next() {
+		var name string
+		var table *string
+		if err := rows.Scan(&name, &table); err != nil {
+			return nil, err
+		}
+		out = append(out, Trigger{Name: name, Table: derefOr(table, "")})
+	}
+	return out, rows.Err()
+}
+
+// triggerDDL returns the CREATE TRIGGER text SQLite stored verbatim.
+func (d sqliteDialect) triggerDDL(ctx context.Context, q querier, database, trigger string) (string, error) {
+	ddls, err := scanStrings(ctx, q,
+		`SELECT sql FROM `+sqliteSchema(d, database)+`.sqlite_master
+		 WHERE type = 'trigger' AND name = ? AND sql IS NOT NULL`,
+		trigger)
+	if err != nil {
+		return "", err
+	}
+	if len(ddls) == 0 {
+		return "", fmt.Errorf("db: no DDL for trigger %q", trigger)
+	}
+	return ddls[0], nil
+}
+
 func (d sqliteDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	// PRAGMA accepts no placeholders; identifiers are dialect-quoted.
 	rows, err := q.QueryContext(ctx,

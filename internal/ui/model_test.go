@@ -115,15 +115,48 @@ func sized(w, h int) Model {
 	// written by an earlier test, which would otherwise carry its selection
 	// over into this model.
 	m.refreshConnections(testConnections()[0].Name)
-	m.panels[panelDatabases].setItems([]string{"postgres", "app_dev", "app_test"})
-	m.panels[panelTables].setItems([]string{"users", "accounts", "sessions", "audit_log"})
+	seedTree(&m, []string{"users", "accounts", "sessions", "audit_log"}, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return next.(Model)
 }
 
+// seedTree fills the [2] Objects panel with a single-namespace fixture
+// tree whose Tables category is already expanded — the shape a connected
+// file engine lands in.
+func seedTree(m *Model, tables, views []string) {
+	m.rebuildTree([]string{pseudoDatabase})
+	rels := make([]db.Relation, 0, len(tables)+len(views))
+	for _, t := range tables {
+		rels = append(rels, db.Relation{Name: t, Kind: db.RelationTable})
+	}
+	for _, v := range views {
+		rels = append(rels, db.Relation{Name: v, Kind: db.RelationView})
+	}
+	m.applyRelations("", rels)
+	m.tree.category("", catTables).expanded = true
+	m.refreshTree()
+}
+
+// seedMultiTree is seedTree for a connection with several namespaces, so
+// the tree keeps its database level.
+func seedMultiTree(m *Model, databases []string) {
+	m.rebuildTree(databases)
+	m.refreshTree()
+}
+
+// treeSelect moves the [2] cursor onto a named row.
+func treeSelect(t *testing.T, m Model, name string) Model {
+	t.Helper()
+	p := m.panels[panelObjects]
+	if !p.selectByName(name) {
+		t.Fatalf("tree row %q not found in %v", name, p.items)
+	}
+	return m
+}
+
 func TestNumberKeysJumpToPanel(t *testing.T) {
 	m := sized(120, 40)
-	for i, r := range []rune{'2', '3', '4', '1'} {
+	for i, r := range []rune{'2', '3', '1'} {
 		m = send(t, m, press(r))
 		want := panelID(r - '1')
 		if m.focus != want {
@@ -362,13 +395,16 @@ func TestConnectSetsStatusAndListsDatabases(t *testing.T) {
 	if got := m.connState["local-sqlite"].status; got != statusOK {
 		t.Fatalf("status = %v, want statusOK", got)
 	}
-	// SQLite is a single-namespace engine: one pseudo entry, straight to
-	// its tables.
-	if got := m.panels[panelDatabases].items; len(got) != 1 || got[0] != pseudoDatabase {
-		t.Fatalf("databases panel = %v, want [%s]", got, pseudoDatabase)
+	// SQLite is a single-namespace engine: the tree skips the database
+	// level and opens straight into its tables.
+	if !m.tree.single {
+		t.Fatalf("tree kept a database level: %v", m.tree.databaseNames())
 	}
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want %v", m.focus, panelTables)
+	if got := m.panels[panelObjects].items; len(got) == 0 || got[0] != "Tables" {
+		t.Fatalf("objects panel = %v, want the Tables category first", got)
+	}
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want %v", m.focus, panelObjects)
 	}
 	if !logContains(m, "-- connect local-sqlite") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -449,8 +485,8 @@ func TestActionsMenuDispatchesSameActionAsKey(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("menu stayed open after enter")
 	}
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want %v (connect should drill in)", m.focus, panelTables)
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want %v (connect should drill in)", m.focus, panelObjects)
 	}
 	if len(mm.entries) < 2 {
 		t.Fatalf("menu had %d entries, want the panel's actions", len(mm.entries))
@@ -466,11 +502,13 @@ func TestDrillInLogsAndRecordsHistory(t *testing.T) {
 		`CREATE TABLE IF NOT EXISTS drill (id INTEGER)`); err != nil {
 		t.Fatal(err)
 	}
-	m = send(t, m, press('2'), special(tea.KeyEnter, 0)) // database -> tables
-	if m.focus != panelTables {
-		t.Fatalf("focus = %v, want %v", m.focus, panelTables)
+	m = send(t, m, press('2'), press('R')) // re-read the Tables category
+	if m.focus != panelObjects {
+		t.Fatalf("focus = %v, want %v", m.focus, panelObjects)
 	}
-	m.panels[panelTables].selectByName("drill")
+	if !m.panels[panelObjects].selectByName("drill") {
+		t.Fatalf("drill not listed: %v", m.panels[panelObjects].items)
+	}
 	m = send(t, m, special(tea.KeyEnter, 0)) // table -> data grid
 
 	if m.focus != panelMain {
@@ -490,7 +528,7 @@ func TestDrillInLogsAndRecordsHistory(t *testing.T) {
 
 func TestEscBacksOutOfFocusStack(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('3'), special(tea.KeyEscape, 0))
+	m = send(t, m, press('2'), special(tea.KeyEscape, 0))
 	if m.focus != panelConnections {
 		t.Fatalf("focus = %v, want %v", m.focus, panelConnections)
 	}

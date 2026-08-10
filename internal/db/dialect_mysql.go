@@ -176,6 +176,75 @@ func (mysqlDialect) tableIndexes(ctx context.Context, q querier, database, table
 	return idx, rows.Err()
 }
 
+// mysqlTriggerSchemaCond is the trigger_schema predicate of
+// information_schema.triggers; an empty database means the connection's
+// current one. Triggers are named per schema, not per table, so the
+// listing is keyed on the schema alone.
+func mysqlTriggerSchemaCond(database string) (string, []any) {
+	if database == "" {
+		return "trigger_schema = DATABASE()", nil
+	}
+	return "trigger_schema = ?", []any{database}
+}
+
+func (mysqlDialect) listTriggers(ctx context.Context, q querier, database string) ([]Trigger, error) {
+	cond, args := mysqlTriggerSchemaCond(database)
+	rows, err := q.QueryContext(ctx,
+		`SELECT trigger_name, event_object_table FROM information_schema.triggers
+		 WHERE `+cond+` ORDER BY trigger_name`,
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Trigger
+	for rows.Next() {
+		var name string
+		var table *string
+		if err := rows.Scan(&name, &table); err != nil {
+			return nil, err
+		}
+		out = append(out, Trigger{Name: name, Table: derefOr(table, "")})
+	}
+	return out, rows.Err()
+}
+
+// triggerDDL synthesizes the CREATE TRIGGER statement from
+// information_schema rather than running SHOW CREATE TRIGGER: the SHOW
+// form needs the TRIGGER privilege on the schema and returns a different
+// number of columns across MySQL and MariaDB versions, neither of which
+// a read-only browser should depend on. The catalog carries every part
+// that matters — timing, event, table and body.
+func (d mysqlDialect) triggerDDL(ctx context.Context, q querier, database, trigger string) (string, error) {
+	cond, args := mysqlTriggerSchemaCond(database)
+	rows, err := q.QueryContext(ctx,
+		`SELECT action_timing, event_manipulation, event_object_table,
+		        action_orientation, action_statement
+		 FROM information_schema.triggers
+		 WHERE `+cond+` AND trigger_name = ?`,
+		append(args, trigger)...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("db: no DDL for trigger %q", trigger)
+	}
+	var timing, event, table, orientation, body string
+	if err := rows.Scan(&timing, &event, &table, &orientation, &body); err != nil {
+		return "", err
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("CREATE TRIGGER %s %s %s ON %s\nFOR EACH %s\n%s",
+		d.QuoteIdent(trigger), timing, event,
+		qualifiedTable(d, database, table), orientation, body), nil
+}
+
 func (d mysqlDialect) tableDDL(ctx context.Context, q querier, database, table string) (string, error) {
 	rows, err := q.QueryContext(ctx,
 		"SHOW CREATE TABLE "+qualifiedTable(d, database, table))

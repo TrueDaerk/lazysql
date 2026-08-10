@@ -145,10 +145,10 @@ func (m *Model) walkRelation() tea.Cmd {
 		table:    edge.table,
 		req:      m.data.req,
 	}
-	// The [3] panel follows along whenever the target is in the browsed
+	// The [2] tree follows along whenever the target is in the browsed
 	// namespace, so the shell does not claim a different relation is open.
 	if edge.database == m.database {
-		m.panels[panelTables].selectByName(edge.table)
+		m.selectRelation(edge.database, edge.table)
 	}
 	return tea.Batch(
 		logCmd("-- relations: walk to %s.%s", displayDatabase(edge.database), edge.table),

@@ -111,7 +111,7 @@ highest-ranked source.
 
 ## 4. The cache, and why it invalidates itself
 
-Panel `[3]` already caches the relation list of the browsed namespace, so
+The `[2]` tree already caches the relation list of the browsed namespace, so
 completion reads `Model.relations` directly: a second copy would be a
 second thing to invalidate. Column names are the new state, and they are
 keyed by **connection + database** — nothing less identifies a column

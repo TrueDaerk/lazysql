@@ -303,6 +303,11 @@ func (m Model) mainTitle(w int) string {
 		}
 		return m.queryTitle()
 	}
+	// An open trigger definition owns the main view until esc closes it,
+	// the way the plan owns it for panel [3].
+	if m.trigger != nil {
+		return m.triggerTitle()
+	}
 	if m.data.open() {
 		// The tab bar is the Data/Structure/… title: sub-tabs, the
 		// relation, the read-only lock and the loading marker.
@@ -337,6 +342,9 @@ func (m Model) mainContent(w, h int) string {
 		}
 		return m.queryContent(w, h)
 	}
+	if m.trigger != nil {
+		return m.triggerContent(w, h)
+	}
 	if m.data.open() {
 		if m.tab.metadata() {
 			return m.metaContent(w, h)
@@ -344,7 +352,7 @@ func (m Model) mainContent(w, h int) string {
 		return m.dataBody(w, h)
 	}
 	if m.focus >= panelCount {
-		return m.style.muted.Render("no relation open — pick one in [3] Tables")
+		return m.style.muted.Render("no relation open — pick one in [2] Objects")
 	}
 	sel := m.panels[m.focus].selected()
 	if sel == "" {
@@ -366,7 +374,7 @@ func (m Model) mainContent(w, h int) string {
 		lines = append(lines, "opened: "+m.table)
 	}
 	lines = append(lines, "",
-		m.style.muted.Render("nothing open — pick a relation in [3] Tables, or press : to run a query"))
+		m.style.muted.Render("nothing open — pick a relation in [2] Objects, or press : to run a query"))
 	return joinTruncated(lines, w, h)
 }
 
@@ -494,6 +502,13 @@ func (m Model) renderOptionsBar() string {
 		if m.completion.open {
 			bindings = m.keys.editorCompletion()
 		}
+	}
+	// A trigger definition is a read-only text block, so the grid's own
+	// actions would only ever be no-ops there: the bar offers the keys
+	// that still act, all of them already documented under `?`.
+	if m.focus == panelMain && m.trigger != nil {
+		bindings = append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Back},
+			m.keys.Jump, m.keys.NextPanel, m.keys.OpenEditor, m.keys.Help, m.keys.Quit)
 	}
 	left := h.ShortHelpView(bindings)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)

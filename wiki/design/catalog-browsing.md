@@ -1,7 +1,7 @@
 ---
 type: Design Decision
-title: Catalog browsing in panels [2] and [3]
-description: How the Databases and Tables panels load asynchronously, filter fuzzily, and collapse single-namespace engines into one pseudo-database.
+title: Catalog browsing in the object panels
+description: How catalog reads load asynchronously, drop stale replies, filter fuzzily, and collapse single-namespace engines into one pseudo-database. The panel layout it describes was superseded by the [2] Objects tree.
 tags: [tui, db, panels, filtering]
 generated:
   by: claude-code/opus-5
@@ -9,6 +9,14 @@ generated:
 ---
 
 # Catalog browsing
+
+> **Superseded in part (issue #79).** Panels `[2] Databases` and `[3]
+> Tables` were merged into one expandable tree, `[2] Objects`, and the
+> `Tables`/`Views` sub-tabs were removed with them — see
+> [design/object-tree-panel](object-tree-panel.md). Everything below
+> about the async load, the stale-reply rule, the pseudo-database and the
+> inline fuzzy filter still holds; read panel `[3]`/"sub-tab" as the
+> tree's `Tables`/`Views` categories.
 
 ## Decision
 

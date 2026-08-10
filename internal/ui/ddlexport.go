@@ -48,23 +48,37 @@ type databaseDDLExportedMsg struct {
 
 // ---------- the flow ----------
 
-// startDatabaseDDLExport is `E` on the Tables panel: prompt for a `.sql`
-// path, then write every relation's DDL of the browsed database into it.
+// ddlExportTarget is the namespace `E` exports and the relation listing
+// it exports from: whatever the [2] tree's cursor points into while that
+// panel has the focus — a category can be expanded without the namespace
+// ever being browsed — and the browsed namespace otherwise.
+func (m Model) ddlExportTarget() (string, []db.Relation) {
+	if m.focus == panelObjects {
+		if n := m.selectedNode(); n != nil {
+			return n.database, m.tree.relations[n.database]
+		}
+	}
+	return m.database, m.relations
+}
+
+// startDatabaseDDLExport is `E` on the Objects panel: prompt for a `.sql`
+// path, then write every relation's DDL of the selected database into it.
 func (m *Model) startDatabaseDDLExport() tea.Cmd {
 	if m.driver == nil {
 		return logCmd("-- export database DDL skipped: not connected")
 	}
-	if len(m.relations) == 0 {
+	database, rels := m.ddlExportTarget()
+	if len(rels) == 0 {
 		return logCmd("-- export database DDL skipped: %s has no relations",
-			displayDatabase(m.database))
+			displayDatabase(database))
 	}
 	if m.dbDDLExport.running {
 		return logCmd("-- export database DDL skipped: an export of %s is already running",
-			displayDatabase(m.database))
+			displayDatabase(database))
 	}
-	name := defaultDDLExportPath(displayDatabase(m.database))
+	name := defaultDDLExportPath(displayDatabase(database))
 	m.modal = newPromptModal(
-		"Export "+displayDatabase(m.database)+" DDL — file path",
+		"Export "+displayDatabase(database)+" DDL — file path",
 		"~/"+name,
 		name,
 		func(mm *Model, value string) tea.Cmd { return mm.runDatabaseDDLExport(value) },
@@ -86,17 +100,17 @@ func (m *Model) runDatabaseDDLExport(path string) tea.Cmd {
 	if !strings.EqualFold(filepath.Ext(full), ".sql") {
 		return logCmd("-- export %s FAILED: database DDL export needs a .sql path", full)
 	}
-	if m.driver == nil || len(m.relations) == 0 {
+	database, rels := m.ddlExportTarget()
+	if m.driver == nil || len(rels) == 0 {
 		return logCmd("-- export skipped: nothing to export")
 	}
 	if m.dbDDLExport.running {
 		return logCmd("-- export database DDL skipped: an export of %s is already running",
-			displayDatabase(m.database))
+			displayDatabase(database))
 	}
 
 	drv := m.driver
-	database := m.database
-	tables := db.RelationNames(m.relations)
+	tables := db.RelationNames(rels)
 
 	ctx, cancel := context.WithTimeout(context.Background(), databaseDDLTimeout)
 	m.dbDDLExport = dbDDLExportState{running: true, id: m.dbDDLExport.id + 1, cancel: cancel}

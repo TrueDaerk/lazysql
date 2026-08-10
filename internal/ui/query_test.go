@@ -66,19 +66,19 @@ func TestColonFocusesTheEditorPanelWithTheBuffer(t *testing.T) {
 	}
 }
 
-func TestDigitFourFocusesTheEditorPanel(t *testing.T) {
+func TestDigitThreeFocusesTheEditorPanel(t *testing.T) {
 	m := sized(120, 40)
-	m = send(t, m, press('4'))
+	m = send(t, m, press('3'))
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
-	// `4` jumps to the panel, it does not start typing: the panel's own
+	// `3` jumps to the panel, it does not start typing: the panel's own
 	// keys have to stay reachable.
 	if m.editor.editing {
-		t.Fatal("`4` started insert mode")
+		t.Fatal("`3` started insert mode")
 	}
-	if out := m.View().Content; !strings.Contains(out, "[4] Query") {
-		t.Fatalf("the layout has no [4] Query panel:\n%s", out)
+	if out := m.View().Content; !strings.Contains(out, "[3] Query") {
+		t.Fatalf("the layout has no [3] Query panel:\n%s", out)
 	}
 }
 
@@ -179,7 +179,7 @@ func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {
 func TestClearBufferAsksFirst(t *testing.T) {
 	m := sized(120, 40)
 	m.setScript("SELECT 1")
-	m = send(t, m, press('4'), press('D'))
+	m = send(t, m, press('3'), press('D'))
 	if _, ok := m.modal.(*confirmModal); !ok {
 		t.Fatalf("D opened %T, want a confirm modal", m.modal)
 	}

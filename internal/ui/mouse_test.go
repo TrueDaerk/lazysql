@@ -234,7 +234,7 @@ func TestWheelRetargetFlushesTheOldPanel(t *testing.T) {
 	}
 }
 
-// Panel [4] previews the buffer from its first line: there is no window
+// Panel [3] previews the buffer from its first line: there is no window
 // to move, so the wheel over it does nothing.
 func TestWheelOverQueryPanelIsInert(t *testing.T) {
 	m := sized(120, 40)

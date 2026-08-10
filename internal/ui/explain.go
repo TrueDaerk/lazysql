@@ -20,7 +20,7 @@ import (
 //     DELETE is as safe as explaining a SELECT and no confirm modal is
 //     needed for either.
 //   - It never touches the buffer. The plan takes over the main view
-//     while panel [5] keeps the focus, and `esc` puts the editor back
+//     while panel [3] keeps the focus, and `esc` puts the editor back
 //     with its text, cursor and mode exactly as they were.
 //   - One statement at a time. A script has as many plans as statements
 //     and no engine explains a batch, so a multi-statement buffer

@@ -57,7 +57,7 @@ type keyMap struct {
 	ExpandNode   key.Binding
 	CollapseNode key.Binding
 
-	// Query editor, panel [4]. EditQuery enters insert mode, where every
+	// Query editor, panel [3]. EditQuery enters insert mode, where every
 	// key that is not RunEditor, CancelQuery or Back types into the
 	// buffer; RunEditor executes it from either mode. History opens the
 	// floating query-history pane from the editor's normal mode.
@@ -73,6 +73,20 @@ type keyMap struct {
 	ClearQuery   key.Binding
 	History      key.Binding
 	SaveSnippet  key.Binding
+
+	// The history/snippets pane. The pane is a modal, so these only act
+	// while it is open — but they are keyMap bindings, not literals in its
+	// update function, so `?` documents them, `[keys]` can rebind them and
+	// the pane's own footer renders from the same source. HistLoad is
+	// `enter` — the app-wide "drill in" reading: it loads the statement
+	// into the editor, where running it is one visible ctrl+r away.
+	// HistRun executes immediately, through the same submitQuery pipeline
+	// as the editor (placeholder prompt, unguarded-write confirm included).
+	HistLoad    key.Binding
+	HistRun     key.Binding
+	HistSnippet key.Binding
+	HistDelete  key.Binding
+	HistSection key.Binding
 
 	// Vim normal mode in the query editor. j/k/↑/↓ reuse Up and Down.
 	// The two-key commands (dd, yy, gg) are bound to their first key and
@@ -193,14 +207,28 @@ func newKeyMap() keyMap {
 		CollapseNode: key.NewBinding(
 			key.WithKeys("h", "left"), key.WithHelp("h/←", "collapse")),
 
-		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert mode)")),
-		RunEditor: key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "run the buffer")),
+		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert)")),
+		// ctrl+enter is a documented alias: most terminals send plain
+		// enter for it, but where it arrives it means run, like ctrl+r.
+		RunEditor: key.NewBinding(
+			key.WithKeys("ctrl+r", "ctrl+enter"), key.WithHelp("ctrl+r", "run")),
 		ExplainQuery: key.NewBinding(
-			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain the statement")),
-		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear the buffer")),
-		History:    key.NewBinding(key.WithKeys("backspace"), key.WithHelp("backspace", "query history")),
+			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain")),
+		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear buffer")),
+		// backspace was the pane's original opener; it stays as an alias
+		// for the muscle memory, H is the discoverable, mnemonic key.
+		History: key.NewBinding(
+			key.WithKeys("H", "backspace"), key.WithHelp("H", "history & snippets")),
 		SaveSnippet: key.NewBinding(
-			key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save as snippet")),
+			key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save snippet")),
+
+		HistLoad: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "load into editor")),
+		HistRun:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "run now")),
+		HistSnippet: key.NewBinding(
+			key.WithKeys("s"), key.WithHelp("s", "save as snippet")),
+		HistDelete: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete entry")),
+		HistSection: key.NewBinding(
+			key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "switch section")),
 
 		VimLeft:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
 		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
@@ -329,6 +357,25 @@ func (k keyMap) editorCompletion() []key.Binding {
 	return []key.Binding{
 		k.CompleteNext, k.CompletePrev, k.AcceptCompletion, k.CloseCompletion,
 	}
+}
+
+// historyPane are the keys the floating history/snippets pane owns while
+// it is open. Dispatched inside the pane — a modal swallows every key —
+// so this slice is what documents them in `?` and what the pane's footer
+// renders.
+func (k keyMap) historyPane() []key.Binding {
+	return []key.Binding{
+		k.HistLoad, k.HistRun, k.HistSnippet, k.HistDelete, k.HistSection,
+	}
+}
+
+// queryResultKeys are the data-grid keys that actually survive the vim
+// layer while a result sits under the buffer: everything else the grid
+// binds (h/l, x, y, s, g, G, d…) is claimed by a motion or a chord
+// first and never falls through. Focusing the grid itself (tab) is the
+// way to the full key set.
+func (k keyMap) queryResultKeys() []key.Binding {
+	return []key.Binding{k.NextPage, k.PrevPage, k.ViewCell}
 }
 
 // formPathComplete are the keys the connection form's File field owns while
@@ -547,7 +594,9 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 	// short list is documented next to the panel's normal-mode actions
 	// rather than being reachable only from a mode `?` cannot open.
 	if id == panelQuery {
-		groups = append(groups, k.editorNormal(), k.editorInsert(), k.editorCompletion())
+		groups = append(groups,
+			k.editorNormal(), k.editorInsert(), k.editorCompletion(),
+			k.historyPane(), k.queryResultKeys())
 	}
 	// The connection form is opened from the Connections panel, so its
 	// path-completion keys are documented there.
@@ -586,6 +635,9 @@ func (k *keyMap) slots() []bindingSlot {
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},
 		{"explain-query", &k.ExplainQuery}, {"clear-query", &k.ClearQuery},
 		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
+		{"hist-load", &k.HistLoad}, {"hist-run", &k.HistRun},
+		{"hist-snippet", &k.HistSnippet}, {"hist-delete", &k.HistDelete},
+		{"hist-section", &k.HistSection},
 
 		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},
 		{"vim-word-fwd", &k.VimWordFwd}, {"vim-word-back", &k.VimWordBack},

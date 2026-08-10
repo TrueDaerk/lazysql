@@ -77,9 +77,9 @@ func TestHistoryPaneOnlyOpensFromNormalMode(t *testing.T) {
 
 func TestHistoryPaneLoadIntoEditor(t *testing.T) {
 	m := withHistoryPane(t)
-	m = send(t, m, press('j'), press('e'))
+	m = send(t, m, press('j'), special(tea.KeyEnter, 0))
 	if m.modal != nil {
-		t.Fatalf("e left %T open", m.modal)
+		t.Fatalf("enter left %T open", m.modal)
 	}
 	if m.script() != "UPDATE t SET a = 1" {
 		t.Fatalf("editor holds %q, want the selected entry", m.script())
@@ -186,6 +186,45 @@ func TestTrimStatement(t *testing.T) {
 	for in, want := range cases {
 		if got := trimStatement(in); got != want {
 			t.Errorf("trimStatement(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// `H` is the discoverable opener of the pane; backspace stays as the
+// legacy alias (withHistoryPane exercises that path).
+func TestHistoryPaneOpensWithH(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('3'), press('H'))
+	if _, ok := m.modal.(*historyModal); !ok {
+		t.Fatalf("H opened %T, want the history pane", m.modal)
+	}
+}
+
+// The pane's footer renders from the same bindings its update dispatches
+// on, so what the user reads is what the keys do.
+func TestHistoryPaneFooterNamesItsKeys(t *testing.T) {
+	m := withHistoryPane(t)
+	out := m.View().Content
+	for _, want := range []string{"load into editor", "run now", "save as snippet", "delete"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pane footer is missing %q", want)
+		}
+	}
+}
+
+// Every pane key is documented in `?` for the query panel — the pane has
+// no options bar of its own, so the help modal is where they must show.
+func TestHistoryPaneKeysAreInHelp(t *testing.T) {
+	k := newKeyMap()
+	documented := map[string]bool{}
+	for _, group := range k.helpGroups(panelQuery) {
+		for _, b := range group {
+			documented[b.Help().Key] = true
+		}
+	}
+	for _, b := range k.historyPane() {
+		if !documented[b.Help().Key] {
+			t.Fatalf("`?` for panel [3] omits the pane key %q", b.Help().Key)
 		}
 	}
 }

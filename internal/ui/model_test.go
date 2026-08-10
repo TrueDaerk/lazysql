@@ -727,14 +727,18 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			}
 		}
 		actions[k.Actions.Keys()[0]] = true
-		// The query editor's mode groups — vim normal mode, insert mode
-		// and the completion popup — are dispatched by updateQuery and
-		// updateEditor rather than through the action table, since they
-		// only mean anything inside the buffer. They are bound; they are
-		// just not actions.
+		// The query editor's mode groups — vim normal mode, insert mode,
+		// the completion popup, the history pane and the result-grid
+		// fall-through — are dispatched by updateQuery, updateEditor, the
+		// pane modal and updateData rather than through the action table,
+		// since they only mean anything inside the buffer or the pane.
+		// They are bound; they are just not actions.
 		if id == panelQuery {
 			groups := append(k.editorNormal(), k.editorInsert()...)
-			for _, b := range append(groups, k.editorCompletion()...) {
+			groups = append(groups, k.editorCompletion()...)
+			groups = append(groups, k.historyPane()...)
+			groups = append(groups, k.queryResultKeys()...)
+			for _, b := range groups {
 				for _, ks := range b.Keys() {
 					actions[ks] = true
 				}

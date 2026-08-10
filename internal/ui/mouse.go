@@ -92,7 +92,7 @@ func (m Model) hitTest(x, y int) hit {
 	}
 
 	if m.screen == screenFull {
-		// Panel [4] edits in the main view, so full-screening it shows
+		// Panel [3] edits in the main view, so full-screening it shows
 		// the editor — the same branch View takes.
 		if m.focus == panelMain || m.focus == panelQuery {
 			return m.hitMainColumn(rect{0, 0, m.width, bodyH}, x, y)
@@ -269,7 +269,7 @@ func (m *Model) applyScroll(t scrollTarget, delta int) {
 			h.scroll(delta)
 		}
 	case zoneSide:
-		// Panel [4] previews the buffer from its first line; there is no
+		// Panel [3] previews the buffer from its first line; there is no
 		// window to move. Its editor scrolls in the main view instead.
 		if t.panel == panelQuery || t.panel >= panelCount {
 			return
@@ -447,7 +447,7 @@ func (m Model) clickSide(h hit) (tea.Model, tea.Cmd) {
 
 	focused := m.focus == h.panel
 	m.setFocus(h.panel)
-	// Panel [4] is not a list: its box previews the buffer, and the
+	// Panel [3] is not a list: its box previews the buffer, and the
 	// click has done its job by handing it the focus.
 	if h.panel == panelQuery {
 		return m, nil
@@ -481,7 +481,7 @@ func (m Model) clickSide(h hit) (tea.Model, tea.Cmd) {
 // clickMain focuses the main view and, when it was already focused and is
 // showing the grid, moves the cell cursor onto the clicked cell.
 func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
-	// While panel [4] has the focus the main view *is* its editor, so a
+	// While panel [3] has the focus the main view *is* its editor, so a
 	// click there must not hand the focus to the grid behind it.
 	if m.focus == panelQuery {
 		return m, nil

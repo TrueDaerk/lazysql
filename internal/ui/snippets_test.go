@@ -219,9 +219,9 @@ func TestSnippetsSectionShowsAnEmptyHint(t *testing.T) {
 func TestSnippetLoadIntoEditor(t *testing.T) {
 	m := withSnippets(t)
 	m, _ = snippetsPane(t, m)
-	m = send(t, m, press('j'), press('e'))
+	m = send(t, m, press('j'), special(tea.KeyEnter, 0))
 	if m.modal != nil {
-		t.Fatalf("`e` left %T open", m.modal)
+		t.Fatalf("`enter` left %T open", m.modal)
 	}
 	if m.script() != "SELECT *\nFROM orders\nWHERE id = :id" {
 		t.Fatalf("editor holds %q, want the selected snippet", m.script())
@@ -231,17 +231,17 @@ func TestSnippetLoadIntoEditor(t *testing.T) {
 	}
 }
 
-func TestSnippetEnterRunsThroughSubmitQuery(t *testing.T) {
+func TestSnippetRunRunsThroughSubmitQuery(t *testing.T) {
 	m := withSnippets(t)
 	m, _ = snippetsPane(t, m)
-	// Disconnected, `enter` cannot run anything — what it must not do is
-	// load the buffer instead, which is `e`'s job.
-	m = send(t, m, special(tea.KeyEnter, 0))
+	// Disconnected, `r` cannot run anything — what it must not do is
+	// load the buffer instead, which is `enter`'s job.
+	m = send(t, m, press('r'))
 	if m.modal != nil {
-		t.Fatalf("`enter` left %T open", m.modal)
+		t.Fatalf("`r` left %T open", m.modal)
 	}
 	if m.script() != "" {
-		t.Fatalf("buffer = %q, want `enter` to run rather than load", m.script())
+		t.Fatalf("buffer = %q, want `r` to run rather than load", m.script())
 	}
 	if log := strings.Join(logText(m), "\n"); !strings.Contains(log, "not connected") {
 		t.Fatalf("the run did not go through submitQuery:\n%s", log)

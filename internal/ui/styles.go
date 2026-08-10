@@ -82,6 +82,13 @@ type styles struct {
 	sqlPlaceholder lipgloss.Style
 	sqlQuoted      lipgloss.Style
 
+	// The editor's status-line mode badges. Reverse video over a theme
+	// color reads as a solid block in any terminal scheme — the badge has
+	// to be findable at a glance by someone who does not know what a vim
+	// mode is, so it is the loudest element on the line.
+	modeInsert lipgloss.Style
+	modeNormal lipgloss.Style
+
 	// The editor's own cursor. Insert mode reverses the cell it sits on,
 	// the way a terminal block cursor does, so it stays legible over any
 	// token colour; normal mode only tints it, since nothing typed there
@@ -135,6 +142,9 @@ func newStyles() styles {
 		sqlComment:     lipgloss.NewStyle().Foreground(colorSQLComment).Italic(true),
 		sqlPlaceholder: lipgloss.NewStyle().Foreground(colorSQLPlaceholder).Bold(true),
 		sqlQuoted:      lipgloss.NewStyle().Foreground(colorCyan),
+
+		modeInsert: lipgloss.NewStyle().Foreground(colorGreen).Reverse(true).Bold(true),
+		modeNormal: lipgloss.NewStyle().Foreground(colorCyan).Reverse(true).Bold(true),
 
 		editorCursor:     lipgloss.NewStyle().Reverse(true),
 		editorCursorIdle: lipgloss.NewStyle().Background(colorCellCursorBg),

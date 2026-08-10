@@ -90,7 +90,7 @@ type styles struct {
 }
 
 func newStyles() styles {
-	border := lipgloss.NewStyle().Border(lipgloss.NormalBorder())
+	border := lipgloss.NewStyle().Border(lipgloss.RoundedBorder())
 	return styles{
 		focusedBorder: border.BorderForeground(colorGreen),
 		blurredBorder: border.BorderForeground(colorMuted),

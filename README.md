@@ -94,6 +94,27 @@ In the data grid (`enter` on a table, `esc` back):
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
 | `[` / `]` (or `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
+### Date and time columns
+
+`e` on a `DATE`, `DATETIME`, `TIMESTAMP`, `TIMESTAMPTZ` or `TIME` column —
+in every dialect's spelling, precision and time-zone qualifier included —
+opens a calendar instead of a bare text field. `ctrl+t` opens the same
+picker for the field under the cursor in the insert/duplicate form:
+
+| Key | Action |
+|-----|--------|
+| `h`/`l`, `←`/`→` | Previous / next day — or previous / next time field on the clock |
+| `k`/`j`, `↑`/`↓` | Previous / next week — or adjust the time field under the cursor |
+| `[` / `]` (or `H`/`L`, `,`/`.`) | Previous / next month |
+| `tab` | Switch between the date and time halves |
+| `t` | Jump to now |
+| `e` | Raw text entry — for `NULL`, `now()`, `CURRENT_TIMESTAMP` and anything else a calendar cannot spell (`ctrl+t` comes back) |
+| `enter` | Stage the value, ISO-formatted |
+| `esc` | Cancel, staging nothing |
+
+The picker only produces a value. It is staged in the changeset like any
+other edit and executes nothing until `c` commits.
+
 ### Mouse
 
 The mouse is a shortcut for keys that already exist; nothing is

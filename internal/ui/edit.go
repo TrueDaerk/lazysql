@@ -154,8 +154,37 @@ func (m *Model) openEditModal() tea.Cmd {
 			break
 		}
 	}
-	m.modal = newEditCellModal(change, initial, col, rowLabel(pkCols, pkVals))
+	label := rowLabel(pkCols, pkVals)
+	// A temporal column gets the calendar instead of a bare text field.
+	// `e` inside it comes back to exactly the modal built below, so the
+	// raw path — NULL, now(), CURRENT_TIMESTAMP — is never more than one
+	// key away.
+	if kind := db.ClassifyType(col.DataType); kind.Temporal() {
+		m.modal = m.newEditDatePicker(change, initial, col, kind, label)
+		return nil
+	}
+	m.modal = newEditCellModal(change, initial, col, label)
 	return nil
+}
+
+// newEditDatePicker builds the picker for one cell edit. Confirming stages
+// the ISO-formatted value through the same stageChange path a typed value
+// takes; `e` swaps in the plain text modal, prefilled the same way.
+func (m *Model) newEditDatePicker(change db.CellChange, initial any, col db.Column, kind db.TypeKind, label string) *datePickerModal {
+	p := newDatePickerModal(
+		fmt.Sprintf("Edit %s.%s — %s", change.Table, change.Column, label),
+		col, kind, pickerStart(initial, kind), m.keys)
+	p.current = db.FormatValue(change.OldValue, nullText)
+	p.onPick = func(mm *Model, value string) tea.Cmd {
+		c := change
+		c.NewValue = convertInput(value, c.OldValue)
+		return mm.stageChange(c)
+	}
+	p.onRaw = func(mm *Model) tea.Cmd {
+		mm.modal = newEditCellModal(change, initial, col, label)
+		return nil
+	}
+	return p
 }
 
 // rowLabel names the row being edited, e.g. "id=3" or "a=1, b=2".
@@ -304,7 +333,7 @@ func valuesEqual(a, b any) bool { return a == b }
 // the type the cell held before. Text that does not parse stays a
 // string and the engine gets the final say on commit.
 func convertInput(text string, old any) any {
-	switch old.(type) {
+	switch o := old.(type) {
 	case int64:
 		if v, err := strconv.ParseInt(text, 10, 64); err == nil {
 			return v
@@ -318,7 +347,10 @@ func convertInput(text string, old any) any {
 			return v
 		}
 	case time.Time:
-		if v, err := time.Parse(time.RFC3339, text); err == nil {
+		// Parsed in the old value's zone: the picker and the text field
+		// both spell a wall-clock time with no offset, and re-reading it as
+		// UTC would silently shift a value the user never touched.
+		if v, ok := db.ParseDateTimeIn(text, o.Location()); ok {
 			return v
 		}
 	}
@@ -362,6 +394,17 @@ func (e *editCellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	case msg.String() == "ctrl+n":
 		e.null = !e.null
 		return false, nil
+	// The way back into the calendar after `e` dropped out of it. Only
+	// offered for a column that has one — everywhere else ctrl+t is a
+	// no-op key the footer never mentions.
+	case key.Matches(msg, m.keys.OpenPicker) && db.ClassifyType(e.col.DataType).Temporal():
+		kind := db.ClassifyType(e.col.DataType)
+		var initial any = e.input.Value()
+		if e.null {
+			initial = nil
+		}
+		m.modal = m.newEditDatePicker(e.change, initial, e.col, kind, e.rowLabel)
+		return true, nil
 	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
 		c := e.change
 		if e.null {
@@ -412,6 +455,10 @@ func (e *editCellModal) view(s styles, maxW, maxH int) string {
 	if e.null && !e.col.Nullable {
 		lines = append(lines, s.danger.Render("column is NOT NULL — the commit will fail"))
 	}
-	lines = append(lines, "", s.muted.Render("enter/ctrl+enter stage · ctrl+n NULL · esc cancel"))
+	footer := "enter/ctrl+enter stage · ctrl+n NULL · esc cancel"
+	if db.ClassifyType(e.col.DataType).Temporal() {
+		footer = "enter/ctrl+enter stage · ctrl+n NULL · ctrl+t picker · esc cancel"
+	}
+	lines = append(lines, "", s.muted.Render(footer))
 	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }

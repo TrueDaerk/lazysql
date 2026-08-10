@@ -391,6 +391,15 @@ func (f *insertRowModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 			cur.mode = toggleMode(cur.mode, insertDefault)
 		}
 		return false, nil
+	// A temporal field opens the calendar on top of the form: the form is
+	// restored as-is when the picker closes, with the field filled in on a
+	// confirm and untouched on an esc.
+	case key.Matches(msg, m.keys.OpenPicker):
+		if cur == nil || !db.ClassifyType(cur.col.DataType).Temporal() {
+			return false, nil
+		}
+		m.modal = f.datePickerFor(cur, m.keys)
+		return true, nil
 	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
 		r, problem := f.build()
 		if problem != "" {
@@ -422,6 +431,31 @@ func (f *insertRowModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 	var cmd tea.Cmd
 	cur.input, cmd = cur.input.Update(msg)
 	return cmd
+}
+
+// datePickerFor builds the calendar for one form field. It is the form's
+// own text input the picker writes back to — nothing is staged until the
+// form itself is submitted — and `e` inside it simply returns to the form,
+// which already offers NULL, DEFAULT and free text.
+func (f *insertRowModal) datePickerFor(fl *insertField, k keyMap) *datePickerModal {
+	kind := db.ClassifyType(fl.col.DataType)
+	var initial any = fl.input.Value()
+	if fl.mode != insertValue {
+		initial = nil
+	}
+	p := newDatePickerModal(fl.col.Name+" — "+f.title, fl.col, kind, pickerStart(initial, kind), k)
+	p.back = f
+	p.onPick = func(mm *Model, value string) tea.Cmd {
+		fl.input.SetValue(value)
+		fl.input.CursorEnd()
+		fl.mode = insertValue
+		return nil
+	}
+	p.onRaw = func(mm *Model) tea.Cmd {
+		mm.modal = f
+		return nil
+	}
+	return p
 }
 
 // toggleMode switches a field into a mode, or back to a typed value when
@@ -536,8 +570,14 @@ func (f *insertRowModal) view(s styles, maxW, maxH int) string {
 	if f.err != "" {
 		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
 	}
-	b.WriteString("\n" + s.muted.Render(
-		"tab/↑↓ field · ctrl+n NULL · ctrl+d default · enter/ctrl+enter stage · esc cancel"))
+	footer := "tab/↑↓ field · ctrl+n NULL · ctrl+d default · enter/ctrl+enter stage · esc cancel"
+	// Only advertised on the fields that have a picker, so the hint never
+	// names a key the current field ignores.
+	if cur := f.current(); cur != nil && db.ClassifyType(cur.col.DataType).Temporal() {
+		footer = "tab/↑↓ field · ctrl+n NULL · ctrl+d default · ctrl+t picker · " +
+			"enter/ctrl+enter stage · esc cancel"
+	}
+	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())
 }
 

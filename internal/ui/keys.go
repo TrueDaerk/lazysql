@@ -152,6 +152,23 @@ type keyMap struct {
 	UnstageCell    key.Binding
 	DiscardChanges key.Binding
 
+	// The date picker, opened for columns db.ClassifyType calls temporal.
+	// PickPrev/PickNext move sideways (a day in the calendar, a spinner in
+	// the clock) and PickUp/PickDown move by the bigger unit (a week, one
+	// hour/minute/second). PickRaw hands the column back to plain text
+	// entry, which is where NULL and SQL expressions live; OpenPicker is
+	// the way back into the calendar from a text field.
+	PickPrev      key.Binding
+	PickNext      key.Binding
+	PickUp        key.Binding
+	PickDown      key.Binding
+	PickMonthPrev key.Binding
+	PickMonthNext key.Binding
+	PickToday     key.Binding
+	PickSection   key.Binding
+	PickRaw       key.Binding
+	OpenPicker    key.Binding
+
 	// Main-view tabs (Data | Structure | Indexes | DDL).
 	PrevMainTab key.Binding
 	NextMainTab key.Binding
@@ -324,6 +341,29 @@ func newKeyMap() keyMap {
 		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
 
+		PickPrev: key.NewBinding(
+			key.WithKeys("h", "left"), key.WithHelp("h/←", "prev day / time field")),
+		PickNext: key.NewBinding(
+			key.WithKeys("l", "right"), key.WithHelp("l/→", "next day / time field")),
+		PickUp: key.NewBinding(
+			key.WithKeys("k", "up"), key.WithHelp("k/↑", "prev week / +1 unit")),
+		PickDown: key.NewBinding(
+			key.WithKeys("j", "down"), key.WithHelp("j/↓", "next week / -1 unit")),
+		// `[` / `]` are hard to type on QWERTZ/AZERTY (see PrevMainTab), so
+		// `H` / `L` are bound as the layout-neutral alias the issue asked
+		// for — free inside the picker, which claims every key it is open
+		// for.
+		PickMonthPrev: key.NewBinding(
+			key.WithKeys("[", "H", ","), key.WithHelp("[/H", "prev month")),
+		PickMonthNext: key.NewBinding(
+			key.WithKeys("]", "L", "."), key.WithHelp("]/L", "next month")),
+		PickToday: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "jump to now")),
+		PickSection: key.NewBinding(
+			key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "date / time half")),
+		PickRaw: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "raw text (NULL, now())")),
+		OpenPicker: key.NewBinding(
+			key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "date picker")),
+
 		// `[` / `]` are AltGr+8 / AltGr+9 on QWERTZ (and AZERTY), which
 		// terminals may deliver as alt-chords or swallow outright. `,`
 		// and `.` sit on the same physical keys on both layouts and are
@@ -418,6 +458,19 @@ func (k keyMap) queryResultKeys() []key.Binding {
 // key — so this slice is what documents them in `?`.
 func (k keyMap) formPathComplete() []key.Binding {
 	return []key.Binding{k.CompletePath, k.NextField, k.PrevField}
+}
+
+// datePicker are the keys the date/time picker owns while it is open, plus
+// the key that opens it from a text field. Like historyPane they are
+// dispatched inside the modal — an open modal swallows every key — so this
+// slice is what documents them in `?` and what the picker's own footer and
+// the options bar render.
+func (k keyMap) datePicker() []key.Binding {
+	return []key.Binding{
+		k.OpenPicker, k.PickPrev, k.PickNext, k.PickUp, k.PickDown,
+		k.PickMonthPrev, k.PickMonthNext, k.PickToday, k.PickSection, k.PickRaw,
+		k.Enter, k.Back,
+	}
 }
 
 // global returns the bindings handled by the root model.
@@ -632,6 +685,11 @@ func (k keyMap) helpGroups(id panelID) [][]key.Binding {
 			k.editorNormal(), k.editorInsert(), k.editorCompletion(),
 			k.historyPane(), k.queryResultKeys())
 	}
+	// The cell editor and the insert form both open from the data grid,
+	// and so does the date picker they hand temporal columns to.
+	if id == panelMain {
+		groups = append(groups, k.datePicker())
+	}
 	// The connection form is opened from the Connections panel, so its
 	// path-completion keys are documented there.
 	if id == panelConnections {
@@ -697,6 +755,12 @@ func (k *keyMap) slots() []bindingSlot {
 		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
 		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},
 		{"unstage-cell", &k.UnstageCell}, {"discard-changes", &k.DiscardChanges},
+
+		{"pick-prev", &k.PickPrev}, {"pick-next", &k.PickNext},
+		{"pick-up", &k.PickUp}, {"pick-down", &k.PickDown},
+		{"pick-month-prev", &k.PickMonthPrev}, {"pick-month-next", &k.PickMonthNext},
+		{"pick-today", &k.PickToday}, {"pick-section", &k.PickSection},
+		{"pick-raw", &k.PickRaw}, {"open-picker", &k.OpenPicker},
 
 		{"prev-main-tab", &k.PrevMainTab}, {"next-main-tab", &k.NextMainTab},
 

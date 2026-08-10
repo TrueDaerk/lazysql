@@ -1023,4 +1023,18 @@ Chronological history of wiki changes, newest last.
   alias and `[keys]` overrides toggle it. `TestNoActionNeedsAltGr` walks
   `keyMap.slots()` and fails any action reachable only through an AltGr
   character.
+- Added [design/date-time-picker](design/date-time-picker.md) (issue #95):
+  `internal/db/coltype.go` classifies a driver-reported `DataType` into
+  `KindDate`/`KindTime`/`KindDateTime`/`KindOther` by exact match on a
+  normalized name (precision, array markers, case and whitespace stripped),
+  covering the MySQL/MariaDB, PostgreSQL, SQLite-affinity and DuckDB
+  spellings, plus a lenient `ParseDateTimeIn` for prefilling from a stored
+  value. `internal/ui/datepicker.go` is the calendar+clock modal it feeds:
+  it carries a `back modal` and rides the existing `m.modal == cur`
+  replacement rule instead of nesting inside the edit modal and the insert
+  form, so `e` drops out to raw text (NULL, `now()`, `CURRENT_TIMESTAMP`)
+  and `ctrl+t` comes back. Documented the two deliberate key asymmetries —
+  `j`/`k` invert on the clock because a stepper reads the other way from a
+  calendar, and the clock wraps per field so a minute nudge cannot move the
+  day — and why classification lives in `internal/db` rather than the UI.
 

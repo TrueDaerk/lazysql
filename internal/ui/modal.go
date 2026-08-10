@@ -186,6 +186,15 @@ func (p *promptModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// paste puts pasted text in the input. textinput takes a tea.PasteMsg
+// itself, so this only has to hand it over; it flattens newlines on the
+// way in, the field being one line.
+func (p *promptModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
+	var cmd tea.Cmd
+	p.input, cmd = p.input.Update(msg)
+	return cmd
+}
+
 func (p *promptModal) view(s styles, maxW, maxH int) string {
 	p.input.SetWidth(min(50, maxW-8))
 	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left,

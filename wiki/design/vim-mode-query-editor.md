@@ -78,7 +78,9 @@ pure functions.
 - **One register.** `x`, `dd`, `yy` fill `queryEditor.register`; the
   `line` flag decides whether `p` pastes a new line below the cursor or
   characters after it. No named registers, no system clipboard tie-in
-  (the `y` copy menu on the data grid already owns that).
+  (the `y` copy menu on the data grid already owns that, and text comes
+  *in* through the terminal's own bracketed paste — see
+  [design/clipboard-strategy](clipboard-strategy.md)).
 
 ## What was displaced
 

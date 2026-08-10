@@ -360,6 +360,28 @@ Either way, `esc` cancels an auto-connect in progress and drops back to
 the plain connections panel; a deleted connection, an unreachable host or
 a dropped table degrade the same way, with a note in the command log.
 
+### Clipboard
+
+`y` copies through the native clipboard (`pbcopy`, `xclip`, `xsel`) when
+there is one. When there is not — an SSH session, a container — the text
+goes out as an OSC 52 escape sequence instead, so it lands on the
+clipboard of the terminal you are actually sitting in front of. Only if
+that is unavailable too (no terminal, `TERM=dumb`, or a copy larger than
+128 KiB, which terminals silently drop) does the copy fall back to a temp
+file, whose path the command log names. The log always says which of the
+three happened.
+
+Some terminals ship with OSC 52 off (iTerm2 has a "may access clipboard"
+setting; macOS Terminal.app does not support it), and tmux needs
+`set-clipboard` left at `external` or set to `on`. Set `LAZYSQL_NO_OSC52=1`
+to skip the escape sequence entirely and go straight to the temp file.
+
+Pasting is the terminal's own paste (⌘V, ctrl+shift+V, middle click):
+lazysql takes bracketed paste everywhere text is typed, including the
+query editor in normal mode, where the pasted characters are inserted as
+text rather than run as vim commands. Vim's `p` is unrelated — it pastes
+the editor's own `x`/`dd`/`yy` register.
+
 ## Install
 
 Download a prebuilt binary (darwin/linux, amd64/arm64) from the

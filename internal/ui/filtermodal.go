@@ -141,6 +141,11 @@ func (fm *filterModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return fm.form.update(msg, m)
 }
 
+// paste follows update: the form owns the fields, so it owns the paste.
+func (fm *filterModal) paste(msg tea.PasteMsg, m *Model) tea.Cmd {
+	return fm.form.paste(msg, m)
+}
+
 func (fm *filterModal) view(s styles, maxW, maxH int) string {
 	return fm.form.view(s, maxW, maxH)
 }

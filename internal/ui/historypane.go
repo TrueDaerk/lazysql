@@ -407,6 +407,17 @@ func (p *paramsModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// paste puts pasted text in the placeholder under the cursor — a value
+// copied out of another tool is exactly what these fields are for.
+func (p *paramsModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
+	if p.focus < 0 || p.focus >= len(p.inputs) {
+		return nil
+	}
+	var cmd tea.Cmd
+	p.inputs[p.focus], cmd = p.inputs[p.focus].Update(msg)
+	return cmd
+}
+
 func (p *paramsModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 70)
 	if width < 20 {

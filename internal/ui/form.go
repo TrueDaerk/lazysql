@@ -330,6 +330,22 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// paste puts pasted text in the field under the cursor, when that field
+// holds text at all — a select or a bool has no room for it. A pasted
+// path re-runs completion, the same way typing one does.
+func (f *formModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
+	cur := f.current()
+	if cur == nil || (cur.kind != fieldText && cur.kind != fieldPassword) {
+		return nil
+	}
+	var cmd tea.Cmd
+	cur.input, cmd = cur.input.Update(msg)
+	if cur.suggest {
+		f.sugg.refresh(cur.input.Value())
+	}
+	return cmd
+}
+
 func (f *formModal) view(s styles, maxW, maxH int) string {
 	vis := f.visibleFields()
 	labelW := 0

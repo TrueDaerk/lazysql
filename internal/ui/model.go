@@ -576,7 +576,8 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
 // keys) → an open `/` filter → the query editor in insert mode → global
-// keys → focused panel.
+// keys → focused panel. A bracketed paste takes the same order through
+// updatePaste, minus the steps that only make sense for a key.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -971,8 +972,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case copiedMsg:
-		// A copy already rendered its own outcome — clipboard, temp-file
-		// fallback or failure — so the log line is taken as it is.
+		// A copy already rendered its own outcome — clipboard, OSC 52,
+		// temp-file fallback or failure — so the log line is taken as it
+		// is. An OSC 52 copy still has to be written to the terminal,
+		// which only the program can do: hence the round trip through
+		// here rather than a write from inside the copy command.
+		if msg.osc52 != "" {
+			return m, tea.Batch(tea.SetClipboard(msg.osc52), logCmd("%s", msg.line))
+		}
 		return m, logCmd("%s", msg.line)
 
 	case exportProgressMsg:
@@ -1045,6 +1052,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, logCmd("-- %s %s FAILED: %v", msg.verb, msg.name, msg.err)
 		}
 		return m, nil
+
+	case tea.PasteMsg:
+		// Bracketed paste arrives as one message rather than as the keys
+		// it is made of, and is routed like one — see paste.go for why
+		// it cannot simply follow the key path.
+		return m.updatePaste(msg)
 
 	case tea.KeyPressMsg:
 		// 1. A modal swallows every key. esc always cancels.

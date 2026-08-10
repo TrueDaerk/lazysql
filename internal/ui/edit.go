@@ -376,6 +376,15 @@ func (e *editCellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// paste puts pasted text in the value input. Like typing, it means the
+// user wants a value rather than the NULL the toggle may be showing.
+func (e *editCellModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
+	e.null = false
+	var cmd tea.Cmd
+	e.input, cmd = e.input.Update(msg)
+	return cmd
+}
+
 func (e *editCellModal) view(s styles, maxW, maxH int) string {
 	e.input.SetWidth(min(50, maxW-8))
 	title := fmt.Sprintf("Edit %s.%s — %s", e.change.Table, e.change.Column, e.rowLabel)

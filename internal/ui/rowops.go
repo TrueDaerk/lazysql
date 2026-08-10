@@ -410,6 +410,19 @@ func (f *insertRowModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// paste fills the field under the cursor from the system clipboard, and
+// switches it to the typed-value mode for the same reason typing does.
+func (f *insertRowModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
+	cur := f.current()
+	if cur == nil {
+		return nil
+	}
+	cur.mode = insertValue
+	var cmd tea.Cmd
+	cur.input, cmd = cur.input.Update(msg)
+	return cmd
+}
+
 // toggleMode switches a field into a mode, or back to a typed value when
 // it is already in it, so one key both sets and clears NULL / DEFAULT.
 func toggleMode(cur, want insertMode) insertMode {

@@ -986,3 +986,12 @@ Chronological history of wiki changes, newest last.
   `ListTriggers`/`TriggerDDL` pair; renumbering notes added to
   [design/tui-shell-architecture](design/tui-shell-architecture.md) and the
   concepts that named `[2]`/`[3]` by number.
+
+## 2026-08-10
+
+- Updated [design/staged-changeset](design/staged-changeset.md) (issue #80):
+  `Changeset.Statements` now merges same-row `CellChange`s into one
+  multi-column UPDATE instead of one per cell. Documented the merge rule
+  (blocked only by a coexisting `RowDelete` for that row, checked directly
+  rather than assumed) and why it is safe given `StageDelete`'s existing
+  purge and the UI's edit-on-deleted-row refusal.

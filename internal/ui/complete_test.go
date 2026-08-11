@@ -608,6 +608,14 @@ func TestPopupStaysInsideTheTerminal(t *testing.T) {
 		if x < 0 || y < 0 {
 			t.Errorf("%dx%d: popup at (%d,%d)", size[0], size[1], x, y)
 		}
+		// In the split layout (the default screen mode) the side column
+		// sits left of the main column. A popup wide enough to need
+		// sliding must slide only within the main column — left of it is
+		// the side panels' borders, not empty space to float over.
+		mx, _, _, _, mok := mm.mainColumnRect()
+		if mok && x < mx {
+			t.Errorf("%dx%d: popup left edge at %d overlaps the side column (starts at %d)", size[0], size[1], x, mx)
+		}
 		if x+w > size[0] {
 			t.Errorf("%dx%d: popup right edge at %d overflows the terminal", size[0], size[1], x+w)
 		}

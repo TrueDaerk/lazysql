@@ -471,7 +471,15 @@ func (m Model) renderCommandLog(w, h int) string {
 		if e.err {
 			style = m.style.danger
 		}
-		lines = append(lines, style.Render(truncate(e.render(), cw)))
+		for _, l := range strings.Split(e.render(), "\n") {
+			lines = append(lines, style.Render(truncate(l, cw)))
+		}
+	}
+	// An entry can itself span multiple display lines (wrapped SQL), so
+	// the split above may still exceed rows — clip to the newest lines
+	// that fit or the box overflows its border and hides the options bar.
+	if start := len(lines) - rows; start > 0 {
+		lines = lines[start:]
 	}
 	return renderTitledBox(m.style.blurredBorder,
 		m.style.title.Render("Command log"), strings.Join(lines, "\n"), w, h)

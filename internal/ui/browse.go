@@ -135,3 +135,22 @@ func databaseArg(name string) string {
 	}
 	return name
 }
+
+// scopeDatabases restricts a namespace listing to the database the profile
+// pins, on engines where the listing enumerates server databases at all
+// (MySQL/MariaDB — see db.DatabaseNamespaces). A pinned database missing from
+// the listing is kept anyway: SHOW DATABASES hides namespaces the user lacks
+// privileges to see but may still be allowed to use, and a truly wrong name
+// surfaces as an error on expand.
+func (m *Model) scopeDatabases(conn string, dbs []string) []string {
+	c, ok := m.cfg.Find(conn)
+	if !ok || c.Database == "" || !db.DatabaseNamespaces(c.Engine) {
+		return dbs
+	}
+	for _, d := range dbs {
+		if d == c.Database {
+			return []string{d}
+		}
+	}
+	return []string{c.Database}
+}

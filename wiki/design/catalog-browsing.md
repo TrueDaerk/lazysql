@@ -59,6 +59,19 @@ Key choices:
   every dialect already reads as "the connection's current namespace".
   On connect, a single-entry list is drilled into automatically and
   focus lands on `[3]`. Attached databases still list normally.
+- **A profile that pins a database scopes the tree to it.** When a
+  connection's `database` field is set and the engine's namespaces *are*
+  server databases (`db.DatabaseNamespaces`: MySQL/MariaDB), the
+  listing is narrowed to that one entry by `Model.scopeDatabases`
+  before `namespaceList` — applied on both the connect round trip and
+  every `R` re-listing. PostgreSQL is deliberately exempt: its
+  `listDatabases` returns the *schemas* of the connected database (one
+  connection cannot cross databases), so the pin already took effect at
+  dial time and filtering schema names against a database name would be
+  wrong. A pinned database missing from the listing is kept anyway:
+  `SHOW DATABASES` hides namespaces the user lacks privileges to *see*
+  but may still be allowed to *use*; a genuinely wrong name surfaces as
+  an error when its categories are expanded.
 
 ## Fuzzy filter
 

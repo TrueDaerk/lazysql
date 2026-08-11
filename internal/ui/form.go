@@ -134,8 +134,17 @@ type formModal struct {
 	fields   []*formField
 	cursor   int
 	err      string
+	// info is the green counterpart of err: a transient status line, e.g.
+	// the connection form's test result.
+	info     string
 	footer   string
 	onSubmit func(m *Model, f *formModal) (close bool, cmd tea.Cmd)
+
+	// onKey, when set, sees every key the form's own contract does not
+	// claim (esc/tab/enter/↑↓). Returning handled=true stops the key from
+	// reaching the field under the cursor — the connection form's ctrl+t
+	// test hook lives here.
+	onKey func(m *Model, f *formModal, key string) (handled bool, cmd tea.Cmd)
 
 	// onCancel, when set, runs when esc closes the form without
 	// submitting — cleanup for state a caller set up expecting either a
@@ -292,12 +301,18 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 			f.sugg.clear()
 			return true, nil
 		}
-		f.err = ""
+		f.err, f.info = "", ""
 		close, cmd := f.onSubmit(m, f)
 		if close {
 			f.sugg.clear()
 		}
 		return close, cmd
+	}
+
+	if f.onKey != nil {
+		if handled, cmd := f.onKey(m, f, msg.String()); handled {
+			return false, cmd
+		}
 	}
 
 	if cur == nil {
@@ -374,6 +389,9 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		if f.err != "" {
 			used += 2
 		}
+		if f.info != "" {
+			used += 2
+		}
 		sugRows = min(maxSuggestLines, maxH-used)
 	}
 
@@ -411,6 +429,9 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	}
 	if f.err != "" {
 		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
+	}
+	if f.info != "" {
+		b.WriteString("\n" + s.titleFocused.Render(f.info) + "\n")
 	}
 	footer := f.footer
 	if footer == "" {

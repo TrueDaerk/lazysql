@@ -34,6 +34,15 @@ func FileBased(engine Engine) bool {
 	return engine == EngineSQLite || engine == EngineDuckDB
 }
 
+// DatabaseNamespaces reports whether ListDatabases enumerates the server's
+// databases, so that a profile pinning one can scope the listing to it.
+// PostgreSQL returns false — its namespaces are the schemas of the connected
+// database, where the pin already took effect at dial time — and so do the
+// file-based engines.
+func DatabaseNamespaces(engine Engine) bool {
+	return engine == EngineMySQL || engine == EngineMariaDB
+}
+
 // DefaultPort is the port used when a connection leaves it unset. File-based
 // engines return 0.
 func DefaultPort(engine Engine) int {

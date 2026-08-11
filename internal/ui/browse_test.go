@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazysql/internal/config"
 	"lazysql/internal/db"
 )
 
@@ -474,4 +475,34 @@ func equal(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// A profile pinning a database narrows MySQL-style namespace listings to it;
+// PostgreSQL (schemas) and profiles without a pin pass through unchanged, and
+// a pin missing from the listing survives anyway (SHOW DATABASES hides
+// unprivileged namespaces).
+func TestScopeDatabases(t *testing.T) {
+	m := sized(120, 40)
+	m.cfg.Connections = append(m.cfg.Connections,
+		config.Connection{Name: "pinned", Engine: db.EngineMySQL, Host: "h", Database: "app"},
+		config.Connection{Name: "unpinned", Engine: db.EngineMySQL, Host: "h"},
+		config.Connection{Name: "pg", Engine: db.EnginePostgres, Host: "h", Database: "app"},
+	)
+	all := []string{"app", "information_schema", "mysql"}
+	if got := m.scopeDatabases("pinned", all); !equal(got, []string{"app"}) {
+		t.Errorf("pinned: got %v, want [app]", got)
+	}
+	if got := m.scopeDatabases("unpinned", all); !equal(got, all) {
+		t.Errorf("unpinned: got %v, want %v", got, all)
+	}
+	schemas := []string{"audit", "public"}
+	if got := m.scopeDatabases("pg", schemas); !equal(got, schemas) {
+		t.Errorf("postgres schemas: got %v, want %v", got, schemas)
+	}
+	if got := m.scopeDatabases("pinned", []string{"mysql"}); !equal(got, []string{"app"}) {
+		t.Errorf("hidden pin: got %v, want [app]", got)
+	}
+	if got := m.scopeDatabases("no-such-conn", all); !equal(got, all) {
+		t.Errorf("unknown conn: got %v, want %v", got, all)
+	}
 }

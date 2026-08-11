@@ -1087,3 +1087,14 @@ Chronological history of wiki changes, newest last.
   `d.filter == nil` to say "table is empty" for a genuinely empty,
   unfiltered result, keeping "no rows match" for a filter that matches
   nothing.
+
+- Extended [design/catalog-browsing](design/catalog-browsing.md): a profile
+  that pins a `database` scopes the [2] Objects tree to it on MySQL/MariaDB
+  (`db.DatabaseNamespaces` + `Model.scopeDatabases`), why PostgreSQL is
+  exempt (its namespaces are schemas, the pin acts at dial time), and why a
+  pin missing from `SHOW DATABASES` is kept rather than dropped.
+- Extended [design/connection-form-modal](design/connection-form-modal.md):
+  `ctrl+t` tests the connection from inside the form without saving, via the
+  new generic `formModal.onKey` hook and `dialRequest.form` routing the
+  `connTestedMsg` back into the form's green `info` / red `err` line;
+  untouched secrets fall back to the keyring under `oldName`.

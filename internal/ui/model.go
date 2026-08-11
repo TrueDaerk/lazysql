@@ -722,6 +722,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, redialCmd(req)
 
 	case connTestedMsg:
+		// A test fired from the connection form reports into that form —
+		// the profile may be unsaved, so there is no panel row to color.
+		// A reply landing after the form closed is dropped.
+		if msg.req.form != nil {
+			if m.modal != msg.req.form {
+				return m, nil
+			}
+			f := msg.req.form
+			if msg.err != nil {
+				f.info = ""
+				f.err = msg.err.Error()
+				return m, logCmd("-- test %s FAILED: %v", msg.name, msg.err)
+			}
+			f.info = fmt.Sprintf("✓ ok in %s", msg.took.Round(time.Millisecond))
+			return m, logCmd("-- test %s ok in %s (%s)", msg.name, msg.took.Round(time.Millisecond), msg.dsn)
+		}
 		if msg.err != nil {
 			m.setConnStatus(msg.name, statusError, msg.err.Error())
 			// An SSH failure the user can answer — unknown host key,
@@ -781,7 +797,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.active = msg.name
 		m.setConnStatus(msg.name, statusOK, "")
 		m.resetBrowse()
-		dbs := namespaceList(msg.driver.Engine(), msg.databases)
+		dbs := namespaceList(msg.driver.Engine(), m.scopeDatabases(msg.name, msg.databases))
 		m.rebuildTree(dbs)
 		cmds := []tea.Cmd{
 			closeSessionCmd(prevDriver, prevTunnel),
@@ -816,7 +832,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The tree keeps its previous content; only the log knows.
 			return m, logCmd("-- list databases FAILED: %v", msg.err)
 		}
-		dbs := namespaceList(m.driver.Engine(), msg.databases)
+		dbs := namespaceList(m.driver.Engine(), m.scopeDatabases(m.active, msg.databases))
 		// A re-listing drops every cached object list with it: that is
 		// what makes `R` on the database level a real refresh.
 		m.rebuildTree(dbs)

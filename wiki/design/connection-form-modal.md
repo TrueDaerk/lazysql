@@ -53,6 +53,31 @@ passwords: leading and trailing spaces can be significant in a secret. The
 password field is also excluded from file-based engines entirely, since
 SQLite and DuckDB have nothing to authenticate against.
 
+## Test from inside the form (`ctrl+t`)
+
+The connection form can dial what it currently shows without saving:
+`ctrl+t` runs `toConnection()` for validation only, builds a
+`dialRequest` and fires the same `testConnCmd` the panel's `t` uses.
+Two mechanisms carry it:
+
+- `formModal.onKey` — an optional hook that sees every key the form's
+  own contract (esc/tab/enter/↑↓) does not claim, checked before the
+  key reaches the field under the cursor. It keeps `formModal` generic;
+  only the connection form installs a handler.
+- `dialRequest.form` — a pointer to the originating form. The
+  `connTestedMsg` reducer routes a reply with `form != nil` into that
+  form's `info` (success, green) or `err` (failure) line instead of the
+  panel row status — the profile may be unsaved, so there is no row to
+  color — and drops the reply when that form is no longer the open
+  modal. SSH failure prompts (host key, passphrase) are *not* opened
+  from a form test: they would replace the form; the error text is
+  shown inline instead.
+
+Untouched secret fields fall back to the keyring entries of the profile
+being edited, looked up under `oldName` because the form may be renaming
+it. A typed password always wins, which also lets an `ask on connect`
+profile be tested by typing the password into the form.
+
 ## Related
 
 - [design/tui-shell-architecture](tui-shell-architecture.md) — the modal

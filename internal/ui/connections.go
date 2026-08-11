@@ -158,6 +158,11 @@ type dialRequest struct {
 	// instead of the interactive connect flow.
 	restore bool
 
+	// form is the connection form a ctrl+t test was fired from, so the
+	// connTestedMsg handler can write the result into that form (and only
+	// while it is still the open modal) instead of the panel row status.
+	form *formModal
+
 	password    string
 	hasPassword bool
 
@@ -541,7 +546,7 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 	fields = append(fields, colorFormFields(c)...)
 	fields = append(fields, sshFields(c, oldName)...)
 
-	return newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
+	fm := newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
 		conn, sec, err := f.toConnection()
 		if err != nil {
 			f.err = err.Error()
@@ -558,6 +563,40 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 			logCmd("-- save connection %s (%s)", conn.Name, conn.Engine),
 		)
 	})
+	fm.footer = "tab/↑↓ field · ←→ change · ctrl+t test · enter save · esc cancel"
+	fm.onKey = func(m *Model, f *formModal, key string) (bool, tea.Cmd) {
+		if key != "ctrl+t" {
+			return false, nil
+		}
+		f.err, f.info = "", ""
+		conn, sec, err := f.toConnection()
+		if err != nil {
+			f.err = err.Error()
+			return true, nil
+		}
+		// The test dials exactly what the form shows, without persisting
+		// anything. Untouched secret fields fall back to the keyring entries
+		// of the profile being edited — looked up under oldName, because the
+		// form may be renaming it.
+		req := dialRequest{conn: conn, form: f}
+		if sec.setPassword {
+			req.password, req.hasPassword = sec.password, true
+		} else if oldName != "" {
+			if pw, err := keyringSecret(oldName); err == nil && pw != "" {
+				req.password, req.hasPassword = pw, true
+			}
+		}
+		if sec.setSSH {
+			req.sshSecret, req.hasSSHSecret = sec.ssh, true
+		} else if oldName != "" {
+			if s, err := keyringSecret(secrets.SSHKey(oldName)); err == nil && s != "" {
+				req.sshSecret, req.hasSSHSecret = s, true
+			}
+		}
+		f.info = "testing …"
+		return true, testConnCmd(req)
+	}
+	return fm
 }
 
 func passwordPlaceholder(c config.Connection, oldName string) string {

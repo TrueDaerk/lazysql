@@ -1047,3 +1047,18 @@ Chronological history of wiki changes, newest last.
   check against the CLAUDE.md lazygit conventions, and an explicit
   verified-fine list. Server-based engines and long-running-query feedback
   remain uncovered and need a follow-up pass.
+
+## 2026-08-11
+
+- Fixed F2 of the UX audit (issue #105): the completion popup's placement
+  was computed against the full terminal width instead of the main
+  column's, so in the default split layout a popup wider than a narrow
+  main column slid left over the side panels' own borders — on screen
+  this reads as corrupted box-drawing over `[1]`/`[2]`/`[3]`, not as a
+  suggestion list, which is what the audit read as "no popup rendered
+  anywhere". `completionLayer` (`internal/ui/view.go`) now measures and
+  slides the box in main-column-relative coordinates and caps its text
+  width to the column. Updated
+  [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)'s
+  anchoring section and added a regression assertion to
+  `TestPopupStaysInsideTheTerminal`.

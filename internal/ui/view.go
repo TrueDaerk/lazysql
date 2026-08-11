@@ -240,12 +240,18 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	}
 	ax, ay := mx+1+caretCol, my+1+caretRow
 
-	box = m.completionPopup(m.width, m.height-1)
+	// The box is measured and placed against the main column alone, not
+	// the full terminal: in a split layout the side column sits to its
+	// left, and a popup wide enough to slide past mx would draw over the
+	// side panels' borders instead of floating over the editor. Placing
+	// in coordinates relative to the column and translating back keeps
+	// placePopup's own logic untouched.
+	box = m.completionPopup(mw, mh)
 	if box == "" {
 		return "", 0, 0, false
 	}
-	x, y = placePopup(ax, ay, lipgloss.Width(box), lipgloss.Height(box), m.width, m.height-1)
-	return box, x, y, true
+	relX, relY := placePopup(ax-mx, ay-my, lipgloss.Width(box), lipgloss.Height(box), mw, mh)
+	return box, mx + relX, my + relY, true
 }
 
 // placePopup puts a w x h box next to an anchor cell inside a screen of

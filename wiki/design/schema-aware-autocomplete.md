@@ -62,6 +62,20 @@ the right edge, flipped above when the bottom would cut it off. It is a
 pure function and unit-tested as one, because with the editor capped at
 half the main view the flip case is not reachable by resizing.
 
+`completionLayer` measures and slides the box against the **main
+column's** bounds, not the full terminal (issue #105). The split layout
+puts the side column left of the main column; `placePopup`'s job is to
+keep the box on screen, and a screen width of `m.width` let it slide the
+box past the main column's left edge and over the side panels' own
+borders whenever the column was narrower than the popup — which happens
+at any width near `minWidth`, since `completionWidth` is a fixed budget,
+not a fraction of the column. `completionLayer` now translates the
+anchor into column-relative coordinates, calls `placePopup` with the
+column's own width, and translates the result back — `placePopup` itself
+stays a pure two-box function with no idea a side column exists.
+`m.completionPopup` also takes the column width as its cap, so the box's
+text can never be wider than the column it has to fit inside.
+
 ## 2. A token scan, not a parser
 
 Which columns are worth offering depends on which tables the statement

@@ -117,7 +117,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				}
 			}
 			g.nulls[r] = v == nil
-			g.cells[r] = flatten(db.FormatValue(v, nullText))
+			g.cells[r] = gridCellText(v, nullText)
 		}
 		for j, ins := range inserts {
 			r := len(d.rows) + j
@@ -129,7 +129,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				g.nulls[r] = true
 				g.cells[r] = nullText
 			default:
-				g.cells[r] = flatten(db.FormatValue(v, nullText))
+				g.cells[r] = gridCellText(v, nullText)
 			}
 		}
 		for _, cell := range g.cells {
@@ -164,6 +164,18 @@ func (m Model) stagedRowKeys() [][]any {
 		}
 	}
 	return keys
+}
+
+// gridCellText formats a cell's value for the grid, standing a placeholder
+// in for BLOBs: raw bytes carry control characters that break the row and
+// misalign the right border, and the cell-detail popup (`v`) already gives
+// binary values a proper hex dump, so the grid does not need to show them.
+func gridCellText(v any, null string) string {
+	raw := db.FormatValue(v, null)
+	if classifyCell(raw) == cellBinary {
+		return fmt.Sprintf("<blob %d B>", len(raw))
+	}
+	return flatten(raw)
 }
 
 // flatten collapses whitespace that would otherwise break the row into
@@ -272,7 +284,11 @@ func (m Model) dataBody(w, h int) string {
 			lines = append(lines, m.gridRow(cols[cs:ce], cs, r, kinds[r], w))
 		}
 		if len(kinds) == 0 {
-			lines = append(lines, m.style.muted.Render("no rows match"))
+			msg := "table is empty"
+			if d.filter != nil {
+				msg = "no rows match"
+			}
+			lines = append(lines, m.style.muted.Render(msg))
 		}
 		if cs > 0 || ce < len(cols) {
 			lines = append(lines, m.style.muted.Render(fmt.Sprintf(

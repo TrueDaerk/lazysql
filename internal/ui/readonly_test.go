@@ -219,10 +219,10 @@ func offersBinding(bindings []key.Binding, desc string) bool {
 	return false
 }
 
-func flattenGroups(groups [][]key.Binding) []key.Binding {
+func flattenGroups(groups []helpGroup) []key.Binding {
 	var out []key.Binding
 	for _, g := range groups {
-		out = append(out, g...)
+		out = append(out, g.bindings...)
 	}
 	return out
 }

@@ -199,7 +199,7 @@ func TestEditorKeysAreDocumented(t *testing.T) {
 	k := newKeyMap()
 	documented := map[string]bool{}
 	for _, group := range k.helpGroups(panelQuery) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			documented[b.Help().Key] = true
 		}
 	}

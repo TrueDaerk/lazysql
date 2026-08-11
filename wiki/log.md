@@ -1062,3 +1062,16 @@ Chronological history of wiki changes, newest last.
   [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)'s
   anchoring section and added a regression assertion to
   `TestPopupStaysInsideTheTerminal`.
+
+- Fixed F3 of the UX audit (issue #106): `?` packed every sub-context's
+  bindings (date picker, form path-completion, query-editor vim/insert/
+  completion/history) into the same unlabeled column list as the panel's
+  own actions, so a key that means one thing while browsing and another
+  inside a modal — `h`/`←`, `e`, `tab` — read as duplicated or
+  conflicting rather than scoped. `keyMap.helpGroups`
+  (`internal/ui/keys.go`) now returns `[]helpGroup{label, bindings}`
+  instead of bare `[][]key.Binding`; sub-context groups carry a label
+  ("In the date picker:", "In forms:", "In vim normal mode:", etc.), the
+  panel's own actions and the always-on navigation/global groups stay
+  unlabeled. `helpModal.view` (`internal/ui/modal.go`) renders the label
+  above its column when present.

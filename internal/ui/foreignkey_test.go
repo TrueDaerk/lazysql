@@ -306,7 +306,7 @@ func TestForeignKeyBindingsAreDocumented(t *testing.T) {
 	}
 	var listed int
 	for _, group := range k.helpGroups(panelMain) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			for _, keyName := range want {
 				if len(b.Keys()) > 0 && b.Keys()[0] == keyName {
 					listed++

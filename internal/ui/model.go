@@ -1191,14 +1191,19 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, nil
 
 	case key.Matches(msg, k.Quit):
-		// Torn down here rather than in a tea.Cmd: tea.Quit can stop the
-		// program before a batched command ever runs, which would leave the
-		// SSH connection and its forwarded sockets to the OS.
-		if m.cfg.RestoreSessionEnabled() {
-			m.saveSession()
+		if n := m.changes.Len(); n > 0 {
+			m.modal = &confirmModal{
+				title:  "Quit",
+				body:   fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n)),
+				danger: true,
+				onConfirm: func(mm *Model) tea.Cmd {
+					mm.quit()
+					return tea.Quit
+				},
+			}
+			return true, m, nil
 		}
-		_ = (&config.State{ScreenMode: screenModeNames[m.screen]}).Save()
-		m.closeSession()
+		m.quit()
 		return true, m, tea.Quit
 
 	case key.Matches(msg, k.Help):
@@ -1470,6 +1475,18 @@ func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 		m.setConnStatus(c.Name, statusPending, "")
 	}
 	return m, redialCmd(req)
+}
+
+// quit saves session/screen state and tears down the connection. Called
+// synchronously (not as a tea.Cmd) because tea.Quit can stop the program
+// before a batched command ever runs, which would leave the SSH connection
+// and its forwarded sockets to the OS.
+func (m *Model) quit() {
+	if m.cfg.RestoreSessionEnabled() {
+		m.saveSession()
+	}
+	_ = (&config.State{ScreenMode: screenModeNames[m.screen]}).Save()
+	m.closeSession()
 }
 
 // closeSession tears down the active driver and its tunnel synchronously.

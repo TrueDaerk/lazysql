@@ -154,6 +154,20 @@ func TestViewCellRendersBlobAsHexDump(t *testing.T) {
 	}
 }
 
+// A BLOB cell in the grid itself renders as a placeholder, not the raw
+// bytes: control characters in the value would otherwise break the row and
+// misalign the right border.
+func TestGridRendersBlobAsPlaceholder(t *testing.T) {
+	m := binaryBrowsing(t)
+	out := m.View().Content
+	if !strings.Contains(out, "<blob 6 B>") {
+		t.Errorf("view = %q, want a blob placeholder for the payload cell", out)
+	}
+	if strings.ContainsRune(out, 0xDEAD) {
+		t.Errorf("view contains a raw non-UTF-8 rune from the blob")
+	}
+}
+
 // A long single-line value wraps to the modal width instead of getting
 // truncated with an ellipsis, and j/k scroll through the wrapped lines.
 func TestViewCellWrapsLongValue(t *testing.T) {

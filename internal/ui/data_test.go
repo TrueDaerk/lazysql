@@ -289,6 +289,49 @@ func TestBrokenFilterKeepsThePageAndReports(t *testing.T) {
 	}
 }
 
+// A genuinely empty table says so plainly; only a filtered view that
+// matches nothing implies an active filter.
+func TestEmptyTableSaysSoWithoutImplyingAFilter(t *testing.T) {
+	m := browsing(t)
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS nobody`,
+		`CREATE TABLE nobody (id INTEGER PRIMARY KEY)`,
+	} {
+		if _, err := m.driver.Exec(ctx, stmt); err != nil {
+			t.Fatalf("fixture %q: %v", stmt, err)
+		}
+	}
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("nobody") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	out := m.View().Content
+	if !strings.Contains(out, "table is empty") {
+		t.Errorf("view = %q, want it to say the table is empty", out)
+	}
+	if strings.Contains(out, "no rows match") {
+		t.Errorf("view = %q, an unfiltered empty table should not imply a filter", out)
+	}
+}
+
+// A filter that matches nothing still says "no rows match", since a
+// filter is active and could plausibly be loosened.
+func TestFilteredEmptyResultSaysNoRowsMatch(t *testing.T) {
+	m := dataBrowsing(t)
+	m = applyWhereFilter(t, m, "id = -1")
+
+	out := m.View().Content
+	if !strings.Contains(out, "no rows match") {
+		t.Errorf("view = %q, want it to say no rows match", out)
+	}
+	if strings.Contains(out, "table is empty") {
+		t.Errorf("view = %q, a filtered view should not say the table is empty", out)
+	}
+}
+
 // `h`/`l` walk the cell cursor and clamp at both ends; `j`/`k` walk rows.
 func TestCellCursorMovesAndClamps(t *testing.T) {
 	m := dataBrowsing(t)

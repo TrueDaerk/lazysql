@@ -1075,3 +1075,15 @@ Chronological history of wiki changes, newest last.
   panel's own actions and the always-on navigation/global groups stay
   unlabeled. `helpModal.view` (`internal/ui/modal.go`) renders the label
   above its column when present.
+
+- Fixed F5+F6 of the UX audit (issue #108): the data grid formatted BLOB
+  cells the same as any other value, so raw bytes — including control
+  characters — landed straight in the row and broke its layout, misaligning
+  the right border; and an empty result always read "no rows match", which
+  implies an active filter even when the table genuinely has no rows.
+  `gridCellText` (`internal/ui/datagrid.go`) now reuses `classifyCell`
+  (already used by the cell-detail popup's hex dump) to detect binary
+  values and renders `<blob N B>` instead. `dataBody` now checks
+  `d.filter == nil` to say "table is empty" for a genuinely empty,
+  unfiltered result, keeping "no rows match" for a filter that matches
+  nothing.

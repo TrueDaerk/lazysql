@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazysql/internal/db"
 )
@@ -325,14 +326,28 @@ func (c *cellModal) view(s styles, maxW, maxH int) string {
 	if width < 8 {
 		width = 8
 	}
+
+	// Wrap every logical line to the modal width rather than truncating
+	// it — a single 167-byte value is one entry in c.lines, so without
+	// wrapping it would render (and scroll) as exactly one row no matter
+	// how long it is.
+	var wrapped []string
+	for _, line := range c.lines {
+		if line == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+		wrapped = append(wrapped, strings.Split(ansi.Wrap(line, width, ""), "\n")...)
+	}
+
 	rows := maxH - 6
 	if rows < 1 {
 		rows = 1
 	}
-	if rows > len(c.lines) {
-		rows = len(c.lines)
+	if rows > len(wrapped) {
+		rows = len(wrapped)
 	}
-	if maxOff := len(c.lines) - rows; c.offset > maxOff {
+	if maxOff := len(wrapped) - rows; c.offset > maxOff {
 		c.offset = maxOff
 	}
 	if c.offset < 0 {
@@ -341,13 +356,13 @@ func (c *cellModal) view(s styles, maxW, maxH int) string {
 
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render(truncate(c.title, width)) + "\n\n")
-	for _, line := range c.lines[c.offset : c.offset+rows] {
-		b.WriteString(truncate(line, width) + "\n")
+	for _, line := range wrapped[c.offset : c.offset+rows] {
+		b.WriteString(line + "\n")
 	}
 	footer := "y copy · esc close"
-	if len(c.lines) > rows {
+	if len(wrapped) > rows {
 		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · y copy · esc close",
-			c.offset+1, c.offset+rows, len(c.lines))
+			c.offset+1, c.offset+rows, len(wrapped))
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())

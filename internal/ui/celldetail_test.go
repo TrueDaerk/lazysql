@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func TestClassifyCell(t *testing.T) {
@@ -150,6 +151,31 @@ func TestViewCellRendersBlobAsHexDump(t *testing.T) {
 	}
 	if c.rawText != "\xde\xad\xbe\xef\x00\xff" {
 		t.Errorf("rawText = %q, want the untransformed bytes", c.rawText)
+	}
+}
+
+// A long single-line value wraps to the modal width instead of getting
+// truncated with an ellipsis, and j/k scroll through the wrapped lines.
+func TestViewCellWrapsLongValue(t *testing.T) {
+	m := sized(120, 40)
+	long := strings.Repeat("abcde ", 100) // 600 bytes, well past any modal width or height
+	c := newCellModal("t", "col", "text", long)
+
+	out := c.view(m.style, 60, 12)
+	if strings.Contains(out, "…") {
+		t.Errorf("view = %q, want wrapped content, not an ellipsis-truncated line", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if lipgloss.Width(line) > 60 {
+			t.Errorf("line %q wider than the modal (60)", line)
+		}
+	}
+
+	before := out
+	c.update(press('j'), &m)
+	after := c.view(m.style, 60, 12)
+	if before == after {
+		t.Error("j did not scroll a wrapped multi-line cell value")
 	}
 }
 

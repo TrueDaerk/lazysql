@@ -604,6 +604,42 @@ func TestQuitPersistsScreenModeForNextStartup(t *testing.T) {
 	}
 }
 
+// q with a pending changeset must confirm before quitting, and must not
+// persist state or tear down the connection until confirmed — the guard
+// from issue #103.
+func TestQuitWithStagedChangesAsksToConfirm(t *testing.T) {
+	removeState(t)
+	m := dataBrowsing(t)
+	m = send(t, m, press('l'))
+	m = stageEdit(t, m, "tmp")
+	if m.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want 1", m.changes.Len())
+	}
+
+	m = send(t, m, press('q'))
+	cm, ok := m.modal.(*confirmModal)
+	if !ok {
+		t.Fatalf("q opened %T, want a confirmation", m.modal)
+	}
+	if !strings.Contains(cm.body, "1 staged change") {
+		t.Fatalf("body = %q", cm.body)
+	}
+	if m.driver == nil {
+		t.Fatal("q must not tear down the connection before confirmation")
+	}
+
+	// esc keeps the changeset and the program running.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.changes.Len() != 1 {
+		t.Fatal("esc on the quit confirmation dropped the changeset")
+	}
+
+	m = send(t, m, press('q'), special(tea.KeyEnter, 0))
+	if m.driver != nil {
+		t.Fatal("confirmed quit did not tear down the connection")
+	}
+}
+
 // An unknown value in the state file must never block startup: it degrades
 // to screenNormal like a missing file would.
 func TestNewFallsBackToNormalOnUnknownSavedScreenMode(t *testing.T) {

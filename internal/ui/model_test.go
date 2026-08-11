@@ -735,7 +735,7 @@ func TestOptionsBarAndHelpShareOneSource(t *testing.T) {
 	for id := panelID(0); id <= panelMain; id++ {
 		helpKeys := map[string]bool{}
 		for _, group := range k.helpGroups(id) {
-			for _, b := range group {
+			for _, b := range group.bindings {
 				helpKeys[b.Help().Key] = true
 			}
 		}
@@ -791,7 +791,7 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 		}
 
 		for _, group := range k.helpGroups(id) {
-			for _, b := range group {
+			for _, b := range group.bindings {
 				for _, ks := range b.Keys() {
 					if !global[ks] && !actions[ks] {
 						t.Errorf("panel %v: `?` documents %q but nothing binds it", panelTitles[id], ks)

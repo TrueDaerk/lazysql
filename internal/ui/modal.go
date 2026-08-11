@@ -359,7 +359,7 @@ func (c *cellModal) view(s styles, maxW, maxH int) string {
 // options bar is built from.
 type helpModal struct {
 	title  string
-	groups [][]key.Binding
+	groups []helpGroup
 	help   help.Model
 	// offset scrolls the packed columns when they outgrow the terminal —
 	// a narrow window stacks the groups tall, and clipping them would
@@ -367,7 +367,7 @@ type helpModal struct {
 	offset int
 }
 
-func newHelpModal(title string, groups [][]key.Binding) *helpModal {
+func newHelpModal(title string, groups []helpGroup) *helpModal {
 	h := help.New()
 	h.ShowAll = true
 	return &helpModal{title: title, groups: groups, help: h}
@@ -405,10 +405,13 @@ func (hm *helpModal) view(s styles, maxW, maxH int) string {
 	var row []string
 	rowW := 0
 	for _, g := range hm.groups {
-		if len(g) == 0 {
+		if len(g.bindings) == 0 {
 			continue
 		}
-		col := hm.help.FullHelpView([][]key.Binding{g})
+		col := hm.help.FullHelpView([][]key.Binding{g.bindings})
+		if g.label != "" {
+			col = s.muted.Bold(true).Render(g.label) + "\n" + col
+		}
 		w := lipgloss.Width(col)
 		if len(row) > 0 && rowW+gap+w > avail {
 			rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, row...))

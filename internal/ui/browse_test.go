@@ -442,7 +442,7 @@ func TestObjectsPanelDocumentsItsTreeKeys(t *testing.T) {
 	k := newKeyMap()
 	want := map[string]bool{"expand": false, "collapse": false}
 	for _, group := range k.helpGroups(panelObjects) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			if _, ok := want[b.Help().Desc]; ok {
 				want[b.Help().Desc] = true
 			}

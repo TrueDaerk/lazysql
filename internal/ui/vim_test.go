@@ -392,7 +392,7 @@ func TestNormalModeHelpListsTheVimKeys(t *testing.T) {
 	k := newKeyMap()
 	var flat []string
 	for _, group := range k.helpGroups(panelQuery) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			flat = append(flat, b.Help().Key)
 		}
 	}

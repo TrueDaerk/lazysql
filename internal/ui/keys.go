@@ -673,29 +673,47 @@ func withoutBindings(all, hide []key.Binding) []key.Binding {
 	return out
 }
 
+// helpGroup is one labeled column of the `?` listing. The label names the
+// sub-context the bindings belong to, so a key that means one thing while
+// browsing and another inside a modal (h/← , e, tab…) reads as scoped
+// instead of duplicated or conflicting — see issue #106.
+type helpGroup struct {
+	label    string
+	bindings []key.Binding
+}
+
 // helpGroups is the full `?` listing for the focused panel, drawn from the
-// same bindings as the options bar.
-func (k keyMap) helpGroups(id panelID) [][]key.Binding {
-	groups := [][]key.Binding{k.actions(id)}
+// same bindings as the options bar. Every group beyond the first names the
+// sub-context its keys only apply in, since those keys are not live while
+// browsing the panel itself.
+func (k keyMap) helpGroups(id panelID) []helpGroup {
+	groups := []helpGroup{{"", k.actions(id)}}
 	// The editor's insert mode swallows almost every key, so its own
 	// short list is documented next to the panel's normal-mode actions
 	// rather than being reachable only from a mode `?` cannot open.
 	if id == panelQuery {
 		groups = append(groups,
-			k.editorNormal(), k.editorInsert(), k.editorCompletion(),
-			k.historyPane(), k.queryResultKeys())
+			helpGroup{"In vim normal mode:", k.editorNormal()},
+			helpGroup{"In insert mode:", k.editorInsert()},
+			helpGroup{"In the completion popup:", k.editorCompletion()},
+			helpGroup{"In history & snippets:", k.historyPane()},
+			helpGroup{"Result grid (under the editor):", k.queryResultKeys()},
+		)
 	}
 	// The cell editor and the insert form both open from the data grid,
 	// and so does the date picker they hand temporal columns to.
 	if id == panelMain {
-		groups = append(groups, k.datePicker())
+		groups = append(groups, helpGroup{"In the date picker:", k.datePicker()})
 	}
 	// The connection form is opened from the Connections panel, so its
 	// path-completion keys are documented there.
 	if id == panelConnections {
-		groups = append(groups, k.formPathComplete())
+		groups = append(groups, helpGroup{"In forms:", k.formPathComplete()})
 	}
-	return append(groups, k.navigationFor(id), k.global())
+	return append(groups,
+		helpGroup{"", k.navigationFor(id)},
+		helpGroup{"", k.global()},
+	)
 }
 
 // bindingSlot pairs a `[keys]` config action name with the keyMap field it

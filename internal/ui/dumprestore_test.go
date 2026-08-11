@@ -489,7 +489,7 @@ func backupLogText(m Model) []string {
 
 func helpMentions(m Model, id panelID, want string) bool {
 	for _, group := range m.keys.helpGroups(id) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			if b.Help().Desc == want {
 				return true
 			}

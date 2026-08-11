@@ -79,7 +79,7 @@ func TestKeyOverridePropagatesToOptionsBarAndHelp(t *testing.T) {
 
 	found := false
 	for _, group := range km.helpGroups(panelConnections) {
-		for _, b := range group {
+		for _, b := range group.bindings {
 			if b.Help().Desc == "quit" {
 				found = true
 				if b.Help().Key != "x" {

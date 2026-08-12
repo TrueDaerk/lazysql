@@ -1,14 +1,16 @@
 ---
 type: Design Decision
 title: Vim-like modal editing in the query editor
-description: Why the vim layer is a hand-rolled pure buffer engine (vim.go) over the Bubbles v2 textarea instead of adopting vimtea, the minimum key set and its deliberate omissions (no visual mode, no counts, no undo), how two-key chords (dd/yy/gg) are held as pending state and reset, which panel keys the vim layer displaced (`a` actions menu, the h/l/y/d fall-through to the data grid), and how the cursor round-trips through Line()/Column()/SetCursorColumn.
+description: Why the vim layer is a hand-rolled pure buffer engine (vim.go) over the Bubbles v2 textarea instead of adopting vimtea, the key set (h/j/k/l, w/b/e, 0/$, gg/G, i/a/I/A/o/O, x/dd/yy/p) and its deliberate omissions (no visual mode, no counts, no undo), normal mode's enter running the statement under the caret via the span-aware splitter, the esc/enter precedence rules, how two-key chords (dd/yy/gg) are held as pending state and reset, which panel keys the vim layer displaced (`a` actions menu, the h/l/y/d fall-through to the data grid), and how the cursor round-trips through Line()/Column()/SetCursorColumn.
 tags: [tui, query, vim, modes, keybindings, textarea]
 generated:
   by: claude-code/fable-5
-  at: 2026-08-09T00:00:00Z
+  at: 2026-08-12T00:00:00Z
 sources:
   - resource: https://github.com/TrueDaerk/lazysql/issues/33
     title: "Issue #33 — Vim-like modal editing in the query editor"
+  - resource: https://github.com/TrueDaerk/lazysql/issues/133
+    title: "Issue #133 — extend the vim subset; enter runs the statement under the cursor"
   - resource: https://github.com/kujtimiihoxha/vimtea
     title: vimtea — the community vim editor component that was evaluated and rejected
 ---
@@ -27,12 +29,37 @@ motion or edit and no dependency on the textarea, tea, or the Model.
 (`SetValue` when the text changed, then `MoveToBegin` + `CursorDown`×row
 + `SetCursorColumn` — the v2 textarea has no "set line" call).
 
-The key set is the issue's minimum: `h j k l` (`j`/`k` reuse the
-existing `Up`/`Down` bindings), `w`/`b`, `0`/`$`, `gg`/`G`, `i a o O`
-into insert mode with vim's cursor placement, `x`, `dd`, `yy`, `p`,
-`esc` back out of the panel. Insert mode is unchanged: the plain
-textarea plus the completion popup, `esc` returning to normal mode.
-`ctrl+r` runs from both modes.
+The key set is the issues' minimum (#33, extended by #133): `h j k l`
+(`j`/`k` reuse the existing `Up`/`Down` bindings), `w`/`b`/`e`, `0`/`$`,
+`gg`/`G`, `i a I A o O` into insert mode with vim's cursor placement
+(`I` lands on the first non-blank, `A` one past the line end), `x`,
+`dd`, `yy`, `p`, `esc` back out of the panel. Insert mode is unchanged:
+the plain textarea plus the completion popup, `esc` returning to normal
+mode. `ctrl+r` runs the whole script from both modes.
+
+## Enter runs the statement under the cursor
+
+Normal mode's `enter` (issue #133) executes exactly the statement the
+caret is in — `Model.runStatementAtCursor` maps the caret to a rune
+offset (`editorOffset`, shared with `ctrl+e`'s explain) and picks the
+span with `db.StatementAt`, whose lexer keeps a `;` inside string
+literals, comments, quoted identifiers and dollar-quoted bodies as
+data. The one statement then goes through `submitQuery`, so the
+placeholder prompt, the read-only guard and the unguarded-write confirm
+apply exactly as they would to a whole-script `ctrl+r` run. `enter` was
+previously a second spelling of `i`; a modal editor wants it as the
+run key, and `i` alone is the vim-native way in. It is wired as a panel
+action (`actRunStatement`), so the options bar, `?` and dispatch all
+read the one `panelActions` slice.
+
+### Precedence rules
+
+- `esc`: an open completion popup takes it first (closes the popup
+  only), then insert mode (back to normal), then normal mode (backs out
+  of the panel per the app-wide convention).
+- `enter`: in insert mode it types a newline; in normal mode it runs
+  the statement under the caret; with the history pane or a modal open,
+  that surface owns it.
 
 ## Why not vimtea
 
@@ -85,8 +112,11 @@ pure functions.
 ## What was displaced
 
 - **`a` is append, not the actions menu.** The actions menu keys
-  (`i`/enter, `ctrl+r`, `D`) are all still directly bound, so panel [5]
-  lost only the menu itself. Every other panel keeps `a`.
+  (`i`, `enter`, `ctrl+r`, `D`) are all still directly bound, so panel
+  [5] lost only the menu itself. Every other panel keeps `a`.
+- **`enter` is no longer a second `i`.** Since issue #133 it runs the
+  statement under the caret; entering insert mode is `i`/`a`/`I`/`A`/
+  `o`/`O`, as in vim.
 - **Fewer keys fall through to the data grid.** Normal mode used to
   pass anything unclaimed to the grid when the main view showed a query
   result. `h`/`l` (columns), `y` (copy menu), `d`, `x`, `p`, `w`, `b`,

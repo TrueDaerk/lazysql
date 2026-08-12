@@ -1502,6 +1502,10 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		cmd := m.submitQuery(m.script())
 		return m, cmd
 
+	case actRunStatement:
+		cmd := m.runStatementAtCursor()
+		return m, cmd
+
 	case actExplainQuery:
 		cmd := m.explainQuery()
 		return m, cmd

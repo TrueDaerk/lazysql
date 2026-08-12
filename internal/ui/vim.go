@@ -12,7 +12,9 @@ import (
 // reads the textarea into a vimBuffer, applies one command, and writes
 // the result back.
 //
-// Scope is the issue's minimum set: no visual mode, no registers beyond
+// Scope is the issues' minimum set (#33, extended by #133 with w/b/e's
+// third motion, I/A and enter-runs-statement): no visual mode, no
+// registers beyond
 // the one implicit register, no counts, no `:` commands. Undo is omitted
 // because the v2 textarea keeps no edit history to call into — see the
 // wiki concept design/vim-mode-query-editor.
@@ -179,6 +181,47 @@ func (b *vimBuffer) wordForward() {
 	}
 }
 
+// wordEnd is `e`: the end of the current word, or of the next one when
+// already at an end. Like vim's it skips empty lines — a landing spot
+// needs a character to land on.
+func (b *vimBuffer) wordEnd() {
+	row, col := b.row, b.col
+	line := []rune(b.lines[row])
+	// advance steps one character forward, crossing line ends; it reports
+	// false at the end of the buffer, leaving row/col there for the clamp.
+	advance := func() bool {
+		col++
+		for col >= len(line) {
+			if row >= len(b.lines)-1 {
+				return false
+			}
+			row++
+			line = []rune(b.lines[row])
+			col = 0
+		}
+		return true
+	}
+	if !advance() {
+		b.row = row
+		b.setCol(col)
+		return
+	}
+	for charClass(line[col]) == 0 {
+		if !advance() {
+			b.row = row
+			b.setCol(col)
+			return
+		}
+	}
+	// col is on a word; walk to that word's last character.
+	cls := charClass(line[col])
+	for col+1 < len(line) && charClass(line[col+1]) == cls {
+		col++
+	}
+	b.row = row
+	b.setCol(col)
+}
+
 // wordBack is `b`: the start of the current word, or of the previous one
 // when already at a start.
 func (b *vimBuffer) wordBack() {
@@ -226,6 +269,21 @@ func (b vimBuffer) appendCol() int {
 	}
 	return b.col + 1
 }
+
+// firstNonBlankCol is where `I` starts typing: the line's first non-blank
+// character, or column 0 on a blank line.
+func (b vimBuffer) firstNonBlankCol() int {
+	for i, r := range b.line() {
+		if !unicode.IsSpace(r) {
+			return i
+		}
+	}
+	return 0
+}
+
+// endCol is where `A` starts typing: one past the last character, legal
+// in insert mode only, like appendCol.
+func (b vimBuffer) endCol() int { return len(b.line()) }
 
 // openBelow is `o`: a new empty line under the cursor, ready to type on.
 func (b *vimBuffer) openBelow() {

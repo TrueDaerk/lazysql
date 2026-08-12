@@ -130,6 +130,41 @@ func TestHistoryPaneShowsEngineAndTimestamp(t *testing.T) {
 	}
 }
 
+func TestRecordHistoryStampsTheActiveConnection(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	m := sized(120, 40)
+	m.active = "prod"
+	m = send(t, m, historyEntryMsg{statement: "SELECT 1"})
+	if len(m.history) != 1 || m.history[0].Connection != "prod" {
+		t.Fatalf("history = %#v, want the entry stamped with the active connection", m.history)
+	}
+}
+
+func TestHistoryPaneOnlyOffersTheActiveConnection(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	m := sized(120, 40)
+	m.active = "prod"
+	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	m.history = []history.Entry{
+		{SQL: "SELECT from prod", Connection: "prod", Engine: "sqlite", At: at.Add(2 * time.Minute)},
+		{SQL: "SELECT from staging", Connection: "staging", Engine: "sqlite", At: at.Add(time.Minute)},
+		{SQL: "SELECT legacy", Connection: "", Engine: "sqlite", At: at},
+	}
+	m = send(t, m, press('3'), press('H'))
+	hm, ok := m.modal.(*historyModal)
+	if !ok {
+		t.Fatalf("H opened %T, want the history pane", m.modal)
+	}
+	if len(hm.entries) != 2 {
+		t.Fatalf("pane rows = %#v, want prod's entry and the connection-less legacy entry, not staging's", hm.entries)
+	}
+	for _, e := range hm.entries {
+		if e.Connection == "staging" {
+			t.Fatalf("pane offered a staging entry while prod is active: %#v", hm.entries)
+		}
+	}
+}
+
 func TestHistoryPersistsAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)

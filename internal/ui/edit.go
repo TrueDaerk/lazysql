@@ -154,34 +154,93 @@ func (m *Model) openEditModal() tea.Cmd {
 			break
 		}
 	}
+	// With a multi-row selection up, this one modal stages the same value
+	// in every selected row. The cursor row stays first, so the modal's
+	// prefill, its "current" line and the type conversion are the ones the
+	// user is looking at.
+	targets, skipped := m.bulkTargets(change)
 	label := rowLabel(pkCols, pkVals)
+	if len(targets) > 1 {
+		label = countRows(len(targets)) + " selected"
+	}
+	var cmd tea.Cmd
+	if skipped > 0 {
+		cmd = logCmd("-- bulk edit: %s left out (staged for deletion, or no primary key value)",
+			countRows(skipped))
+	}
 	// A temporal column gets the calendar instead of a bare text field.
 	// `e` inside it comes back to exactly the modal built below, so the
 	// raw path — NULL, now(), CURRENT_TIMESTAMP — is never more than one
 	// key away.
 	if kind := db.ClassifyType(col.DataType); kind.Temporal() {
-		m.modal = m.newEditDatePicker(change, initial, col, kind, label)
-		return nil
+		m.modal = m.newEditDatePicker(targets, initial, col, kind, label)
+		return cmd
 	}
-	m.modal = newEditCellModal(change, initial, col, label)
-	return nil
+	m.modal = newEditCellModal(targets, initial, col, label)
+	return cmd
+}
+
+// bulkTargets is the set of rows one edit stages into: the cursor row
+// alone normally, and every row of the multi-row selection while it is
+// up. A row already staged for deletion, and one whose primary key the
+// result set does not carry, drop out and are only counted: lazysql does
+// not guess which row an UPDATE hits, and that rule does not get weaker
+// because several rows are selected at once. (A phantom row cannot be in
+// the selection at all — dataView.selectionRange stops at the last
+// fetched row.)
+func (m Model) bulkTargets(cursor db.CellChange) (targets []db.CellChange, skipped int) {
+	targets = []db.CellChange{cursor}
+	if !m.data.selecting() {
+		return targets, 0
+	}
+	for _, r := range m.data.selectedRows() {
+		if r == m.data.row {
+			continue
+		}
+		pkVals, ok := m.rowKeyVals(cursor.PKCols, r)
+		if !ok || m.changes.DeleteStaged(cursor.Database, cursor.Table, pkVals) {
+			skipped++
+			continue
+		}
+		c := cursor
+		c.PKVals = pkVals
+		c.OldValue = nil
+		if m.data.col < len(m.data.rows[r]) {
+			c.OldValue = m.data.rows[r][m.data.col]
+		}
+		// An already-staged cell keeps the value the database holds as its
+		// OldValue, so restoring it still unstages rather than staging a
+		// second edit on top of the first.
+		if staged, ok := m.changes.Lookup(c.Database, c.Table, pkVals, c.Column); ok {
+			c.OldValue = staged.OldValue
+		}
+		targets = append(targets, c)
+	}
+	return targets, skipped
+}
+
+// countRows spells "1 row" / "3 rows".
+func countRows(n int) string {
+	if n == 1 {
+		return "1 row"
+	}
+	return fmt.Sprintf("%d rows", n)
 }
 
 // newEditDatePicker builds the picker for one cell edit. Confirming stages
-// the ISO-formatted value through the same stageChange path a typed value
+// the ISO-formatted value through the same stageValue path a typed value
 // takes; `e` swaps in the plain text modal, prefilled the same way.
-func (m *Model) newEditDatePicker(change db.CellChange, initial any, col db.Column, kind db.TypeKind, label string) *datePickerModal {
+func (m *Model) newEditDatePicker(targets []db.CellChange, initial any, col db.Column, kind db.TypeKind, label string) *datePickerModal {
+	change := targets[0]
 	p := newDatePickerModal(
 		fmt.Sprintf("Edit %s.%s — %s", change.Table, change.Column, label),
 		col, kind, pickerStart(initial, kind), m.keys)
 	p.current = db.FormatValue(change.OldValue, nullText)
 	p.onPick = func(mm *Model, value string) tea.Cmd {
-		c := change
-		c.NewValue = convertInput(value, c.OldValue)
-		return mm.stageChange(c)
+		return mm.stageValue(targets, convertInput(value, change.OldValue))
 	}
 	p.onRaw = func(mm *Model) tea.Cmd {
-		mm.modal = newEditCellModal(change, initial, col, label)
+		mm.modal = newEditCellModal(targets, initial, col, label)
 		return nil
 	}
 	return p
@@ -211,6 +270,63 @@ func (m *Model) stageChange(c db.CellChange) tea.Cmd {
 	// with any other staged edits of the same row only at commit time.
 	st := db.UpdateSQL(m.driver.Dialect(), c)
 	return logCmd("-- stage: %s;  -- args %v", st.SQL, st.Args)
+}
+
+// stageValue records one confirmed edit against every row it targets.
+// A single target is the ordinary `e` and takes the single-cell path
+// unchanged; several are a bulk edit, which stages the same value in the
+// same column of each selected row. Nothing is executed here either —
+// the rows land in the changeset like any other staged edit and only the
+// commit runs SQL, one parameterized statement per row.
+func (m *Model) stageValue(targets []db.CellChange, value any) tea.Cmd {
+	if len(targets) == 1 {
+		c := targets[0]
+		c.NewValue = value
+		return m.stageChange(c)
+	}
+	var first db.CellChange
+	staged, unstaged := 0, 0
+	for _, c := range targets {
+		c.NewValue = value
+		// Restoring a row's original value unstages it instead of staging
+		// a no-op UPDATE, exactly as it does for a single cell — so a bulk
+		// edit back to the old value cleans up after itself.
+		if valuesEqual(c.NewValue, c.OldValue) {
+			if m.changes.Unstage(c.Database, c.Table, c.PKVals, c.Column) {
+				unstaged++
+			}
+			continue
+		}
+		if staged == 0 {
+			first = c
+		}
+		m.changes.Stage(c)
+		staged++
+	}
+	// The selection has done its job; leaving it up would aim the next
+	// edit at rows the user has stopped thinking about, the way vim
+	// leaves visual mode after an operator.
+	m.clearSelection()
+
+	var cmds []tea.Cmd
+	if staged > 0 {
+		// The preview is the first staged row's statement; the others
+		// differ only in their key values, and the commit merges each
+		// row's edits into one UPDATE anyway.
+		st := db.UpdateSQL(m.driver.Dialect(), first)
+		line := fmt.Sprintf("-- stage: %s;  -- args %v", st.SQL, st.Args)
+		if staged > 1 {
+			line += fmt.Sprintf("  (and %d more rows, same column and value)", staged-1)
+		}
+		cmds = append(cmds, logCmd("%s", line))
+	}
+	if unstaged > 0 {
+		cmds = append(cmds, logCmd("-- unstage %s (original value restored)", countRows(unstaged)))
+	}
+	if len(cmds) == 0 {
+		return logCmd("-- not staged: every selected row already holds that value")
+	}
+	return tea.Batch(cmds...)
 }
 
 // unstageAtCursor is `u`: drop the staged change under the cursor. A
@@ -361,15 +477,19 @@ func convertInput(text string, old any) any {
 
 // editCellModal is the `e` popup: a prefilled input plus a NULL toggle.
 // Submitting stages the change; nothing here touches the database.
+//
+// targets is what the confirmed value is staged into: one cell for a
+// plain edit, one per selected row for a bulk edit. targets[0] is always
+// the cursor row, which is what the modal shows and converts against.
 type editCellModal struct {
-	change   db.CellChange
+	targets  []db.CellChange
 	col      db.Column
 	rowLabel string
 	input    textinput.Model
 	null     bool
 }
 
-func newEditCellModal(change db.CellChange, initial any, col db.Column, rowLabel string) *editCellModal {
+func newEditCellModal(targets []db.CellChange, initial any, col db.Column, rowLabel string) *editCellModal {
 	ti := textinput.New()
 	ti.Placeholder = "value"
 	if initial != nil {
@@ -379,13 +499,17 @@ func newEditCellModal(change db.CellChange, initial any, col db.Column, rowLabel
 	ti.Focus()
 	ti.SetWidth(40)
 	return &editCellModal{
-		change:   change,
+		targets:  targets,
 		col:      col,
 		rowLabel: rowLabel,
 		input:    ti,
 		null:     initial == nil,
 	}
 }
+
+// change is the cell the modal describes: the cursor row's, whether or
+// not more rows ride along with it.
+func (e *editCellModal) change() db.CellChange { return e.targets[0] }
 
 func (e *editCellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	switch {
@@ -403,16 +527,14 @@ func (e *editCellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		if e.null {
 			initial = nil
 		}
-		m.modal = m.newEditDatePicker(e.change, initial, e.col, kind, e.rowLabel)
+		m.modal = m.newEditDatePicker(e.targets, initial, e.col, kind, e.rowLabel)
 		return true, nil
 	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
-		c := e.change
-		if e.null {
-			c.NewValue = nil
-		} else {
-			c.NewValue = convertInput(e.input.Value(), c.OldValue)
+		var value any
+		if !e.null {
+			value = convertInput(e.input.Value(), e.change().OldValue)
 		}
-		return true, m.stageChange(c)
+		return true, m.stageValue(e.targets, value)
 	}
 	// Typing while NULL is toggled on means the user wants a value again.
 	if msg.Text != "" {
@@ -434,7 +556,8 @@ func (e *editCellModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 
 func (e *editCellModal) view(s styles, maxW, maxH int) string {
 	e.input.SetWidth(min(50, maxW-8))
-	title := fmt.Sprintf("Edit %s.%s — %s", e.change.Table, e.change.Column, e.rowLabel)
+	change := e.change()
+	title := fmt.Sprintf("Edit %s.%s — %s", change.Table, change.Column, e.rowLabel)
 
 	typeLine := strings.ToLower(e.col.DataType)
 	if !e.col.Nullable {
@@ -449,8 +572,14 @@ func (e *editCellModal) view(s styles, maxW, maxH int) string {
 		s.modalTitle.Render(truncate(title, min(maxW-8, 70))),
 		s.muted.Render(truncate(typeLine, min(maxW-8, 70))),
 		"",
-		s.muted.Render("current: " + truncate(flatten(db.FormatValue(e.change.OldValue, nullText)), 50)),
+		s.muted.Render("current: " + truncate(flatten(db.FormatValue(change.OldValue, nullText)), 50)),
 		value,
+	}
+	if n := len(e.targets); n > 1 {
+		// "current" above is the cursor row's value; the other selected
+		// rows keep theirs until this one value replaces them all.
+		lines = append(lines, s.pending.Render(
+			fmt.Sprintf("bulk edit — stages %s in all %s", change.Column, countRows(n))))
 	}
 	if e.null && !e.col.Nullable {
 		lines = append(lines, s.danger.Render("column is NOT NULL — the commit will fail"))

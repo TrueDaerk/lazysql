@@ -1,8 +1,8 @@
 ---
 type: Design Decision
-title: Multi-row selection in the data grid and its clipboard copy
-description: Why the grid's selection is an anchor plus the cell cursor, why every query-shape change drops it, why `ctrl+v` is free to mean visual selection, and why `ctrl+c` copies without ever costing the app its quit key.
-tags: [tui, data-grid, selection, keybindings, clipboard, copy]
+title: Multi-row selection in the data grid, its clipboard copy and its bulk column edit
+description: Why the grid's selection is an anchor plus the cell cursor, why every query-shape change drops it, why `ctrl+v` is free to mean visual selection, why `ctrl+c` copies without ever costing the app its quit key, and how one edit modal stages a pending change per selected row.
+tags: [tui, data-grid, selection, keybindings, clipboard, copy, editing, staged-changeset]
 generated:
   by: claude-code/opus-5
   at: 2026-08-12T00:00:00Z
@@ -10,7 +10,7 @@ sources:
   - resource: https://github.com/TrueDaerk/lazysql/issues/120
     note: multi-row copy to the clipboard
   - resource: https://github.com/TrueDaerk/lazysql/issues/119
-    note: the selection mode this state was introduced for; bulk edit still open
+    note: the selection mode this state was introduced for, plus the bulk column edit
 ---
 
 # Multi-row selection in the data grid
@@ -96,6 +96,49 @@ Delivery is unchanged: everything goes through `copyTextCmd` →
 most `dataPageSize` rows, so a selection copy can never approach the
 `copyRowLimit` a whole-table copy needs.
 
+### The bulk edit is the ordinary edit, aimed at more rows
+
+`e` with a selection up opens the **same** modal it always did, for the
+cursor column. What changed is what the confirmed value is staged into:
+`openEditModal` builds a `[]db.CellChange` (`bulkTargets`) instead of
+one, and `stageValue` is the confirm path for both cases — one target
+takes the single-cell `stageChange` unchanged, several stage the same
+value in the same column of every selected row. The date picker gets the
+same slice, so a temporal column bulk-edits too.
+
+The cursor row is always `targets[0]`: it is what the modal's prefill,
+its `current:` line and `convertInput`'s type guidance come from, so the
+value is converted once, against the cell the user is actually looking
+at, and bound identically everywhere.
+
+Two per-row rules carry over rather than being decided once for the
+batch: a row that already holds the new value is not staged (and an
+existing staged edit of it is *unstaged*, so a bulk edit back to the
+original value cleans up after itself), and `Changeset.Stage` keeps the
+database's own value as `OldValue` when it replaces an earlier edit.
+
+Row identity is resolved **when the modal opens**, not when it is
+confirmed: `bulkTargets` turns each selected row index into its primary
+key values there and then, and it is those keys that reach the
+changeset. A page reply landing while the modal is up therefore cannot
+redirect a staged edit — the indices are already spent. Rows that cannot
+be identified safely never reach the changeset at all: one already
+staged for deletion, and one whose primary key the result set does not
+carry. They are counted and reported in the command log rather than
+silently skipped, because "lazysql does not guess row identity" does not
+get weaker when several rows are selected at once.
+
+Nothing executes: N staged changes are N ordinary changeset entries —
+shown in the grid, counted by the status badge, previewed as
+parameterized SQL by the commit modal and run in the one transaction `c`
+opens ([design/staged-changeset](staged-changeset.md)). The command log
+gets one staging line for the batch, carrying the first row's statement
+and how many more rows share it, rather than N near-identical lines.
+
+The selection is consumed by the edit, the way vim leaves visual mode
+after an operator: leaving it up would aim the next `e` at rows the user
+has stopped thinking about.
+
 ## Consequences
 
 - The selection is visible in two places: selected rows are tinted with
@@ -107,5 +150,11 @@ most `dataPageSize` rows, so a selection copy can never approach the
   `?` all still read one table — see
   [design/keybindings-single-source](keybindings-single-source.md). Both
   are rebindable as `select-rows` and `copy-selection`.
-- Issue #119's bulk column edit can build on `dataView.selectedRows()`
-  without touching any of this; nothing here is copy-specific.
+- The bulk column edit builds on `dataView.selectedRows()` and touches
+  none of the copy path; nothing in the selection state is specific to
+  either consumer.
+- `e` now means "edit this column in every selected row" while a
+  selection is up. It is the only grid key that changes meaning with the
+  selection — `d`, `n` and `D` stay single-row, because a bulk delete is
+  a different confirmation problem and an insert has no rows to spread
+  over.

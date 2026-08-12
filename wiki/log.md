@@ -1133,3 +1133,25 @@ Chronological history of wiki changes, newest last.
   the field. The two call sites (`ui.New`'s startup decision and
   `Model.quit`'s save-on-quit gate) needed no changes since both already
   read through `RestoreSessionEnabled()`. `--no-restore` is unaffected.
+
+## 2026-08-12 — Bulk column edit over the grid selection (issue #119)
+
+- Extended [design/grid-multi-row-selection](design/grid-multi-row-selection.md)
+  with the second half of #119: `e` with a selection up stages the same
+  value in the cursor column of every selected row. The modal is the one
+  that already existed — `openEditModal` builds a `[]db.CellChange`
+  (`bulkTargets`) instead of one and `stageValue` is the confirm path for
+  both cases, so one target still takes the single-cell `stageChange`
+  unchanged and the date picker bulk-edits through the same slice.
+- Recorded why row identity is resolved when the modal *opens*:
+  `bulkTargets` turns each selected row index into its primary key values
+  there, so what reaches the changeset is a key and an async page reply
+  landing while the modal is up cannot redirect a staged edit. Rows that
+  cannot be identified safely (staged for deletion, or missing a PK value
+  in the result set) are counted and reported rather than staged anyway.
+- Per-row rules carry over rather than being decided once for the batch:
+  a row already holding the new value is not staged, and a bulk edit back
+  to the original value unstages. The batch logs one staging line — the
+  first row's parameterized statement plus how many more rows share it —
+  instead of N near-identical ones, and the selection is consumed by the
+  edit the way vim leaves visual mode after an operator.

@@ -1120,3 +1120,35 @@ Chronological history of wiki changes, newest last.
   invariant behind it — the tinted cell is the cell the actions act on —
   and updated [design/data-grid](design/data-grid.md), whose "scroll windows
   are derived, not stored" section this supersedes.
+- Added
+  [design/grid-multi-row-selection](design/grid-multi-row-selection.md)
+  with the data grid's multi-row copy (issue #120). The selection state
+  issue #119 asked for was not implemented yet, so the reusable half of
+  it landed here: `dataView.sel` (`rowSelection{active, anchor}`) plus
+  `selectionRange`/`selectedRows`/`inSelection`/`clearSelection` in
+  `internal/ui/data.go`, `ctrl+v` toggling it, `j`/`k` extending it from
+  the cell cursor, `esc` leaving the mode ahead of the foreign-key jump
+  history, and a drop on every sort/filter/page turn/reload rather than a
+  remap the grid has no key to do safely. #119's bulk column edit is
+  still open and can stage from `selectedRows()` unchanged.
+- The copy itself extends `copyMenu` instead of adding a second menu: with
+  rows marked, the selection scopes take the row scope's keys (`r` CSV,
+  `o` JSON, `i` INSERTs, via `export.Rows` so a copy is a small table with
+  its header rather than glued-together single rows) and the single-row
+  scopes drop out, plus `c` for the cursor column's value in every
+  selected row, one per line, NULL as an empty line. Delivery is unchanged
+  (`copyTextCmd` → `copyOut` → clipboard/OSC 52/spill).
+- `ctrl+c` is bound as `keyMap.CopySelection` with `key.WithDisabled()` and
+  enabled only while a selection is up, matched in `updateGlobal` ahead of
+  `Quit` and behind `CancelQuery` — with no selection it does not match at
+  all, so `ctrl+c` still quits, and disabling it is also what keeps it out
+  of the options bar and `?` the rest of the time. Grid rendering tints
+  selected rows and the status line reads `N rows selected`.
+- Flipped the default of `restore_session` (issue #116): startup no longer
+  auto-connects unless the config explicitly opts in. Extended
+  [design/session-restore](design/session-restore.md) — `Config.RestoreSession`
+  is now a plain `bool` (absent/omitted → false) instead of the `*bool` used
+  to make absence default to true; `RestoreSessionEnabled()` just returns
+  the field. The two call sites (`ui.New`'s startup decision and
+  `Model.quit`'s save-on-quit gate) needed no changes since both already
+  read through `RestoreSessionEnabled()`. `--no-restore` is unaffected.

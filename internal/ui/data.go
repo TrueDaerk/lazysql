@@ -98,6 +98,11 @@ type dataView struct {
 	// Model.clampCursor mirrors here so the cursor can reach them.
 	extraRows int
 
+	// sel is the multi-row selection (`ctrl+v`). It is deliberately not
+	// copy-specific: it is the grid's own state, so every action that can
+	// mean "these rows" reads it.
+	sel rowSelection
+
 	loading bool
 	err     string
 
@@ -105,6 +110,71 @@ type dataView struct {
 	// belongs to a query the user has already moved past.
 	req int
 }
+
+// rowSelection is the data grid's multi-row selection: an anchor row and
+// the cursor, with everything between them selected. Only the anchor is
+// stored — the other end is the cell cursor itself, which is what makes
+// `j`/`k` extend the selection without a second movement path.
+//
+// The anchor is a page-row index, so it is only meaningful for the page
+// that was on screen when the selection started: every reload, sort,
+// filter and page turn drops it (see clearSelection) rather than risk a
+// stale index pointing at a different row.
+type rowSelection struct {
+	active bool
+	anchor int
+}
+
+// selecting reports whether a multi-row selection is up.
+func (d dataView) selecting() bool { return d.sel.active }
+
+// selectionRange is the half-open range of page rows the selection
+// covers, clamped to the rows actually fetched — the phantom rows of
+// staged inserts have no values behind them, so they never take part.
+func (d dataView) selectionRange() (start, end int) {
+	if !d.sel.active || len(d.rows) == 0 {
+		return 0, 0
+	}
+	start, end = d.sel.anchor, d.row
+	if start > end {
+		start, end = end, start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end >= len(d.rows) {
+		end = len(d.rows) - 1
+	}
+	if start > end {
+		return 0, 0
+	}
+	return start, end + 1
+}
+
+// selectedRows lists the page rows of the selection, in page order.
+func (d dataView) selectedRows() []int {
+	start, end := d.selectionRange()
+	if end <= start {
+		return nil
+	}
+	out := make([]int, 0, end-start)
+	for r := start; r < end; r++ {
+		out = append(out, r)
+	}
+	return out
+}
+
+// inSelection reports whether a rendered row is part of the selection.
+func (d dataView) inSelection(r int) bool {
+	start, end := d.selectionRange()
+	return r >= start && r < end
+}
+
+// clearSelection drops the selection. Every query-shape change goes
+// through here: a sort, a filter, a page turn or a reload puts different
+// rows under the same indices, and a selection that survived would stage
+// or copy the wrong ones.
+func (d *dataView) clearSelection() { d.sel = rowSelection{} }
 
 // open reports whether the Data tab has anything to show — a browsed
 // relation or a query result.
@@ -141,6 +211,7 @@ func (d *dataView) setPage(p int) {
 	}
 	d.rows = d.all[start:end]
 	d.row = 0
+	d.clearSelection()
 }
 
 // offset is the row offset of the current page in the full result.
@@ -288,6 +359,7 @@ func (m *Model) reloadPage() tea.Cmd {
 	m.data.req++
 	m.data.loading = true
 	m.data.err = ""
+	m.clearSelection()
 	d := m.data
 
 	pageSQL := db.PageSQL(m.driver.Dialect(), d.database, d.table, d.filter, d.sort, dataPageSize, d.offset())
@@ -463,6 +535,13 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		cmd := m.wheelAt(scrollTarget{zone: zoneMain}, -1)
 		return m, cmd
 	case key.Matches(msg, k.Back):
+		// esc leaves selection mode before anything else: while a
+		// selection is up it is the mode the user is in, and leaving it
+		// must not also undo a foreign-key jump or the focus.
+		if m.data.selecting() {
+			m.clearSelection()
+			return m, logCmd("-- selection cleared")
+		}
 		// esc unwinds the foreign-key jumps first: coming back to where
 		// the chain started is what the key means while there is a
 		// history, and only an empty history hands it to the focus stack.
@@ -506,6 +585,33 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// clearSelection drops the grid's selection and takes `ctrl+c` back off
+// the grid, so the key means quit again the moment the selection is gone
+// — the binding is the single source both the options bar and `?` read,
+// so disabling it is what hides it from both.
+func (m *Model) clearSelection() {
+	m.data.clearSelection()
+	m.keys.CopySelection.SetEnabled(false)
+}
+
+// toggleSelection is `ctrl+v`: it starts a selection anchored at the
+// cursor row, or ends the one that is running. A phantom row (a staged
+// insert) cannot anchor one — it has no fetched values for a copy or a
+// bulk edit to work from.
+func (m *Model) toggleSelection() tea.Cmd {
+	if m.data.selecting() {
+		m.clearSelection()
+		return logCmd("-- selection cleared")
+	}
+	if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
+		return logCmd("-- selection skipped: no row under the cursor")
+	}
+	m.data.sel = rowSelection{active: true, anchor: m.data.row}
+	m.keys.CopySelection.SetEnabled(true)
+	return logCmd("-- selection started at row %d (j/k extend, ctrl+c copies, esc clears)",
+		m.data.offset()+m.data.row+1)
+}
+
 // focusBack pops the focus stack, the same way `esc` does in a panel.
 func (m *Model) focusBack() {
 	if n := len(m.prev); n > 0 {
@@ -535,6 +641,9 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actSortColumn:
 		cmd := m.toggleSort()
+		return m, cmd, true
+	case actSelectRows:
+		cmd := m.toggleSelection()
 		return m, cmd, true
 	case actWhereFilter:
 		cmd := m.openFilterModal()

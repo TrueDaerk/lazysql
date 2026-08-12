@@ -1,11 +1,14 @@
 ---
 type: Design Decision
 title: Restore last session (connection, table, tab) on startup
-description: A tiny session.json under XDG_STATE_HOME names the last connection/database/table/tab/cursor; startup redials it through the existing connect path and unwinds if any stage no longer matches reality.
+description: A tiny session.json under XDG_STATE_HOME names the last connection/database/table/tab/cursor; startup redials it through the existing connect path and unwinds if any stage no longer matches reality. Opt-in via restore_session (default false since issue 116).
 tags: [ui, config, startup, persistence]
 generated:
   by: claude-code/sonnet-5
   at: 2026-08-10T00:00:00Z
+updated:
+  by: claude-code/sonnet-5
+  at: 2026-08-12T00:00:00Z
 ---
 
 # Restore last session (connection, table, tab) on startup
@@ -79,17 +82,22 @@ harmless in itself, but the *next*, unrelated `esc` press would be
 swallowed by the "abort a pending restore" branch in `updateGlobal`
 instead of doing whatever it was actually pressed for.
 
-## Why `RestoreSession` is `*bool`, not `bool`
+## `RestoreSession` is a plain `bool`, opt-in
 
-`omitempty` on a plain `bool` can't distinguish "absent" from "explicitly
-false," and the default has to be *true* (§ acceptance criteria) — the
-opposite of what a zero-value `bool` gives for free. `Config.RestoreSession
-*bool` follows the same pointer trick `connectionFile`/`sshFile` already
-use for `Port` (nil = "not written," not "zero"), read through
-`RestoreSessionEnabled()` (`nil` or `true` → enabled). `--no-restore` is a
-separate, per-run `ui.New(noRestore bool)` argument: it never touches the
-config or the session file, so a config with `restore_session` left
-enabled restores again next run without the flag.
+Connecting to a database on startup is a side effect the user did not ask
+for on *this* launch, so `restore_session` defaults to off: absent from the
+file means no restore, same as an explicit `restore_session = false`. That
+default is exactly what `omitempty` on a plain `bool` already gives for
+free — no pointer trick needed. `Config.RestoreSession bool`, read through
+`RestoreSessionEnabled()` (returns the field verbatim). Earlier, absence
+meant *enabled* and the field was a `*bool` (mirroring the `Port` pointer
+trick in `connectionFile`/`sshFile`) specifically so nil could mean true;
+once the default flipped to false (issue 116 — auto-connecting on startup
+is a side effect the user didn't ask for on this launch), that indirection
+was no longer needed. `--no-restore` is unaffected: it's still a separate,
+per-run `ui.New(noRestore bool)` argument that never touches the config or
+the session file, so a config with `restore_session = true` restores again
+next run without the flag.
 
 ## What `saveSession` writes, and when
 

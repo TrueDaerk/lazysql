@@ -407,6 +407,7 @@ func (m Model) gridHeader(cols []gridColumn, first, w int) string {
 func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) string {
 	var b strings.Builder
 	onRow := r == m.data.row && m.focus == panelMain
+	selected := m.data.inSelection(r)
 	for i, c := range cols {
 		if i > 0 {
 			sep := m.style.gridSeparator.Render(colSepChar)
@@ -420,25 +421,30 @@ func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) str
 		if r < len(c.cells) {
 			text, isNull, isStaged = c.cells[r], c.nulls[r], c.staged[r]
 		}
-		b.WriteString(m.cellStyle(onRow, first+i == m.data.col, isNull, isStaged, kind).
+		b.WriteString(m.cellStyle(onRow, selected, first+i == m.data.col, isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
 	return truncate(b.String(), w)
 }
 
-// cellStyle picks the tint of one cell from the cursor position, what
+// cellStyle picks the tint of one cell from the cursor position, whether
+// the row is part of the multi-row selection, what
 // the row is staged as, whether the value is NULL and whether an edit of
 // it is staged. A staged row op wins over everything below it: the whole
 // row is going away or arriving, so a per-cell tint would only muddle
 // it. Otherwise staged wins over NULL — yellow is the "pending" color
 // throughout the app.
-func (m Model) cellStyle(onRow, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
+func (m Model) cellStyle(onRow, selected, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	switch {
 	case onRow && onCol && m.focus == panelMain:
 		style = m.style.cellCursor
 	case onRow:
 		style = m.style.rowCursor
+	case selected:
+		// A selected row that is not the cursor row: tinted, not
+		// highlighted, so the cursor stays findable inside the block.
+		style = style.Background(colorSelectionBg)
 	}
 	switch {
 	case kind == rowDeleted:
@@ -496,6 +502,11 @@ func (m Model) dataStatus() string {
 	}
 	if n := m.changes.Len(); n > 0 {
 		line += m.style.pending.Render("  " + countChanges(n))
+	}
+	// Selection mode is a mode: the status line says so, the way the
+	// filter and the sort do, so it is never on without being visible.
+	if n := len(d.selectedRows()); n > 0 {
+		line += m.style.keyHint.Render(fmt.Sprintf("  %d rows selected", n))
 	}
 	if d.sort != nil {
 		dir := "asc"

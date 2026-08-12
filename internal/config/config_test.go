@@ -380,18 +380,18 @@ func TestColorReachesClone(t *testing.T) {
 }
 
 // An absent restore_session key — every config written before the field
-// existed, and a fresh default one — must default to restoring.
-func TestRestoreSessionDefaultsEnabled(t *testing.T) {
+// existed, and a fresh default one — must default to no restore: connecting
+// on startup is a side effect the user has to opt into.
+func TestRestoreSessionDefaultsDisabled(t *testing.T) {
 	cfg := &Config{}
-	if !cfg.RestoreSessionEnabled() {
-		t.Fatal("RestoreSessionEnabled() = false with the key absent, want true")
+	if cfg.RestoreSessionEnabled() {
+		t.Fatal("RestoreSessionEnabled() = true with the key absent, want false")
 	}
 }
 
 func TestRestoreSessionRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	off := false
-	cfg := &Config{RestoreSession: &off}
+	cfg := &Config{RestoreSession: true}
 	if err := cfg.SaveTo(path); err != nil {
 		t.Fatal(err)
 	}
@@ -399,20 +399,20 @@ func TestRestoreSessionRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "restore_session = false") {
+	if !strings.Contains(string(raw), "restore_session = true") {
 		t.Fatalf("restore_session not written:\n%s", raw)
 	}
 	back, err := LoadFrom(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.RestoreSessionEnabled() {
-		t.Fatal("RestoreSessionEnabled() = true after loading restore_session = false")
+	if !back.RestoreSessionEnabled() {
+		t.Fatal("RestoreSessionEnabled() = false after loading restore_session = true")
 	}
 }
 
 // A config file without the key at all — the common case — never writes it
-// back out, and Clone does not share the pointer with the original.
+// back out, and Clone does not share state with the original.
 func TestRestoreSessionAbsentStaysAbsent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := &Config{Connections: []Connection{
@@ -429,12 +429,11 @@ func TestRestoreSessionAbsentStaysAbsent(t *testing.T) {
 		t.Fatalf("restore_session written despite being unset:\n%s", raw)
 	}
 
-	on := true
-	cfg.RestoreSession = &on
+	cfg.RestoreSession = true
 	clone := cfg.Clone()
-	*cfg.RestoreSession = false
+	cfg.RestoreSession = false
 	if !clone.RestoreSessionEnabled() {
-		t.Fatal("Clone shared the RestoreSession pointer with the original")
+		t.Fatal("Clone shared RestoreSession state with the original")
 	}
 }
 

@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Main-view tabs — Data, Structure, Indexes, DDL, Relations
-description: Why the main view has five tabs behind one metadata fetch, why they cycle with [ and ] rather than digits, and what survives when the selected relation changes.
+description: Why the main view has five tabs behind one metadata fetch, why they cycle with < and > (with [ / ] and , / . as aliases) rather than digits, and what survives when the selected relation changes.
 tags: [ui, main-view, tabs, introspection, ddl, clipboard]
 generated:
   by: claude-code/opus-5
@@ -44,7 +44,7 @@ Two error slots, not one:
   statement for it (a view on some engines, a table the user cannot
   `SHOW CREATE`), and that must not blank out `Structure`.
 
-## `[` / `]`, not `1` / `2` / `3`
+## `<` / `>`, not `1` / `2` / `3`
 
 The issue offered digit sub-shortcuts as an alternative to bracket
 cycling. Digits are not available: `1`–`4` are **global** panel jumps,
@@ -55,13 +55,15 @@ them inside the main view would make the same key mean two different
 things depending on focus — exactly what the numbered-panel convention
 exists to prevent.
 
-So the tabs cycle with `[` (previous) and `]` (next), as two separate
-bindings rather than one two-key binding: with five tabs, walking
-backwards matters, and every key in the options bar must be individually
-bound and documented
+So the tabs cycle with two separate bindings rather than one two-key
+binding: with five tabs, walking backwards matters, and every key in the
+options bar must be individually bound and documented
 ([design/keybindings-single-source](keybindings-single-source.md)). The
-tab bar at the top of the main view is the discoverability half —
-`‹Data|Structure|Indexes|DDL|Relations›` with the selected tab
+primary spelling is `<` (previous) / `>` (next) — see
+[reference/keyboard-layout-portability](../reference/keyboard-layout-portability.md)
+for why, and for the `[` / `]` and `,` / `.` aliases kept for muscle
+memory. The tab bar at the top of the main view is the discoverability
+half — `‹Data|Structure|Indexes|DDL|Relations›` with the selected tab
 highlighted, in the
 same idiom the `[3]` panel's Tables/Views sub-tabs used before the
 object tree replaced them ([design/object-tree-panel](object-tree-panel.md)).

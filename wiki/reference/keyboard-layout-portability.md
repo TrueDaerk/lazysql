@@ -24,7 +24,7 @@ Classified against the German QWERTZ layout:
 
 | Binding | QWERTZ | Verdict |
 | --- | --- | --- |
-| `[` / `]` prev/next main tab | AltGr+8 / AltGr+9 | risky — aliased |
+| `[` / `]` prev/next main tab | AltGr+8 / AltGr+9 | risky — superseded as primary, kept as legacy alias (see below) |
 | `@` expand command log | AltGr+q | risky — aliased |
 | `ctrl+@` autocomplete | ctrl+AltGr+q | untypeable — removed |
 | `/` filter, `?` help, `:` editor, `_` prev screen, `$` line end | Shift chords | fine |
@@ -38,8 +38,14 @@ of which reach the program unchanged on both layouts.
 ## Aliases
 
 - **`[` / `]` → also `,` / `.`** — those two sit on the same physical
-  keys on QWERTY and QWERTZ, and are unbound in the main view. Help
-  renders `[/,` and `]/.`.
+  keys on QWERTY and QWERTZ, and are unbound in the main view. This
+  alias was later superseded as the *primary* spelling by `<` / `>`
+  (issue #135) — `[` / `]` and `,` / `.` remain bound as legacy
+  aliases. See
+  [design/main-tab-navigation-keys](../design/main-tab-navigation-keys.md)
+  for the candidates considered and why `<` / `>` won over the `H`/`L`
+  lazygit idiom (it collides with the `@`/`L` alias immediately below).
+  Help renders `</[` and `>/]`.
 - **`@` → also `L`** ("log"). `L` is free in every panel and in the
   editor's vim normal mode, and the root's global keys are matched
   before any panel's, so the alias cannot be shadowed. The expanded

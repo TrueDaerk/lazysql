@@ -395,11 +395,17 @@ func newKeyMap() keyMap {
 			key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "date picker")),
 
 		// `[` / `]` are AltGr+8 / AltGr+9 on QWERTZ (and AZERTY), which
-		// terminals may deliver as alt-chords or swallow outright. `,`
-		// and `.` sit on the same physical keys on both layouts and are
-		// free in the main view, so they are the portable alias.
-		PrevMainTab: key.NewBinding(key.WithKeys("[", ","), key.WithHelp("[/,", "prev tab")),
-		NextMainTab: key.NewBinding(key.WithKeys("]", "."), key.WithHelp("]/.", "next tab")),
+		// terminals may deliver as alt-chords or swallow outright, so they
+		// are kept only as legacy aliases for US-layout muscle memory.
+		// `<` / `>` are the primary spelling: on QWERTZ they sit on a
+		// dedicated key next to left shift (no AltGr), and on US/UK they
+		// are shift+comma/period, right next to the `,` / `.` alias below
+		// — so all three spellings land on the same physical keys.
+		// `H` / `L` (the lazygit idiom) were considered and rejected: `L`
+		// already opens the command log (see CommandLog above) and that
+		// binding is global, so it would collide.
+		PrevMainTab: key.NewBinding(key.WithKeys("<", "[", ","), key.WithHelp("</[", "prev tab")),
+		NextMainTab: key.NewBinding(key.WithKeys(">", "]", "."), key.WithHelp(">/]", "next tab")),
 
 		CopyMenu:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy…")),
 		ExportTable: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "export to file")),

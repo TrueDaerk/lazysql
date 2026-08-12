@@ -152,7 +152,7 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// snapshotted from; the entry is matched by value because the
 		// model may have recorded new statements since the snapshot.
 		for i, me := range m.history {
-			if me.SQL == e.SQL && me.Engine == e.Engine && me.At.Equal(e.At) {
+			if me.SQL == e.SQL && me.Engine == e.Engine && me.Connection == e.Connection && me.At.Equal(e.At) {
 				m.history = append(m.history[:i:i], m.history[i+1:]...)
 				break
 			}

@@ -77,7 +77,10 @@ The second spelling of a binding is there for non-US keyboards: `@`,
 `[` and `]` are AltGr chords on German QWERTZ and French AZERTY, which
 terminals may not deliver at all, so `L`, `,` and `.` reach the same
 actions. Both spellings stay bound, and either can be replaced through
-the `[keys]` config section.
+the `[keys]` config section. Main-tab switching goes further: `<` / `>`
+are the primary keys (a dedicated key on German QWERTZ, shift+,/. on
+US/UK — no AltGr either way), with `[` / `]` and `,` / `.` kept bound
+as legacy aliases.
 
 In the data grid (`enter` on a table, `esc` back):
 
@@ -93,7 +96,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
-| `[` / `]` (or `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
+| `<` / `>` (or `[` / `]`, `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
 ### Date and time columns
 

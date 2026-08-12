@@ -1203,6 +1203,72 @@ Chronological history of wiki changes, newest last.
   primary spelling; the options bar and `?` help now render `</[` and
   `>/]`.
 
+## 2026-08-12 — Scope query editor history per connection (issue #131)
+
+- Extended [design/query-editor-and-history](design/query-editor-and-history.md)
+  §5 with a new `Entry.Connection` field (`internal/history/history.go`):
+  `recordHistory` stamps the active connection name, and `H`'s pane filters
+  through the new `history.ForConnection` before the modal is built, so
+  statements from one connection no longer show up while another is active.
+- Keyed by connection **name**, not a synthetic ID — `config.Connection` has
+  none, and every other place in the codebase (`m.active`,
+  `refreshConnections`) already accepts the same rename trade-off. Documented
+  as the mechanism a planned per-table filter history is meant to share.
+- An entry with no `Connection` (written before this field existed) is shown
+  for every connection rather than hidden or migrated — there is no way to
+  recover which connection it belonged to, and the history is a convenience
+  list, not an audit trail.
+
+## 2026-08-12 — Improve SQLite/DuckDB file path autocomplete (issue #128)
+
+- Updated [design/path-completion-in-forms](design/path-completion-in-forms.md):
+  `internal/pathcomplete.Expand` now also expands `$VAR`/`${VAR}` environment
+  variables (via `os.Expand`, after the existing tilde expansion), on top of
+  the pre-existing `~` handling — both keep the typed notation in every
+  candidate, only the directory actually read from disk is resolved.
+- Candidates are now ranked directories-first, then the SQLite/DuckDB
+  extensions (`.db`, `.sqlite`, `.sqlite3`, `.duckdb`), then everything
+  else, alphabetically within each tier (`pathcomplete.rank`/`matchTier`).
+  Nothing is filtered out by extension — the field stays free text.
+- `tab` on the File field now extends to the longest shared prefix as
+  before, but once that prefix stops changing anything (an ambiguous match
+  like `sales.duckdb`/`sales.sqlite`), further `tab` presses cycle through
+  the candidates one at a time (`pathSuggest.cycling`/`selected`), and
+  `shift+tab` reverses the cycle instead of moving to the previous field
+  while one is in progress. The selected candidate is marked `▸` in the
+  suggestion list, and the footer swaps to `tab/shift+tab cycle path` so
+  the key's meaning is visible. Any input edit cancels the cycle.
+
+## 2026-08-12 — Fix shift+arrow selection, add shift+left/right column selection (issue #134)
+
+- Root cause of "shift+up/shift+down does not work": nothing in the app.
+  Bubble Tea v2 has no `WithKeyboardEnhancements` program option and needs
+  none — `keyboardEnhancementsFlags` always enables basic key
+  disambiguation — and ultraviolet decodes `\x1b[1;2A`-style sequences into
+  `shift+up`/`shift+down`/`shift+left`/`shift+right` regardless. Verified in
+  a real PTY (`TERM=xterm-256color`): the four sequences reach the grid and
+  produce `3 rows selected` / `3 rows × 2 columns selected`. What varies is
+  the terminal: macOS Terminal.app never emits them. Recorded as
+  [reference/terminal-key-reporting](reference/terminal-key-reporting.md).
+- Every shifted selection gesture gained an unshifted way in: `ctrl+v`/`V`,
+  `shift+↑`/`K`, `shift+↓`/`J` alias inside one `key.Binding`, so `?` and
+  the options bar document both from one source. The sideways pair had no
+  punctuation left (`<`/`>` are the main-view tabs since #135, `{`/`}` need
+  AltGr on QWERTZ, `H`/`L` are the history pane and the command-log alias),
+  so `C` (`select-columns`) anchors the column span instead — `h`/`l` then
+  move its open edge, and a second `C` drops it.
+- `shift+←`/`shift+→` (`Model.extendColumnSelection`) narrow the selection
+  to a block of columns: `gridSelection` gained an opt-in `cols`/`colAnchor`
+  span, `cellSelected` replaces the row-wise tint in `gridRow`, the status
+  line reads `N rows × M columns selected`, and `copySelectionRows` cuts
+  columns and values to the span so CSV headers, JSON keys and INSERT
+  column lists shrink with it. The cursor-column copy scope and the bulk
+  `e` edit stay aimed at the cursor column.
+- `lazysql --debug-keys` (`internal/ui/keydebug.go`) dumps what the terminal
+  reports for each key plus whether it answered the enhancement query;
+  `scripts/ptycheck.py` drives any command in a real PTY and renders the
+  screen through `pyte`, which is how the above was verified headlessly.
+
 ## 2026-08-12 — Inline WHERE input with per-table filter history (issue #130)
 
 - Added [design/inline-where-filter](design/inline-where-filter.md): `/` on
@@ -1216,13 +1282,16 @@ Chronological history of wiki changes, newest last.
   four keys are `key.Binding`s of their own — `ApplyFilter`,
   `CancelFilter`, `FilterHistPrev`, `FilterHistNext`, one
   `keyMap.filterInput()` slice behind the options bar and `?`.
-- Filter history reuses `internal/history` rather than inventing a store:
-  new `Entry.Key`, `history.Scope(conn, database, table)` (unit-separator
-  joined, so no name can spell another scope's key) and a `filters` file
-  in the same JSON Lines format next to `history`. Documented the
-  de-duplicate-and-rewrite rule, the per-scope cap, and why a coarser
-  `Scope` is all the query editor's history needs to become
-  per-connection.
+- Filter history reuses `internal/history` rather than inventing a store
+  *or* a second way of keying one: it narrows the `Entry.Connection`
+  issue #131 added with new `Entry.Database`/`Entry.Table` fields, read
+  back by `history.InRelation` next to that issue's
+  `history.ForConnection`. The clauses live in their own `filters` file —
+  same JSON Lines format, next to `history` — because a WHERE fragment is
+  not a statement the `H` pane could run. Documented the exact match (no
+  empty-`Connection` leniency, and an empty database being the file
+  engines' pseudo-namespace rather than a missing value), the
+  de-duplicate-and-rewrite rule and the per-relation cap.
 - Updated [design/data-grid](design/data-grid.md): the two-mode filter
   popup section became a pointer to the new concept, noting that
   `db.BuildFilter`/`db.FilterCond` and their tests stay in `internal/db`

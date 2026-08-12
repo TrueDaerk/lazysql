@@ -1,11 +1,14 @@
 ---
 type: Design Decision
 title: Filesystem path completion in the connection form
-description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist and only then stops moving between fields.
+description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist, cycles through an ambiguous match once nothing more can be extended, and only then stops moving between fields.
 tags: [tui, modal, forms, connections, completion]
 generated:
   by: claude-code/opus-5
   at: 2026-08-10T00:00:00Z
+updated:
+  by: claude-code/sonnet-5
+  at: 2026-08-12T00:00:00Z
 ---
 
 # Filesystem path completion in the connection form
@@ -35,14 +38,21 @@ unchanged.
 ## Engine behaviour worth knowing
 
 - Completion happens in the user's own notation: an input written with a
-  leading `~` gets candidates that keep the `~`. `Expand` is the single
-  tilde-expansion helper — callers must not keep local copies.
+  leading `~` or a `$VAR`/`${VAR}` reference gets candidates that keep that
+  notation — only the directory actually read from disk is expanded.
+  `Expand` is the single expansion helper (tilde, then environment
+  variables via `os.Expand`) — callers must not keep local copies.
 - Hidden entries are offered only when the typed base name explicitly starts
   with a dot, so `~/` does not drown in dotfiles.
 - Matching is case-sensitive first and falls back to case-insensitive, so
   `~/dev` still finds `~/Development`.
 - Directories carry a trailing separator, which is what makes "accept a
   directory, press tab again" descend rather than stall.
+- Candidates rank directories first, then the SQLite/DuckDB extensions
+  (`.db`, `.sqlite`, `.sqlite3`, `.duckdb`), then everything else,
+  alphabetically within each tier. Nothing is filtered out — a `.txt` file
+  still shows, it just sorts last — because the field is free text, not a
+  picker restricted to database files.
 - `MaxCandidates = 50` caps the list; beyond that the shared-prefix extension
   is the only useful help anyway.
 
@@ -56,10 +66,23 @@ resolve — there is no root-level fallthrough to lean on.
 The resolution is state-dependent rather than a new key:
 
 - While the cursor is on a `withSuggest` field **and** candidates exist, `tab`
-  completes.
-- Otherwise `tab` keeps its old meaning and moves to the next field.
-- `↓`/`↑` (and `shift+tab`) always walk fields, so field navigation is never
-  unreachable — they were already bound, so nothing new had to be learned.
+  completes — first to the longest prefix every candidate shares (shell-style
+  extension), same as before.
+- Once that prefix is already the whole input — an ambiguous match with
+  nothing left to extend, e.g. `sales.` against `sales.duckdb` and
+  `sales.sqlite` — further `tab` presses instead cycle through the
+  candidates one at a time (`pathSuggest.cycling`), so the ambiguity can
+  still be resolved from the keyboard. The candidate currently applied to
+  the field is marked `▸` in the list under it, and the footer swaps to
+  `tab/shift+tab cycle path` so the new meaning is visible.
+- `shift+tab` reverses an in-progress cycle. Outside a cycle it keeps its old
+  meaning of walking to the previous field — `pathSuggest.cycling` is what
+  formModal.update checks to decide which one applies.
+- `↓`/`↑` always walk fields regardless of suggestion state, so field
+  navigation is never unreachable even mid-cycle.
+- Any keystroke that changes the input (typing, pasting, leaving the field)
+  cancels a cycle — `pathSuggest.refresh` resets `cycling`, since a fresh
+  edit means the user is typing, not continuing the walk through candidates.
 
 A dedicated completion key (`ctrl+space`, as the query editor uses) was
 rejected here: a path input is the one place where every shell has trained the

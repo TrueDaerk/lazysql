@@ -19,9 +19,15 @@ func filterBrowsing(t *testing.T) Model {
 	return dataBrowsing(t)
 }
 
-// scopeOf is the key an applied filter is recorded under.
-func scopeOf(m Model, table string) string {
-	return history.Scope(m.active, m.data.database, table)
+// storedFor reads the filters persisted for one relation of the model's
+// connection, newest first.
+func storedFor(t *testing.T, m Model, table string) []history.Entry {
+	t.Helper()
+	stored, err := history.LoadFilters()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return history.InRelation(stored, m.active, m.data.database, table)
 }
 
 // An applied clause is recorded under the relation it ran on, persisted,
@@ -69,11 +75,7 @@ func TestFilterHistoryRecallsWhatWasApplied(t *testing.T) {
 	}
 
 	// And it is on disk, keyed to the relation, for the next session.
-	stored, err := history.LoadFilters()
-	if err != nil {
-		t.Fatal(err)
-	}
-	mine := history.InScope(stored, scopeOf(m, "grid"))
+	mine := storedFor(t, m, "grid")
 	if len(mine) != 2 || mine[0].SQL != "id > 200" {
 		t.Fatalf("stored filters = %#v, want both under the relation's scope", mine)
 	}
@@ -134,11 +136,7 @@ func TestFilterHistoryDeduplicatesWithinAScope(t *testing.T) {
 	if got := m.filterHistory(); len(got) != 2 || got[0] != "id > 100" || got[1] != "id > 200" {
 		t.Fatalf("recall list = %v, want the re-applied filter moved to the front", got)
 	}
-	stored, err := history.LoadFilters()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mine := history.InScope(stored, scopeOf(m, "grid")); len(mine) != 2 {
+	if mine := storedFor(t, m, "grid"); len(mine) != 2 {
 		t.Fatalf("stored filters = %#v, want the duplicate rewritten away", mine)
 	}
 }
@@ -172,7 +170,7 @@ func TestFilterHistoryLoadsAtStartup(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", dir)
 	if err := history.SaveFilters([]history.Entry{
-		{SQL: "id > 100", Engine: "sqlite", Key: history.Scope("local-sqlite", "", "grid")},
+		{SQL: "id > 100", Connection: "local-sqlite", Engine: "sqlite", Table: "grid"},
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -5,37 +5,28 @@ package history
 // was typed on `orders`, not the last filter of whatever table was open
 // before it.
 //
-// It is deliberately not a new storage format. The file is the same JSON
-// Lines shape as the statement history — same Entry, same append-only
-// write, same owner-only mode, same compaction on load — with Entry.Key
-// carrying the scope. That is what lets the query history become
-// per-connection later without a second store: it only has to start
-// writing a Scope of its own into the same field.
+// It is deliberately neither a new storage format nor a second way of
+// keying one. The file is the same JSON Lines shape as the statement
+// history — same Entry, same append-only write, same owner-only mode,
+// same compaction on load — and the scope rides in the same
+// Entry.Connection the editor's history is already filtered by, narrowed
+// by Entry.Database and Entry.Table. A statement is scoped by connection,
+// a filter by relation; one set of fields covers both.
 
 import "path/filepath"
 
 const (
 	// FilterFileName is the filter history inside AppDir, next to the
-	// statement history.
+	// statement history. It is a file of its own because a WHERE clause
+	// is not a statement: the history pane would offer fragments it
+	// cannot run, and one relation's filters would push statements out of
+	// the shared cap.
 	FilterFileName = "filters"
-	// MaxScopeEntries bounds one scope's recall list. The whole file is
-	// still bounded by MaxEntries; this keeps one heavily filtered table
-	// from crowding every other relation out of it.
-	MaxScopeEntries = 50
+	// MaxRelationEntries bounds one relation's recall list. The whole
+	// file is still bounded by MaxEntries; this keeps one heavily
+	// filtered table from crowding every other relation out of it.
+	MaxRelationEntries = 50
 )
-
-// scopeSep joins the parts of a scope key. It is the ASCII unit
-// separator: no connection name, database or relation can contain it, so
-// no scope key can be spelled by another scope's parts.
-const scopeSep = "\x1f"
-
-// Scope keys an entry to one relation of one connection. An empty
-// database is the pseudo-namespace file engines browse under, and an
-// empty table names the connection as a whole — which is the shape a
-// per-connection query history would use.
-func Scope(conn, database, table string) string {
-	return conn + scopeSep + database + scopeSep + table
-}
 
 // FilterPath returns the full path of the filter history file.
 func FilterPath() (string, error) {
@@ -46,7 +37,7 @@ func FilterPath() (string, error) {
 	return filepath.Join(dir, FilterFileName), nil
 }
 
-// LoadFilters reads every scope's filters, newest first. Like Load, a
+// LoadFilters reads every relation's filters, newest first. Like Load, a
 // missing file is not an error.
 func LoadFilters() ([]Entry, error) {
 	path, err := FilterPath()
@@ -66,8 +57,8 @@ func AppendFilter(e Entry) error {
 }
 
 // SaveFilters rewrites the whole file from entries given newest first.
-// It is what a de-duplicated recall and a trimmed scope go through: an
-// append can only add a line, never drop one.
+// It is what a de-duplicated recall and a trimmed relation go through:
+// an append can only add a line, never drop one.
 func SaveFilters(entries []Entry) error {
 	path, err := FilterPath()
 	if err != nil {
@@ -76,32 +67,38 @@ func SaveFilters(entries []Entry) error {
 	return SaveTo(path, entries)
 }
 
-// InScope picks the entries of one scope out of a newest-first list,
-// keeping that order.
-func InScope(entries []Entry, key string) []Entry {
-	if key == "" {
+// InRelation picks the entries of one relation out of a newest-first
+// list, keeping that order.
+//
+// Unlike ForConnection this matches all three fields exactly, with no
+// leniency for an entry that recorded none: an unscoped entry belongs to
+// no relation, and the filter file is new enough to have none anyway. An
+// empty database still matches an empty database — that is the
+// pseudo-namespace of the file engines, not a missing value.
+func InRelation(entries []Entry, connection, database, table string) []Entry {
+	if connection == "" || table == "" {
 		return nil
 	}
 	var out []Entry
 	for _, e := range entries {
-		if e.Key == key {
+		if e.Connection == connection && e.Database == database && e.Table == table {
 			out = append(out, e)
 		}
 	}
 	return out
 }
 
-// TrimScope drops the oldest entries of one scope beyond max, leaving
-// every other scope untouched. entries are newest first, and so is the
-// result; the input slice is never modified.
-func TrimScope(entries []Entry, key string, max int) []Entry {
-	if key == "" || max <= 0 {
+// TrimRelation drops the oldest entries of one relation beyond max,
+// leaving every other relation untouched. entries are newest first, and
+// so is the result; the input slice is never modified.
+func TrimRelation(entries []Entry, connection, database, table string, max int) []Entry {
+	if connection == "" || table == "" || max <= 0 {
 		return entries
 	}
 	seen := 0
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
-		if e.Key == key {
+		if e.Connection == connection && e.Database == database && e.Table == table {
 			seen++
 			if seen > max {
 				continue

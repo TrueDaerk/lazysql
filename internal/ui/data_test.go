@@ -1194,12 +1194,154 @@ func TestShiftExtendsACtrlVSelectionLikeVimKeys(t *testing.T) {
 	}
 }
 
+// shiftLeft/shiftRight are the sideways half of the gesture, as a
+// terminal that reports modified arrows delivers them.
+func shiftLeft() tea.KeyPressMsg  { return special(tea.KeyLeft, tea.ModShift) }
+func shiftRight() tea.KeyPressMsg { return special(tea.KeyRight, tea.ModShift) }
+
+// shift+right with nothing selected anchors a selection at the cursor
+// cell and narrows it to columns in one gesture: one row, two columns.
+func TestShiftRightStartsAColumnSelection(t *testing.T) {
+	m := send(t, dataBrowsing(t), shiftRight())
+	if !m.data.selecting() {
+		t.Fatalf("shift+right did not start a selection")
+	}
+	if got := len(m.data.selectedRows()); got != 1 {
+		t.Fatalf("selected %d rows, want the cursor row alone", got)
+	}
+	if got := m.data.selectedCols(); len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Fatalf("selected columns = %v, want the first two", got)
+	}
+	if m.data.col != 1 {
+		t.Fatalf("cursor column = %d, want it moved to 1", m.data.col)
+	}
+	if !m.data.narrowedToCols() {
+		t.Fatalf("the selection is not reported as narrowed to columns")
+	}
+	if !m.keys.CopySelection.Enabled() {
+		t.Fatalf("ctrl+c was not enabled by shift+right")
+	}
+}
+
+// The column span grows and shrinks around its anchor, exactly like the
+// row span does: shift+left after two shift+rights walks back.
+func TestShiftLeftShrinksAndCrossesTheColumnAnchor(t *testing.T) {
+	m := send(t, dataBrowsing(t), shiftRight(), shiftRight())
+	if got := len(m.data.selectedCols()); got != 3 {
+		t.Fatalf("selected %d columns after two shift+right, want 3", got)
+	}
+	m = send(t, m, shiftLeft())
+	if got := len(m.data.selectedCols()); got != 2 {
+		t.Fatalf("selected %d columns after shift+left shrank it, want 2", got)
+	}
+	// Back past the anchor: the span flips to the other side rather than
+	// collapsing to nothing.
+	m = send(t, m, shiftLeft(), shiftLeft())
+	if got := m.data.selectedCols(); len(got) != 1 || got[0] != 0 {
+		t.Fatalf("selected columns = %v, want only the anchor column", got)
+	}
+}
+
+// A row selection stays full-width until a column is anchored — the
+// block is opt-in, so ctrl+v and shift+down keep meaning whole rows.
+func TestRowSelectionCoversEveryColumnUntilNarrowed(t *testing.T) {
+	m := send(t, dataBrowsing(t), ctrl('v'), shiftDown())
+	if m.data.narrowedToCols() {
+		t.Fatalf("a plain row selection reports itself as narrowed")
+	}
+	if got, want := len(m.data.selectedCols()), len(m.data.cols); got != want {
+		t.Fatalf("selected %d columns, want all %d", got, want)
+	}
+	m = send(t, m, shiftRight())
+	if !m.data.narrowedToCols() || len(m.data.selectedCols()) != 2 {
+		t.Fatalf("shift+right did not narrow the running selection: %+v", m.data.sel)
+	}
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("selected %d rows, want the row span left alone", got)
+	}
+}
+
+// The cell tint follows the block: a column the selection left out is
+// not painted as selected.
+func TestOnlySelectedColumnsAreTinted(t *testing.T) {
+	m := send(t, dataBrowsing(t), shiftDown(), shiftRight())
+	if !m.data.cellSelected(0, 0) || !m.data.cellSelected(1, 1) {
+		t.Fatalf("cells inside the block are not selected: %+v", m.data.sel)
+	}
+	if m.data.cellSelected(1, 2) {
+		t.Fatalf("a column outside the block is painted as selected")
+	}
+	if m.data.cellSelected(2, 0) {
+		t.Fatalf("a row outside the block is painted as selected")
+	}
+}
+
+// The unshifted fallbacks exist for terminals that never report
+// shift+arrows: V anchors the rows, J/K extend them, C anchors the
+// column span and plain l/h move its open edge.
+func TestUnshiftedSelectionFallbackKeys(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('V'), press('J'), press('C'), press('l'))
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("V then J selected %d rows, want 2", got)
+	}
+	if got := len(m.data.selectedCols()); got != 2 {
+		t.Fatalf("C then l selected %d columns, want 2", got)
+	}
+	m = send(t, m, press('K'), press('h'))
+	if got := len(m.data.selectedRows()); got != 1 {
+		t.Fatalf("K shrank the selection to %d rows, want 1", got)
+	}
+	if got := len(m.data.selectedCols()); got != 1 {
+		t.Fatalf("h shrank the selection to %d columns, want 1", got)
+	}
+}
+
+// `C` is a toggle like ctrl+v: pressing it again widens the selection
+// back to every column without dropping the selected rows.
+func TestSelectColumnsTogglesTheSpanOff(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('V'), press('j'), press('C'), press('l'))
+	if !m.data.narrowedToCols() {
+		t.Fatalf("C did not anchor a column span: %+v", m.data.sel)
+	}
+	m = send(t, m, press('C'))
+	if m.data.narrowedToCols() {
+		t.Fatalf("a second C did not drop the column span: %+v", m.data.sel)
+	}
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("a second C dropped the rows too: %d selected, want 2", got)
+	}
+}
+
+// `C` with nothing selected anchors both ends at once — it is the
+// sideways `ctrl+v`, not something that needs one first.
+func TestSelectColumnsStartsASelection(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('C'))
+	if !m.data.selecting() || !m.data.narrowedToCols() {
+		t.Fatalf("C did not start a block selection: %+v", m.data.sel)
+	}
+	if got := len(m.data.selectedRows()); got != 1 {
+		t.Fatalf("C selected %d rows, want the cursor row alone", got)
+	}
+	if got := len(m.data.selectedCols()); got != 1 {
+		t.Fatalf("C selected %d columns, want the cursor column alone", got)
+	}
+}
+
+// Clearing the selection drops the column span with it, so the next
+// ctrl+v starts full-width again.
+func TestClearingDropsTheColumnSpan(t *testing.T) {
+	m := send(t, dataBrowsing(t), shiftRight(), special(tea.KeyEsc, 0), ctrl('v'))
+	if m.data.narrowedToCols() {
+		t.Fatalf("the column span survived esc: %+v", m.data.sel)
+	}
+}
+
 // A query result is paged in memory rather than re-read, so setPage has
 // to drop the selection the way reloadPage does.
 func TestSelectionClearedOnQueryResultPaging(t *testing.T) {
 	d := dataView{query: "SELECT 1", all: make([][]any, 2*dataPageSize)}
 	d.setPage(0)
-	d.sel = rowSelection{active: true, anchor: 1}
+	d.sel = gridSelection{active: true, anchor: 1}
 	d.row = 4
 	d.setPage(1)
 	if d.selecting() || len(d.selectedRows()) != 0 {

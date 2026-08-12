@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Inline WHERE input with per-table filter history
-description: Why `/` on the data grid types a WHERE clause into a line inside the grid instead of opening a popup, how the immutable `SELECT * FROM <relation> WHERE ` prefix is built and rendered, and how applied clauses are recalled per connection + relation out of the JSON Lines history store.
+description: Why `/` on the data grid types a WHERE clause into a line inside the grid instead of opening a popup, how the immutable `SELECT * FROM <relation> WHERE ` prefix is built and rendered, and how applied clauses are recalled per connection + relation out of the JSON Lines history store using the same Entry scope fields the query history is filtered by.
 tags: [tui, db, main-view, filtering, history, keybindings, security]
 generated:
   by: claude-code/opus-5
@@ -102,35 +102,44 @@ Everything the line applies reaches the command log through
 `reloadPage`, exactly like a page turn or a sort, so the executed
 statement (with its bound arguments) is visible in `[4]` as before.
 
-## History: the same store, keyed
+## History: the same store, the same keying
 
 Applied clauses are recorded in
 `${XDG_STATE_HOME:-~/.local/state}/lazysql/filters` —
-`internal/history/filters.go`. It is deliberately **not** a new format:
-same `history.Entry`, same JSON Lines file, same append-only write, same
-owner-only mode, same compaction on load as the statement history next to
-it. The scope rides in a new `Entry.Key`:
+`internal/history/filters.go`. It is deliberately **not** a new format,
+and deliberately **not** a second way of keying one:
 
-```go
-history.Scope(conn, database, table) // "prod\x1fshop\x1forders"
-```
+- Same `history.Entry`, same JSON Lines file, same append-only write,
+  same owner-only mode, same compaction on load as the statement history
+  next to it.
+- Same scope fields. Issue #131 scoped the query editor's history by
+  `Entry.Connection`; a filter narrows that with `Entry.Database` and
+  `Entry.Table`. A statement is scoped by connection, a filter by
+  relation, and one set of fields covers both —
+  `history.ForConnection(entries, conn)` and
+  `history.InRelation(entries, conn, database, table)` are the two
+  readings of it.
 
-The separator is the ASCII unit separator, so no connection, database or
-relation name can spell another scope's key — a `prod/shop` connection
-cannot impersonate the `shop` database of `prod`. An empty table names
-the connection as a whole, which is the shape the query editor's history
-will use when it becomes per-connection (the related issue): that history
-only has to start writing a coarser `Scope` into the same field, rather
-than growing a second store.
+`InRelation` matches all three fields exactly, without the
+empty-`Connection` leniency `ForConnection` grants entries written before
+that field existed: an unscoped entry belongs to no relation, and the
+filter file is new enough to have none. An empty `Database` matches an
+empty `Database` — that is the pseudo-namespace the file engines browse
+under, a value rather than a missing one.
+
+The filters live in their own file rather than in `history` because a
+`WHERE` clause is not a statement: the `H` pane would offer fragments it
+cannot run, and one relation's filters would push statements out of the
+shared cap.
 
 `Model.recordFilter` prepends the clause to `Model.filters` and persists
-it. A clause already in the same scope **moves to the front** instead of
-being stored twice — re-applying a filter would otherwise push every
-other one down a slot per press — and that is why the write is sometimes
-a full `SaveFilters` rewrite rather than an append: an append can only
-add a line, never drop the older copy or the entry a scope has grown past
-`MaxScopeEntries` (50 per scope, inside the file-wide `MaxEntries` cap of
-1000).
+it. A clause already recorded on the same relation **moves to the front**
+instead of being stored twice — re-applying a filter would otherwise push
+every other one down a slot per press — and that is why the write is
+sometimes a full `SaveFilters` rewrite rather than an append: an append
+can only add a line, never drop the older copy or the entry a relation
+has grown past `MaxRelationEntries` (50 per relation, inside the
+file-wide `MaxEntries` cap of 1000).
 
 Recall is non-destructive: the first `ctrl+p` stashes the half-typed
 clause as `draft`, and walking forward past the newest entry puts it
@@ -165,7 +174,8 @@ empty clause (a clear) records nothing.
 - [data-grid](data-grid.md) — the grid this line sits in, and the
   parse-first rule the clause goes through.
 - [query-editor-and-history](query-editor-and-history.md) — the statement
-  history this store mirrors, and the pane that browses it.
+  history this store mirrors, the pane that browses it, and the
+  `Entry.Connection` scoping this narrows.
 - [catalog-browsing](catalog-browsing.md) — the side panels' inline `/`
   fuzzy filter, the interaction this one now matches.
 - [keybindings-single-source](keybindings-single-source.md) — why the

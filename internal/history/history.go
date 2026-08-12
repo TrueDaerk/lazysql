@@ -36,17 +36,46 @@ const (
 // Entry is one executed statement.
 type Entry struct {
 	SQL string `json:"sql"`
+	// Connection is the name of the connection profile the statement ran
+	// against, so the panel can offer only the entries of the connection
+	// that is currently active instead of mixing every connection's
+	// history together. A connection name can be reused after a rename or
+	// a delete-and-recreate, but there is no more stable identifier in
+	// config.Connection to key on; ForConnection documents the trade-off.
+	//
+	// Empty on entries written before this field existed. Those are not
+	// migrated or dropped — ForConnection shows them for every connection,
+	// since there is no way to know which one they belonged to and hiding
+	// them would silently discard history a restart-old file still has.
+	Connection string `json:"connection,omitempty"`
 	// Engine is the engine the statement ran against ("postgres",
 	// "sqlite", …), kept because the same SQL is not portable between
 	// them and the panel annotates each entry with it.
 	Engine string    `json:"engine"`
 	At     time.Time `json:"at"`
-	// Key scopes the entry, empty for the app-wide statement history.
-	// The data grid's filter history writes a Scope here so `/` on one
-	// relation recalls that relation's filters — see filters.go, and
-	// note that a per-connection query history is the same field with a
-	// coarser Scope rather than a second file format.
-	Key string `json:"key,omitempty"`
+	// Database and Table narrow Connection to one relation. They are
+	// empty on a statement — the editor's history is scoped by connection
+	// alone — and set on a filter, where `/` on `orders` must recall what
+	// was typed on `orders` and nothing else. An empty Database is
+	// meaningful rather than missing: it is the pseudo-namespace the file
+	// engines browse under. See filters.go.
+	Database string `json:"database,omitempty"`
+	Table    string `json:"table,omitempty"`
+}
+
+// ForConnection filters entries newest-first to those belonging to the
+// given connection, plus any legacy entry with no Connection recorded
+// (see Entry.Connection). The data grid's filter history keys the same
+// way, one level finer and without the legacy leniency — see ForRelation
+// in filters.go.
+func ForConnection(entries []Entry, connection string) []Entry {
+	out := make([]Entry, 0, len(entries))
+	for _, e := range entries {
+		if e.Connection == "" || e.Connection == connection {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // writeMu serializes writers. Appends run in tea.Cmd goroutines, so two

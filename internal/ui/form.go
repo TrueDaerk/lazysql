@@ -280,9 +280,11 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case msg.String() == "tab":
-		// While path candidates are up, tab completes the path; ↑↓ (and
-		// shift+tab) stay the way to walk fields. With no candidates tab
-		// keeps its usual meaning.
+		// While path candidates are up, tab completes the path — first to
+		// the longest shared prefix, then (once that stops changing
+		// anything) cycling through the candidates one at a time. ↑↓ stay
+		// the way to walk fields regardless. With no candidates tab keeps
+		// its usual meaning.
 		if sf := f.suggestField(); sf != nil && f.sugg.active() {
 			sf.input.SetValue(f.sugg.complete(sf.input.Value()))
 			sf.input.CursorEnd()
@@ -293,7 +295,17 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	case msg.String() == "down":
 		f.move(1)
 		return false, nil
-	case msg.String() == "shift+tab", msg.String() == "up":
+	case msg.String() == "shift+tab":
+		// shift+tab reverses an in-progress tab-cycle; otherwise it keeps
+		// its usual meaning of walking to the previous field.
+		if sf := f.suggestField(); sf != nil && f.sugg.cycling {
+			sf.input.SetValue(f.sugg.completeBack())
+			sf.input.CursorEnd()
+			return false, nil
+		}
+		f.move(-1)
+		return false, nil
+	case msg.String() == "up":
 		f.move(-1)
 		return false, nil
 	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
@@ -441,6 +453,9 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		// tab is taken by completion here, so the bar must stop advertising
 		// it as the way to move between fields.
 		footer = "tab complete path · ↑↓ field · enter/ctrl+enter save · esc cancel"
+		if f.sugg.cycling {
+			footer = "tab/shift+tab cycle path · ↑↓ field · enter/ctrl+enter save · esc cancel"
+		}
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())

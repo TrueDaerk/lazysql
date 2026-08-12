@@ -159,6 +159,57 @@ func TestLoadCompactsOverlongFile(t *testing.T) {
 	}
 }
 
+func TestLoadToleratesEntriesWithoutConnection(t *testing.T) {
+	path := tempPath(t)
+	// A history file written before the Connection field existed: no
+	// "connection" key on the line at all.
+	if err := os.WriteFile(path, []byte(`{"sql":"SELECT 1","engine":"sqlite","at":"2026-08-09T12:00:00Z"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v, want a pre-Connection line to load fine", err)
+	}
+	if len(got) != 1 || got[0].SQL != "SELECT 1" || got[0].Connection != "" {
+		t.Fatalf("LoadFrom() = %#v, want one entry with an empty Connection", got)
+	}
+}
+
+func TestForConnectionFiltersToTheGivenConnection(t *testing.T) {
+	entries := []Entry{
+		{SQL: "SELECT 1", Connection: "prod"},
+		{SQL: "SELECT 2", Connection: "staging"},
+		{SQL: "SELECT 3", Connection: "prod"},
+	}
+	got := ForConnection(entries, "prod")
+	if len(got) != 2 || got[0].SQL != "SELECT 1" || got[1].SQL != "SELECT 3" {
+		t.Fatalf("ForConnection(prod) = %#v, want only prod's entries, order kept", got)
+	}
+}
+
+func TestForConnectionKeepsLegacyEntriesForEveryConnection(t *testing.T) {
+	entries := []Entry{
+		{SQL: "SELECT 1", Connection: "prod"},
+		{SQL: "SELECT 2", Connection: ""}, // written before Connection existed
+		{SQL: "SELECT 3", Connection: "staging"},
+	}
+	for _, conn := range []string{"prod", "staging", "anything-else"} {
+		got := ForConnection(entries, conn)
+		found := false
+		for _, e := range got {
+			if e.SQL == "SELECT 2" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("ForConnection(%q) = %#v, want the legacy entry visible", conn, got)
+		}
+	}
+	if got := ForConnection(entries, "staging"); len(got) != 2 {
+		t.Fatalf("ForConnection(staging) = %#v, want the legacy entry plus staging's own, not prod's", got)
+	}
+}
+
 func TestDirHonoursXDGStateHome(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/tmp/state")
 	dir, err := Dir()

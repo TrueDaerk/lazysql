@@ -227,6 +227,13 @@ type keyMap struct {
 	CompletePath key.Binding
 	NextField    key.Binding
 	PrevField    key.Binding
+	// The rest of a form's contract. These document keys formModal.update
+	// dispatches itself (an open modal swallows every key), so they carry
+	// no slots entries — overriding them in `[keys]` could not change what
+	// the form answers to, only what the bar claims it does.
+	FormChange key.Binding
+	FormTest   key.Binding
+	FormSave   key.Binding
 
 	// Backup opens the dump/restore menu on panels [1] and [2], and
 	// CancelBackup kills the tool it started. Like CancelExport the
@@ -348,6 +355,13 @@ func newKeyMap() keyMap {
 			key.WithKeys("down", "tab"), key.WithHelp("↓/tab", "next field")),
 		PrevField: key.NewBinding(
 			key.WithKeys("up", "shift+tab"), key.WithHelp("↑/shift+tab", "prev field")),
+		FormChange: key.NewBinding(
+			key.WithKeys("left", "right"), key.WithHelp("←/→", "change value")),
+		FormTest: key.NewBinding(
+			key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "test without saving")),
+		FormSave: key.NewBinding(
+			key.WithKeys(append([]string{"enter"}, acceptKeys...)...),
+			key.WithHelp("enter", "save")),
 
 		ColLeft:    key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
 		ColRight:   key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
@@ -548,6 +562,17 @@ func (k keyMap) queryResultKeys() []key.Binding {
 // key — so this slice is what documents them in `?`.
 func (k keyMap) formPathComplete() []key.Binding {
 	return []key.Binding{k.CompletePath, k.NextField, k.PrevField}
+}
+
+// formKeys is a form popup's contract: what the options bar shows while any
+// formModal without its own bar is open, and what `?` documents.
+func (k keyMap) formKeys() []key.Binding {
+	return []key.Binding{k.NextField, k.PrevField, k.FormChange, k.FormSave, k.Back}
+}
+
+// connFormKeys is formKeys plus the connection form's ctrl+t test hook.
+func (k keyMap) connFormKeys() []key.Binding {
+	return []key.Binding{k.NextField, k.PrevField, k.FormChange, k.FormTest, k.FormSave, k.Back}
 }
 
 // datePicker are the keys the date/time picker owns while it is open, plus
@@ -830,9 +855,13 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 		)
 	}
 	// The connection form is opened from the Connections panel, so its
-	// path-completion keys are documented there.
+	// keys — the form contract plus the File field's path completion —
+	// are documented there.
 	if id == panelConnections {
-		groups = append(groups, helpGroup{"In forms:", k.formPathComplete()})
+		groups = append(groups,
+			helpGroup{"In the connection form:", k.connFormKeys()},
+			helpGroup{"While path suggestions are up:", k.formPathComplete()},
+		)
 	}
 	return append(groups,
 		helpGroup{"", k.navigationFor(id)},

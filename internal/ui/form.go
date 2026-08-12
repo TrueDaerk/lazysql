@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -48,6 +49,15 @@ type formField struct {
 	// visible reports whether the field applies to the current form state.
 	// nil means always visible.
 	visible func(f *formModal) bool
+	// validate reports why the field's current value cannot be saved, or
+	// "". It runs on every draw, so the message tracks what is typed; a
+	// failed required-field check only shows after the first submit
+	// attempt (see errorFor), so an empty form does not open covered in
+	// red. Submitting is blocked while any visible field validates false.
+	validate func(f *formModal, value string) string
+	// onChange runs after a select or bool field flips its value — the
+	// engine choice uses it to retarget the port placeholder.
+	onChange func(f *formModal)
 }
 
 func newTextField(name, label, initial, placeholder string) *formField {
@@ -87,6 +97,39 @@ func (f *formField) withVisible(fn func(*formModal) bool) *formField { f.visible
 
 // withSuggest enables path completion on a text field.
 func (f *formField) withSuggest() *formField { f.suggest = true; return f }
+
+func (f *formField) withValidate(fn func(*formModal, string) string) *formField {
+	f.validate = fn
+	return f
+}
+
+func (f *formField) withChange(fn func(*formModal)) *formField { f.onChange = fn; return f }
+
+// requiredField is the validator for fields that cannot stay empty.
+func requiredField(what string) func(*formModal, string) string {
+	return func(_ *formModal, v string) string {
+		if v == "" {
+			return what + " is required"
+		}
+		return ""
+	}
+}
+
+// validPort accepts an empty value (the caller supplies the default) or a
+// number in port range.
+func validPort(_ *formModal, v string) string {
+	if v == "" {
+		return ""
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return "port must be a number"
+	}
+	if n < 1 || n > 65535 {
+		return "port out of range 1-65535"
+	}
+	return ""
+}
 
 // value is the field's current content as a string. Select fields report the
 // value behind the label; bool fields report "true"/"false".
@@ -145,6 +188,16 @@ type formModal struct {
 	// reaching the field under the cursor — the connection form's ctrl+t
 	// test hook lives here.
 	onKey func(m *Model, f *formModal, key string) (handled bool, cmd tea.Cmd)
+
+	// bar, when set, supplies the bottom options bar's bindings while the
+	// form is open (the connection form adds ctrl+t there). nil falls back
+	// to keyMap.formKeys.
+	bar func(k keyMap) []key.Binding
+
+	// submitted flips on the first enter, and from then on required-field
+	// errors show inline even on still-empty fields — before that, only
+	// fields with content are judged, so a fresh form starts calm.
+	submitted bool
 
 	// onCancel, when set, runs when esc closes the form without
 	// submitting — cleanup for state a caller set up expecting either a
@@ -270,6 +323,35 @@ func (f *formModal) suggestField() *formField {
 	return nil
 }
 
+// errorFor is fl's inline validation message, or "" while the message
+// should stay hidden: an empty field is only judged once a submit was
+// attempted, so required-field errors do not litter a fresh form.
+func (f *formModal) errorFor(fl *formField) string {
+	if fl.validate == nil {
+		return ""
+	}
+	v := fl.value()
+	if v == "" && !f.submitted {
+		return ""
+	}
+	return fl.validate(f, v)
+}
+
+// firstInvalid is the visible-field index and message of the first field
+// whose validator objects, or -1. Validator messages name their subject
+// ("host is required"), so the message stands on its own in the error line.
+func (f *formModal) firstInvalid() (int, string) {
+	for i, fl := range f.visibleFields() {
+		if fl.validate == nil {
+			continue
+		}
+		if msg := fl.validate(f, fl.value()); msg != "" {
+			return i, msg
+		}
+	}
+	return -1, ""
+}
+
 func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
 	switch {
@@ -314,6 +396,17 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 			return true, nil
 		}
 		f.err, f.info = "", ""
+		f.submitted = true
+		// Field validators gate the submit: the cursor jumps to the first
+		// offender so the fix is one keystroke away, and every invalid
+		// field is now marked inline (submitted covers the empty ones).
+		if i, msg := f.firstInvalid(); i >= 0 {
+			f.cursor = i
+			f.sugg.clear()
+			f.syncFocus()
+			f.err = msg
+			return false, nil
+		}
 		close, cmd := f.onSubmit(m, f)
 		if close {
 			f.sugg.clear()
@@ -332,6 +425,7 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	}
 	switch cur.kind {
 	case fieldSelect:
+		was := cur.choice
 		switch msg.String() {
 		case "left", "h":
 			cur.choice = (cur.choice - 1 + len(cur.choices)) % len(cur.choices)
@@ -341,11 +435,17 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// Visibility rules may now hide the field the cursor sits on.
 		f.sugg.clear()
 		f.syncFocus()
+		if cur.choice != was && cur.onChange != nil {
+			cur.onChange(f)
+		}
 		return false, nil
 	case fieldBool:
 		switch msg.String() {
 		case " ", "space", "left", "right", "h", "l", "y", "n":
 			cur.on = !cur.on
+			if cur.onChange != nil {
+				cur.onChange(f)
+			}
 		}
 		return false, nil
 	}
@@ -428,7 +528,17 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 			label = s.muted.Render(label)
 		}
 		line := marker + label + "  " + fl.display()
-		if fl.help != "" && i == f.cursor {
+		// An invalid field is marked in place; under the cursor the mark
+		// carries the message (displacing the help — the field needs
+		// fixing before it needs explaining), elsewhere it is just ✗ so
+		// the eye can find every offender at a glance.
+		if msg := f.errorFor(fl); msg != "" {
+			if i == f.cursor {
+				line += "  " + s.danger.Render("✗ "+msg)
+			} else {
+				line += "  " + s.danger.Render("✗")
+			}
+		} else if fl.help != "" && i == f.cursor {
 			line += "  " + s.muted.Render(fl.help)
 		}
 		b.WriteString(line + "\n")

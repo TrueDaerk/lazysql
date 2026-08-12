@@ -790,6 +790,15 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 				}
 			}
 		}
+		// Same for the connection form's contract, dispatched inside
+		// formModal.update.
+		if id == panelConnections {
+			for _, b := range k.connFormKeys() {
+				for _, ks := range b.Keys() {
+					actions[ks] = true
+				}
+			}
+		}
 
 		for _, group := range k.helpGroups(id) {
 			for _, b := range group.bindings {

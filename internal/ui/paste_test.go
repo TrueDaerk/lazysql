@@ -105,14 +105,15 @@ func TestPasteIntoAPromptModalFlattensNewlines(t *testing.T) {
 }
 
 // The connection form is the other text-heavy popup: a pasted DSN or
-// host has to reach the field under the cursor.
+// host has to reach the field under the cursor. The form opens on the
+// engine select, so one `down` puts the cursor on Name first.
 func TestPasteIntoTheConnectionForm(t *testing.T) {
 	m := send(t, sized(120, 40), press('1'), press('n'))
 	f, ok := m.modal.(*formModal)
 	if !ok {
 		t.Fatalf("`n` opened %T, want the connection form", m.modal)
 	}
-	m = send(t, m, paste("staging-db"))
+	m = send(t, m, special(tea.KeyDown, 0), paste("staging-db"))
 	if got := f.value("name"); got != "staging-db" {
 		t.Fatalf("name field = %q, want the pasted text", got)
 	}

@@ -523,11 +523,20 @@ func (m Model) renderOptionsBar() string {
 		bindings = m.keys.filterInput()
 	}
 	// The date picker claims every key while it is open, so the bar shows
-	// its own set instead of the grid's — the one modal that rebinds the
-	// bar, because it is the one whose keys are motions rather than a
-	// footer's worth of verbs.
+	// its own set instead of the grid's — its keys are motions rather
+	// than a footer's worth of verbs.
 	if _, ok := m.modal.(*datePickerModal); ok {
 		bindings = m.keys.datePicker()
+	}
+	// A form popup swallows every key too, so while one is open the bar
+	// offers the form contract — the same slices `?` documents — instead
+	// of panel verbs that could not act. A form with its own bar (the
+	// connection form adds ctrl+t) supplies it here.
+	if fm, ok := m.modal.(*formModal); ok {
+		bindings = m.keys.formKeys()
+		if fm.bar != nil {
+			bindings = fm.bar(m.keys)
+		}
 	}
 	// A trigger definition is a read-only text block, so the grid's own
 	// actions would only ever be no-ops there: the bar offers the keys

@@ -774,3 +774,45 @@ func TestFilterModalTogglesAdvancedAndCancels(t *testing.T) {
 		t.Fatalf("filter = %+v, want esc to change nothing", m.data.filter)
 	}
 }
+
+// A selection is a set of page row indices, so every query-shape change
+// drops it — a stale index would otherwise stage a bulk edit on rows the
+// user never picked. `R` is covered in copy_test.go; these are the other
+// three ways the rows change under the same indices.
+func TestSelectionClearedByEveryQueryShapeChange(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		apply func(*testing.T, Model) Model
+	}{
+		{"sort", func(t *testing.T, m Model) Model { return send(t, m, press('s')) }},
+		{"filter", func(t *testing.T, m Model) Model { return applyWhereFilter(t, m, "id > 10") }},
+		{"next page", func(t *testing.T, m Model) Model { return send(t, m, ctrl('f')) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := send(t, dataBrowsing(t), ctrl('v'), press('j'), press('j'))
+			if got := len(m.data.selectedRows()); got != 3 {
+				t.Fatalf("selected %d rows, want 3 before the %s", got, tc.name)
+			}
+			m = tc.apply(t, m)
+			if m.data.selecting() {
+				t.Fatalf("the selection survived the %s: %+v", tc.name, m.data.sel)
+			}
+			if m.keys.CopySelection.Enabled() {
+				t.Fatalf("ctrl+c stayed bound to the copy across the %s", tc.name)
+			}
+		})
+	}
+}
+
+// A query result is paged in memory rather than re-read, so setPage has
+// to drop the selection the way reloadPage does.
+func TestSelectionClearedOnQueryResultPaging(t *testing.T) {
+	d := dataView{query: "SELECT 1", all: make([][]any, 2*dataPageSize)}
+	d.setPage(0)
+	d.sel = rowSelection{active: true, anchor: 1}
+	d.row = 4
+	d.setPage(1)
+	if d.selecting() || len(d.selectedRows()) != 0 {
+		t.Fatalf("selection = %+v, want it dropped with the page", d.sel)
+	}
+}

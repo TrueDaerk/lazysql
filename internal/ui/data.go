@@ -600,7 +600,8 @@ func (m *Model) toggleSelection() tea.Cmd {
 	}
 	m.data.sel = rowSelection{active: true, anchor: m.data.row}
 	m.keys.CopySelection.SetEnabled(true)
-	return logCmd("-- selection started at row %d (j/k extend, ctrl+c copies, esc clears)",
+	return logCmd(
+		"-- selection started at row %d (j/k extend, e edits the cursor column in every row, ctrl+c copies, esc clears)",
 		m.data.offset()+m.data.row+1)
 }
 

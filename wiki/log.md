@@ -1298,6 +1298,21 @@ Chronological history of wiki changes, newest last.
   with no UI caller, and that `dataView.conds` and
   `Model.applyFilterConds` are gone with the structured form.
 
+## 2026-08-12 — Connection form UX redesign (issue #129)
+
+- Added [design/connection-form-ux](design/connection-form-ux.md): the UX
+  review's findings and the decisions they led to — engine select moved to
+  the first field, the server block reordered into dial order with the
+  credentials adjacent, port/user placeholders that follow the engine choice
+  via the new `formField.onChange` hook, per-field `validate` hooks that mark
+  invalid fields inline and gate `enter` (required-field errors held back
+  until the first submit attempt), the bottom options bar switching to the
+  form contract while a `formModal` is open, and the rejected section-headers
+  idea.
+- Updated [design/connection-form-modal](design/connection-form-modal.md):
+  the Validation section now describes the per-field validator gate and
+  points at the new concept for the reticence rules.
+
 ## 2026-08-12 — Fix the cursor caret rendered offset from its actual position (issue #132)
 
 - Added [reference/runes-cells-and-ansi-in-rendering](reference/runes-cells-and-ansi-in-rendering.md):

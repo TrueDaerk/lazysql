@@ -68,8 +68,11 @@ func sshFields(c config.Connection, oldName string) []*formField {
 			withVisible(isServerEngine),
 		newTextField("ssh_host", "SSH host", s.Host, "bastion.example.com").
 			withHelp("a ~/.ssh/config alias works too").
-			withVisible(sshEnabled),
-		newTextField("ssh_port", "SSH port", port, "22").withVisible(sshEnabled),
+			withVisible(sshEnabled).
+			withValidate(requiredField("SSH host")),
+		newTextField("ssh_port", "SSH port", port, "22").
+			withVisible(sshEnabled).
+			withValidate(validPort),
 		newTextField("ssh_user", "SSH user", s.User, "from ssh config").
 			withVisible(sshEnabled),
 		newSelectField("ssh_auth", "SSH auth", authLabels, authValues, s.Auth).

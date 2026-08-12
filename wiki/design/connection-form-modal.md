@@ -40,10 +40,13 @@ Two consequences fall out of that:
 
 ## Validation
 
-`enter` calls `onSubmit`, which returns `close=false` after setting `f.err`
-when validation fails, so the popup stays open with the user's input intact.
-Ports are parsed and range-checked in the form; `config.Connection.Validate`
-re-checks required fields on the way to disk, since profiles also arrive by
+Fields can carry a `validate` hook, run on every draw and again as a gate
+before `onSubmit`: a failed submit keeps the popup open, jumps the cursor to
+the first offender and marks every invalid field inline — see
+[design/connection-form-ux](connection-form-ux.md) for the reticence rules.
+`onSubmit` can still return `close=false` after setting `f.err` for checks
+only the whole profile can answer. `config.Connection.Validate` re-checks
+required fields on the way to disk, since profiles also arrive by
 hand-editing `config.toml`.
 
 ## Password fields

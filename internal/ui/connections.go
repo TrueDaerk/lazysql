@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -494,7 +495,49 @@ func colorFormFields(c config.Connection) []*formField {
 		newSelectField("color", "Color tag", labels, values, selected).
 			withHelp("environment tag: panel [1] marker + main view border"),
 		newTextField("color_hex", "Custom color", custom, "#ff8800 or an ANSI name/index").
-			withVisible(func(f *formModal) bool { return f.rawValue("color") == "custom" }),
+			withVisible(func(f *formModal) bool { return f.rawValue("color") == "custom" }).
+			withValidate(func(_ *formModal, v string) string {
+				if v == "" {
+					return ""
+				}
+				if _, err := resolveColor(v); err != nil {
+					return err.Error()
+				}
+				return ""
+			}),
+	}
+}
+
+// portHint is the port field's placeholder: the number the engine defaults
+// to, so leaving the field empty is a visible choice rather than a guess.
+func portHint(e db.Engine) string {
+	if p := db.DefaultPort(e); p > 0 {
+		return strconv.Itoa(p)
+	}
+	return "default"
+}
+
+// userHint is the user field's placeholder — the account the engine ships
+// with, as a starting point, not a default the form fills in.
+func userHint(e db.Engine) string {
+	switch e {
+	case db.EngineMySQL, db.EngineMariaDB:
+		return "e.g. root"
+	case db.EnginePostgres:
+		return "e.g. postgres"
+	}
+	return ""
+}
+
+// retargetEngineHints follows the engine select: the port and user
+// placeholders always describe the engine currently chosen.
+func retargetEngineHints(f *formModal) {
+	e := db.Engine(f.rawValue("engine"))
+	if fl := f.field("port"); fl != nil {
+		fl.input.Placeholder = portHint(e)
+	}
+	if fl := f.field("user"); fl != nil {
+		fl.input.Placeholder = userHint(e)
 	}
 }
 
@@ -518,26 +561,49 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 		port = strconv.Itoa(c.Port)
 	}
 
+	// Engine leads: it decides which of the fields below exist at all, so
+	// choosing it first means the form only ever shrinks/reshapes before
+	// anything was typed into a field about to disappear. The server block
+	// runs host→port→user→password in dial order, with the credentials
+	// adjacent.
 	fields := []*formField{
-		newTextField("name", "Name", c.Name, "my-database"),
-		newSelectField("engine", "Engine", labels, values, string(c.Engine)),
+		newSelectField("engine", "Engine", labels, values, string(c.Engine)).
+			withChange(retargetEngineHints),
+		newTextField("name", "Name", c.Name, "my-database").
+			withValidate(requiredField("name")),
 		newTextField("host", "Host", c.Host, "localhost").
 			withHelp("or an absolute path for a unix socket").
-			withVisible(isServerEngine),
-		newTextField("port", "Port", port, "default").withVisible(isServerEngine),
-		newTextField("user", "User", c.User, "").withVisible(isServerEngine),
-		newTextField("database", "Database", c.Database, "").withVisible(isServerEngine),
-		newTextField("file", "File", c.File, "path/to/db").
-			withHelp("empty = in-memory (DuckDB)").
-			withVisible(isFileEngine).
-			withSuggest(),
+			withVisible(isServerEngine).
+			withValidate(requiredField("host")),
+		newTextField("port", "Port", port, portHint(c.Engine)).
+			withHelp("empty = the engine's default").
+			withVisible(isServerEngine).
+			withValidate(validPort),
+		newTextField("user", "User", c.User, userHint(c.Engine)).withVisible(isServerEngine),
 		newPasswordField("password", "Password", passwordPlaceholder(c, oldName)).
 			withHelp("stored in the OS keyring, never in config.toml").
 			withVisible(isServerEngine),
 		newBoolField("ask", "Ask on connect", c.AskPassword).
 			withHelp("prompt instead of using the keyring").
 			withVisible(isServerEngine),
-		newTextField("options", "Options", formatOptions(c.Options), "sslmode=disable, k=v"),
+		newTextField("database", "Database", c.Database, "optional").withVisible(isServerEngine),
+		newTextField("file", "File", c.File, "path/to/db").
+			withHelp("empty = in-memory (DuckDB)").
+			withVisible(isFileEngine).
+			withSuggest().
+			withValidate(func(f *formModal, v string) string {
+				if v == "" && db.Engine(f.rawValue("engine")) == db.EngineSQLite {
+					return "file path is required for SQLite"
+				}
+				return ""
+			}),
+		newTextField("options", "Options", formatOptions(c.Options), "sslmode=disable, k=v").
+			withValidate(func(_ *formModal, v string) string {
+				if _, err := parseOptions(v); err != nil {
+					return err.Error()
+				}
+				return ""
+			}),
 		// Read-only applies to every engine, so it sits outside the
 		// server-only block above.
 		newBoolField("read_only", "Read-only", c.ReadOnly).
@@ -564,6 +630,7 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 		)
 	})
 	fm.footer = "tab/↑↓ field · ←→ change · ctrl+t test · enter save · esc cancel"
+	fm.bar = func(k keyMap) []key.Binding { return k.connFormKeys() }
 	fm.onKey = func(m *Model, f *formModal, key string) (bool, tea.Cmd) {
 		if key != "ctrl+t" {
 			return false, nil

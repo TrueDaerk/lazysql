@@ -89,6 +89,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `/` (or `f`) | Filter rows (modal) |
 | `F` | Clear the filter |
 | `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
+| `ctrl+v` | Select rows: anchored at the cursor, `j`/`k` extend, `esc` clears. `e` then edits the cursor column in every selected row, `ctrl+c` copies the selection |
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
@@ -114,6 +115,20 @@ picker for the field under the cursor in the insert/duplicate form:
 
 The picker only produces a value. It is staged in the changeset like any
 other edit and executes nothing until `c` commits.
+
+### Editing a column across several rows
+
+`ctrl+v` opens a vim-style row selection in the grid, anchored on the
+cursor row; every vertical move extends it and `esc` (or a second
+`ctrl+v`) clears it. `e` with a selection up opens the usual edit modal
+for the *cursor column* and stages the confirmed value in that column of
+every selected row — one pending change each, all visible in the
+changeset, none of them executed before `c`. Rows that cannot be
+identified safely (one already staged for deletion, one whose primary
+key the result set does not carry) drop out and are reported in the
+command log. The selection is dropped by anything that replaces the rows
+under it — a reload, a sort, a filter, a page turn — so a staged edit can
+never land on a row that was never picked.
 
 ### Mouse
 

@@ -139,9 +139,18 @@ type keyMap struct {
 	// cursor row and `j`/`k` extend it; CopySelection (ctrl+c) copies what
 	// is selected. CopySelection is enabled only while a selection is up,
 	// the same way CancelQuery is enabled only during a run — `ctrl+c`
-	// keeps meaning quit the rest of the time.
+	// keeps meaning quit the rest of the time. ShiftUp/ShiftDown are the
+	// conventional alternative: with no selection up they anchor one at the
+	// cursor row and move, like ctrl+v followed by k/j; with one already up
+	// they just extend or shrink it, like plain k/j do. Whether the
+	// terminal reports shift+arrows at all depends on kitty keyboard
+	// protocol support — the same caveat acceptKeys documents for
+	// ctrl+enter — so where it is not reported these bindings simply never
+	// match and plain Up/Down keep working.
 	SelectRows    key.Binding
 	CopySelection key.Binding
+	ShiftUp       key.Binding
+	ShiftDown     key.Binding
 
 	// Foreign-key navigation. FollowFK jumps along the constraint the
 	// cursor column takes part in, IncomingRefs goes the other way, and
@@ -338,6 +347,10 @@ func newKeyMap() keyMap {
 		// Disabled until a selection exists — see the field comment.
 		CopySelection: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "copy selection…"), key.WithDisabled()),
+		ShiftUp: key.NewBinding(
+			key.WithKeys("shift+up"), key.WithHelp("shift+↑", "extend selection up")),
+		ShiftDown: key.NewBinding(
+			key.WithKeys("shift+down"), key.WithHelp("shift+↓", "extend selection down")),
 
 		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
 		IncomingRefs: key.NewBinding(
@@ -528,6 +541,8 @@ const (
 	actPrevPage
 	actSortColumn
 	actSelectRows
+	actExtendSelectionUp
+	actExtendSelectionDown
 	actWhereFilter
 	actClearFilter
 	actViewCell
@@ -629,6 +644,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actPrevPage, k.PrevPage},
 			{actSortColumn, k.SortColumn},
 			{actSelectRows, k.SelectRows},
+			{actExtendSelectionUp, k.ShiftUp},
+			{actExtendSelectionDown, k.ShiftDown},
 			{actCopySelectionMenu, k.CopySelection},
 			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
@@ -793,6 +810,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
 		{"select-rows", &k.SelectRows}, {"copy-selection", &k.CopySelection},
+		{"shift-up", &k.ShiftUp}, {"shift-down", &k.ShiftDown},
 		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},
 		{"browse-back", &k.BrowseBack},
 

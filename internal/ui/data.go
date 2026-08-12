@@ -605,6 +605,22 @@ func (m *Model) toggleSelection() tea.Cmd {
 		m.data.offset()+m.data.row+1)
 }
 
+// extendSelection is `shift+up`/`shift+down` (delta -1/+1): with no
+// selection up it anchors one at the cursor row first, exactly like
+// toggleSelection, and then moves the cursor through the same wheel path as
+// plain Up/Down — so a selection already running just grows or shrinks,
+// matching what j/k do today.
+func (m *Model) extendSelection(delta int) tea.Cmd {
+	if !m.data.selecting() {
+		if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
+			return nil
+		}
+		m.data.sel = rowSelection{active: true, anchor: m.data.row}
+		m.keys.CopySelection.SetEnabled(true)
+	}
+	return m.wheelAt(scrollTarget{zone: zoneMain}, delta)
+}
+
 // focusBack pops the focus stack, the same way `esc` does in a panel.
 func (m *Model) focusBack() {
 	if n := len(m.prev); n > 0 {
@@ -637,6 +653,12 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actSelectRows:
 		cmd := m.toggleSelection()
+		return m, cmd, true
+	case actExtendSelectionUp:
+		cmd := m.extendSelection(-1)
+		return m, cmd, true
+	case actExtendSelectionDown:
+		cmd := m.extendSelection(1)
 		return m, cmd, true
 	case actWhereFilter:
 		cmd := m.openFilterModal()

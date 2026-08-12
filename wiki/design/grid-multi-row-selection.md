@@ -11,6 +11,8 @@ sources:
     note: multi-row copy to the clipboard
   - resource: https://github.com/TrueDaerk/lazysql/issues/119
     note: the selection mode this state was introduced for, plus the bulk column edit
+  - resource: https://github.com/TrueDaerk/lazysql/issues/124
+    note: extending the selection with shift+up/shift+down
 ---
 
 # Multi-row selection in the data grid
@@ -139,6 +141,28 @@ The selection is consumed by the edit, the way vim leaves visual mode
 after an operator: leaving it up would aim the next `e` at rows the user
 has stopped thinking about.
 
+### `shift+up`/`shift+down` are a second way in, not a second state
+
+Issue #124 asked for the conventional shift+arrow gesture alongside the
+vim-style `ctrl+v` + `j`/`k`. Rather than add a second selection mode,
+`Model.extendSelection(delta)` reuses the same `rowSelection` and the same
+movement path: with no selection up it anchors one at the cursor row
+exactly like `toggleSelection` does, then moves through `wheelAt` — the
+same coalescing entry point plain `Up`/`Down` already use — so the wheel
+burst-coalescing and the `clampCursor` invariants apply unchanged. With a
+selection already up (started either way) it just extends or shrinks it,
+because that behavior was always "the cursor moved while `sel.active`",
+never something `toggleSelection` itself implements.
+
+`ShiftUp`/`ShiftDown` bind to the `shift+up`/`shift+down` key strings
+Bubble Tea v2 reports through the kitty keyboard protocol's
+disambiguation extension — the same mechanism `acceptKeys` (ctrl+enter)
+relies on. Not every terminal answers that capability query; where it
+doesn't, these two bindings simply never match, `up`/`down` keep meaning
+plain cursor movement exactly as before, and there is no crash or
+misread — the terminal continues sending bare `up`/`down` for the
+un-shifted key, which `keyMap.Up`/`keyMap.Down` already handle.
+
 ## Consequences
 
 - The selection is visible in two places: selected rows are tinted with
@@ -149,7 +173,9 @@ has stopped thinking about.
   every other grid key, so dispatch, the options bar, the `a` menu and
   `?` all still read one table — see
   [design/keybindings-single-source](keybindings-single-source.md). Both
-  are rebindable as `select-rows` and `copy-selection`.
+  are rebindable as `select-rows` and `copy-selection`; `shift+up`/
+  `shift+down` are entries of their own (`shift-up`, `shift-down`) for the
+  same reasons.
 - The bulk column edit builds on `dataView.selectedRows()` and touches
   none of the copy path; nothing in the selection state is specific to
   either consumer.

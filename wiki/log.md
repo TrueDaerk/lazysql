@@ -1155,3 +1155,17 @@ Chronological history of wiki changes, newest last.
   first row's parameterized statement plus how many more rows share it —
   instead of N near-identical ones, and the selection is consumed by the
   edit the way vim leaves visual mode after an operator.
+
+## 2026-08-12 — Extend multi-row selection with shift+up/shift+down (issue #124)
+
+- Extended [design/grid-multi-row-selection](design/grid-multi-row-selection.md)
+  with `ShiftUp`/`ShiftDown` (`internal/ui/keys.go`) and
+  `Model.extendSelection` (`internal/ui/data.go`): with no selection up they
+  anchor one at the cursor row and move, like `ctrl+v` followed by `j`/`k`;
+  with one already up they just extend or shrink it through the same
+  `wheelAt` movement path plain `Up`/`Down` use — no second selection state.
+- `shift+up`/`shift+down` depend on the kitty keyboard protocol
+  disambiguation extension, the same terminal-support caveat `acceptKeys`
+  documents for `ctrl+enter`; where a terminal doesn't answer that
+  capability query the bindings just never match and plain arrow movement
+  is unaffected.

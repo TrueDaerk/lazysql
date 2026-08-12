@@ -804,6 +804,85 @@ func TestSelectionClearedByEveryQueryShapeChange(t *testing.T) {
 	}
 }
 
+// shiftDown/shiftUp build the KeyPressMsg Bubble Tea v2 reports for
+// shift+down/shift+up on terminals that support it.
+func shiftDown() tea.KeyPressMsg { return special(tea.KeyDown, tea.ModShift) }
+func shiftUp() tea.KeyPressMsg   { return special(tea.KeyUp, tea.ModShift) }
+
+// shift+down from a normal grid state (no selection running) anchors one at
+// the cursor row and moves, the same as ctrl+v followed by j — and further
+// presses extend it exactly like j does.
+func TestShiftDownStartsAndExtendsSelection(t *testing.T) {
+	m := dataBrowsing(t)
+	if m.data.selecting() {
+		t.Fatalf("selection already running before any shift+down")
+	}
+	m = send(t, m, shiftDown())
+	if !m.data.selecting() {
+		t.Fatalf("shift+down did not start a selection")
+	}
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("selected %d rows after one shift+down, want 2", got)
+	}
+	if !m.keys.CopySelection.Enabled() {
+		t.Fatalf("ctrl+c was not enabled by shift+down")
+	}
+
+	m = send(t, m, shiftDown())
+	if got := len(m.data.selectedRows()); got != 3 {
+		t.Fatalf("selected %d rows after a second shift+down, want 3", got)
+	}
+
+	m = send(t, m, shiftUp())
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("selected %d rows after shift+up shrank it, want 2", got)
+	}
+}
+
+// shift+up from a normal grid state anchors upward instead, so it is not
+// just an alias for shift+down.
+func TestShiftUpStartsSelectionUpward(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('j'), press('j'), press('j'))
+	if m.data.row != 3 {
+		t.Fatalf("cursor row = %d, want 3 before shift+up", m.data.row)
+	}
+	m = send(t, m, shiftUp())
+	if !m.data.selecting() {
+		t.Fatalf("shift+up did not start a selection")
+	}
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("selected %d rows after one shift+up, want 2", got)
+	}
+	if m.data.row != 2 {
+		t.Fatalf("cursor row = %d, want 2 after shift+up moved it", m.data.row)
+	}
+}
+
+// esc clears a shift-started selection the same way it clears a ctrl+v one.
+func TestEscClearsAShiftStartedSelection(t *testing.T) {
+	m := send(t, dataBrowsing(t), shiftDown(), shiftDown())
+	if !m.data.selecting() {
+		t.Fatalf("shift+down did not start a selection")
+	}
+	m = send(t, m, special(tea.KeyEsc, 0))
+	if m.data.selecting() {
+		t.Fatalf("esc did not clear the shift-started selection: %+v", m.data.sel)
+	}
+	if m.keys.CopySelection.Enabled() {
+		t.Fatalf("ctrl+c stayed bound to the copy after esc cleared the selection")
+	}
+}
+
+// Once a ctrl+v selection is running, shift+up/shift+down extend or shrink
+// it exactly like k/j do — the alternate starting gesture does not change
+// how the running selection behaves.
+func TestShiftExtendsACtrlVSelectionLikeVimKeys(t *testing.T) {
+	m := send(t, dataBrowsing(t), ctrl('v'), shiftDown(), shiftDown())
+	if got := len(m.data.selectedRows()); got != 3 {
+		t.Fatalf("selected %d rows after ctrl+v and two shift+down, want 3", got)
+	}
+}
+
 // A query result is paged in memory rather than re-read, so setPage has
 // to drop the selection the way reloadPage does.
 func TestSelectionClearedOnQueryResultPaging(t *testing.T) {

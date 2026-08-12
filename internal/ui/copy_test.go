@@ -534,7 +534,7 @@ func TestSelectionKeysAreDocumented(t *testing.T) {
 			documented[b.Help().Key] = true
 		}
 	}
-	for _, want := range []string{"ctrl+v", "ctrl+c"} {
+	for _, want := range []string{"ctrl+v", "ctrl+c", "shift+↑", "shift+↓"} {
 		if !documented[want] {
 			t.Errorf("`?` does not document %q while a selection is up", want)
 		}

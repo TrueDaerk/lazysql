@@ -1298,6 +1298,37 @@ Chronological history of wiki changes, newest last.
   with no UI caller, and that `dataView.conds` and
   `Model.applyFilterConds` are gone with the structured form.
 
+## 2026-08-12 — Fix the cursor caret rendered offset from its actual position (issue #132)
+
+- Added [reference/runes-cells-and-ansi-in-rendering](reference/runes-cells-and-ansi-in-rendering.md):
+  the three lengths of a string in a TUI (bytes, runes, cells), which one
+  each layer speaks, and the two places lazysql mixed them up.
+- The query editor's caret: `cursorSegment` decided whether a caret at the
+  end of a line still fit on its display row by comparing a **rune**
+  offset with the box's **cell** width. On a row of CJK the rune count is
+  half the cell count, so the trailing caret cell was appended one column
+  past the editor's right edge — the row overflowed, the layout clipped
+  it, and the caret vanished (on a real terminal it landed on the panel
+  border). `internal/ui/highlight.go` now derives the whole wrap and caret
+  geometry from one `lineCells` rune→column mapping.
+- `lineCells` is grapheme-cluster aware, built on `ansi.FirstGraphemeCluster`
+  — the same walk `ansi.StringWidth`, and therefore `lipgloss.Width`, sums,
+  so the editor and the box that holds it can never measure differently.
+  That also fixes the decomposed (NFD) umlauts a macOS paste produces:
+  `wrapSegments` no longer charges the combining accent a column of its
+  own, `cursorSegment` snaps a caret that landed mid-cluster back to the
+  letter, and `renderTokens` styles the whole cluster as one caret cell.
+- The data grid's cursor tint: `truncate` counted the bytes of an SGR
+  sequence as visible columns, so any already-styled row — a grid row, the
+  grid header, the options bar — was cut several cells short of its box
+  *and* lost its closing reset, leaving the tint to bleed into the rest of
+  the frame. It now delegates to `ansi.Truncate`, line by line for a
+  multi-line block.
+- Tabs turned out not to be part of the problem: bubbles' textarea
+  sanitizes a typed tab into spaces before it reaches the buffer, so the
+  renderer never sees one. Pinned by a test, since it is a property of the
+  component rather than of lazysql.
+
 ## 2026-08-12 — Extend vim mode; enter runs the statement under the cursor (issue #133)
 
 - Updated [design/vim-mode-query-editor](design/vim-mode-query-editor.md):

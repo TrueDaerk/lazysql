@@ -192,9 +192,10 @@ func (j queryJob) run() {
 // ---------- the editor panel ----------
 
 // queryEditor is panel [3]. It has two modes: normal mode speaks the vim
-// dialect implemented in vim.go — motions, x/dd/yy/p, i/a/o/O into
-// insert — plus lazysql's own keys (ctrl+r runs, D clears, digits still
-// jump), and in insert mode every key that is not ctrl+r, ctrl+c or esc
+// dialect implemented in vim.go — motions, x/dd/yy/p, i/a/I/A/o/O into
+// insert, enter running the statement under the caret — plus lazysql's
+// own keys (ctrl+r runs the script, D clears, digits still jump), and in
+// insert mode every key that is not ctrl+r, ctrl+c or esc
 // types into the buffer. Without that split a persistent editor would
 // swallow `q`, `?` and the panel numbers for as long as it had focus.
 type queryEditor struct {
@@ -496,6 +497,9 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.VimWordBack):
 		m.vimMotion((*vimBuffer).wordBack)
 		return m, nil
+	case key.Matches(msg, k.VimWordEnd):
+		m.vimMotion((*vimBuffer).wordEnd)
+		return m, nil
 	case key.Matches(msg, k.VimLineStart):
 		m.vimMotion((*vimBuffer).lineStart)
 		return m, nil
@@ -506,11 +510,19 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.vimMotion((*vimBuffer).bottom)
 		return m, nil
 
-	// Insert entry points. `i` (and enter) arrive through the panel's
-	// actEditQuery below and keep the cursor where it is.
+	// Insert entry points. `i` arrives through the panel's actEditQuery
+	// below and keeps the cursor where it is.
 	case key.Matches(msg, k.VimAppend):
 		b := m.vimBuffer()
 		m.vimInsertAt(b, b.appendCol(), false)
+		return m, nil
+	case key.Matches(msg, k.VimInsertStart):
+		b := m.vimBuffer()
+		m.vimInsertAt(b, b.firstNonBlankCol(), false)
+		return m, nil
+	case key.Matches(msg, k.VimAppendEOL):
+		b := m.vimBuffer()
+		m.vimInsertAt(b, b.endCol(), false)
 		return m, nil
 	case key.Matches(msg, k.VimOpenBelow):
 		b := m.vimBuffer()
@@ -713,6 +725,24 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 		startQueryCmd(job),
 		m.spin.Tick,
 	)
+}
+
+// runStatementAtCursor is normal mode's `enter`: run exactly the
+// statement the caret is in. The split is the same lexer ctrl+e's
+// explain uses — string literals, comments, quoted identifiers and
+// dollar-quoted bodies keep their semicolons — and the one statement
+// then goes through submitQuery, so the placeholder prompt, the
+// read-only guard and the unguarded-write confirm all apply to it the
+// way they would to a whole-script run.
+func (m *Model) runStatementAtCursor() tea.Cmd {
+	if m.driver == nil {
+		return logCmd("-- run statement skipped: not connected")
+	}
+	span, ok := db.StatementAt(m.driver.Engine(), m.script(), m.editorOffset())
+	if !ok {
+		return logCmd("-- run statement skipped: nothing to run")
+	}
+	return m.submitQuery(span.SQL)
 }
 
 // rerunQuery is `enter`/`R` on a query result: execute the same script
@@ -1118,12 +1148,14 @@ func (m Model) queryStatusHint() string {
 		// A result sits under the buffer: name the keys that reach it from
 		// here, and the tab that focuses the grid for the full set.
 		return strings.Join([]string{
-			pair(k.EditQuery, "edit"), pair(k.RunEditor, "re-run"),
-			pair(k.ViewCell, "cell"), pair(k.NextPage, "page"), "tab grid",
+			pair(k.EditQuery, "edit"), pair(k.RunStatement, "run stmt"),
+			pair(k.RunEditor, "re-run all"),
+			pair(k.ViewCell, "cell"), "tab grid",
 		}, " · ")
 	}
 	return strings.Join([]string{
-		pair(k.EditQuery, "edit"), pair(k.RunEditor, "run"),
+		pair(k.EditQuery, "edit"), pair(k.RunStatement, "run stmt"),
+		pair(k.RunEditor, "run all"),
 		pair(k.ExplainQuery, "explain"), pair(k.History, "history"),
 		pair(k.ClearQuery, "clear"),
 	}, " · ")

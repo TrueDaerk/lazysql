@@ -66,13 +66,17 @@ type keyMap struct {
 
 	// Query editor, panel [3]. EditQuery enters insert mode, where every
 	// key that is not RunEditor, CancelQuery or Back types into the
-	// buffer; RunEditor executes it from either mode. History opens the
-	// floating query-history pane from the editor's normal mode.
+	// buffer; RunEditor executes the whole script from either mode.
+	// RunStatement is normal mode's `enter`: it runs exactly the statement
+	// the caret is in, split by the same lexer ctrl+e uses, so a `;`
+	// inside a string literal or a comment cannot truncate it. History
+	// opens the floating query-history pane from the editor's normal mode.
 	// SaveSnippet keeps the buffer as a named snippet. It is bound in both
 	// editor modes — ctrl+s is not a character, so insert mode can spare
 	// it — and reaches the same store the pane's Snippets section browses.
-	EditQuery key.Binding
-	RunEditor key.Binding
+	EditQuery    key.Binding
+	RunEditor    key.Binding
+	RunStatement key.Binding
 	// ExplainQuery asks the server for the plan of the statement under
 	// the caret. Like RunEditor it is bound in both editor modes —
 	// ctrl+e is not a character — and it never executes the statement.
@@ -99,21 +103,24 @@ type keyMap struct {
 	// The two-key commands (dd, yy, gg) are bound to their first key and
 	// completed by the editor's pending-key handler; their help text
 	// names the full chord.
-	VimLeft       key.Binding
-	VimRight      key.Binding
-	VimWordFwd    key.Binding
-	VimWordBack   key.Binding
-	VimLineStart  key.Binding
-	VimLineEnd    key.Binding
-	VimTop        key.Binding
-	VimBottom     key.Binding
-	VimAppend     key.Binding
-	VimOpenBelow  key.Binding
-	VimOpenAbove  key.Binding
-	VimDeleteChar key.Binding
-	VimDeleteLine key.Binding
-	VimYankLine   key.Binding
-	VimPaste      key.Binding
+	VimLeft        key.Binding
+	VimRight       key.Binding
+	VimWordFwd     key.Binding
+	VimWordBack    key.Binding
+	VimWordEnd     key.Binding
+	VimLineStart   key.Binding
+	VimLineEnd     key.Binding
+	VimTop         key.Binding
+	VimBottom      key.Binding
+	VimAppend      key.Binding
+	VimInsertStart key.Binding
+	VimAppendEOL   key.Binding
+	VimOpenBelow   key.Binding
+	VimOpenAbove   key.Binding
+	VimDeleteChar  key.Binding
+	VimDeleteLine  key.Binding
+	VimYankLine    key.Binding
+	VimPaste       key.Binding
 
 	// The autocomplete popup. Complete opens it on demand; the other four
 	// only act while it is open, which is why CloseCompletion can be esc
@@ -287,11 +294,16 @@ func newKeyMap() keyMap {
 		CollapseNode: key.NewBinding(
 			key.WithKeys("h", "left"), key.WithHelp("h/←", "collapse")),
 
-		EditQuery: key.NewBinding(key.WithKeys("i", "enter"), key.WithHelp("i/enter", "edit (insert)")),
+		EditQuery: key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "edit (insert)")),
 		// ctrl+enter/cmd+enter are the acceptKeys alias: where the terminal
 		// reports them (see acceptKeys above), they mean run, like ctrl+r.
 		RunEditor: key.NewBinding(
-			key.WithKeys(append([]string{"ctrl+r"}, acceptKeys...)...), key.WithHelp("ctrl+r", "run")),
+			key.WithKeys(append([]string{"ctrl+r"}, acceptKeys...)...), key.WithHelp("ctrl+r", "run script")),
+		// enter used to be a second spelling of `i`; in a vim-modal editor
+		// it is the run key instead — the statement under the caret, not
+		// the whole buffer. Insert mode's enter still types a newline.
+		RunStatement: key.NewBinding(
+			key.WithKeys("enter"), key.WithHelp("enter", "run statement at cursor")),
 		ExplainQuery: key.NewBinding(
 			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear buffer")),
@@ -314,11 +326,16 @@ func newKeyMap() keyMap {
 		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
 		VimWordFwd:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "next word")),
 		VimWordBack:   key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "prev word")),
+		VimWordEnd:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "word end")),
 		VimLineStart:  key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "line start")),
 		VimLineEnd:    key.NewBinding(key.WithKeys("$"), key.WithHelp("$", "line end")),
 		VimTop:        key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "buffer start")),
 		VimBottom:     key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "buffer end")),
 		VimAppend:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append (insert)")),
+		VimInsertStart: key.NewBinding(
+			key.WithKeys("I"), key.WithHelp("I", "insert at line start")),
+		VimAppendEOL: key.NewBinding(
+			key.WithKeys("A"), key.WithHelp("A", "append at line end")),
 		VimOpenBelow:  key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open line below")),
 		VimOpenAbove:  key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "open line above")),
 		VimDeleteChar: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete char")),
@@ -482,9 +499,9 @@ func (k keyMap) navigation() []key.Binding {
 }
 
 // navigationFor is navigation() as the named panel means it. The query
-// editor is the one panel where `enter` is not "drill in" — it starts
-// insert mode, and says so in its own action list — so it drops out here
-// instead of being described twice.
+// editor is the one panel where `enter` is not "drill in" — it runs the
+// statement under the caret, and says so in its own action list — so it
+// drops out here instead of being described twice.
 func (k keyMap) navigationFor(id panelID) []key.Binding {
 	if id == panelQuery {
 		return []key.Binding{k.Up, k.Down, k.Back}
@@ -506,9 +523,10 @@ func (k keyMap) editorInsert() []key.Binding {
 // not a menu entry — so this slice is what documents them in `?`.
 func (k keyMap) editorNormal() []key.Binding {
 	return []key.Binding{
-		k.VimLeft, k.VimRight, k.VimWordFwd, k.VimWordBack,
+		k.VimLeft, k.VimRight, k.VimWordFwd, k.VimWordBack, k.VimWordEnd,
 		k.VimLineStart, k.VimLineEnd, k.VimTop, k.VimBottom,
-		k.VimAppend, k.VimOpenBelow, k.VimOpenAbove,
+		k.VimAppend, k.VimInsertStart, k.VimAppendEOL,
+		k.VimOpenBelow, k.VimOpenAbove,
 		k.VimDeleteChar, k.VimDeleteLine, k.VimYankLine, k.VimPaste,
 	}
 }
@@ -601,6 +619,7 @@ const (
 	actCollapseNode
 	actEditQuery
 	actRunEditor
+	actRunStatement
 	actExplainQuery
 	actClearQuery
 	actHistory
@@ -701,6 +720,7 @@ func (k keyMap) panelActions(id panelID) []action {
 	case panelQuery:
 		return []action{
 			{actEditQuery, k.EditQuery},
+			{actRunStatement, k.RunStatement},
 			{actRunEditor, k.RunEditor},
 			{actExplainQuery, k.ExplainQuery},
 			{actClearQuery, k.ClearQuery},
@@ -868,6 +888,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"expand-node", &k.ExpandNode}, {"collapse-node", &k.CollapseNode},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},
+		{"run-statement", &k.RunStatement},
 		{"explain-query", &k.ExplainQuery}, {"clear-query", &k.ClearQuery},
 		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
 		{"hist-load", &k.HistLoad}, {"hist-run", &k.HistRun},
@@ -876,9 +897,12 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"vim-left", &k.VimLeft}, {"vim-right", &k.VimRight},
 		{"vim-word-fwd", &k.VimWordFwd}, {"vim-word-back", &k.VimWordBack},
+		{"vim-word-end", &k.VimWordEnd},
 		{"vim-line-start", &k.VimLineStart}, {"vim-line-end", &k.VimLineEnd},
 		{"vim-top", &k.VimTop}, {"vim-bottom", &k.VimBottom},
-		{"vim-append", &k.VimAppend}, {"vim-open-below", &k.VimOpenBelow},
+		{"vim-append", &k.VimAppend},
+		{"vim-insert-start", &k.VimInsertStart}, {"vim-append-eol", &k.VimAppendEOL},
+		{"vim-open-below", &k.VimOpenBelow},
 		{"vim-open-above", &k.VimOpenAbove}, {"vim-delete-char", &k.VimDeleteChar},
 		{"vim-delete-line", &k.VimDeleteLine}, {"vim-yank-line", &k.VimYankLine},
 		{"vim-paste", &k.VimPaste},

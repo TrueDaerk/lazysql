@@ -98,6 +98,38 @@ func TestVimWordForwardCrossesLinesAndStopsOnEmptyOnes(t *testing.T) {
 	wantCursor(t, b, 2, 0)
 }
 
+func TestVimWordEnd(t *testing.T) {
+	b := newVimBuffer("SELECT id, name", 0, 0)
+	b.wordEnd() // end of SELECT
+	if b.col != 5 {
+		t.Fatalf("e from 0 landed on col %d, want 5", b.col)
+	}
+	b.wordEnd() // end of id
+	if b.col != 8 {
+		t.Fatalf("e landed on col %d, want 8", b.col)
+	}
+	b.wordEnd() // the comma is its own word
+	if b.col != 9 {
+		t.Fatalf("e landed on col %d, want 9", b.col)
+	}
+	b.wordEnd() // end of name
+	if b.col != 14 {
+		t.Fatalf("e landed on col %d, want 14", b.col)
+	}
+	b.wordEnd() // already at the buffer's last character: stays
+	if b.row != 0 || b.col != 14 {
+		t.Fatalf("e at the end moved to %d:%d", b.row, b.col)
+	}
+}
+
+func TestVimWordEndCrossesLinesAndSkipsEmptyOnes(t *testing.T) {
+	b := newVimBuffer("ab\n\ncd", 0, 1)
+	b.wordEnd()
+	if b.row != 2 || b.col != 1 {
+		t.Fatalf("e from the end of ab landed on %d:%d, want 2:1", b.row, b.col)
+	}
+}
+
 func TestVimWordBack(t *testing.T) {
 	b := buf(0, 16, "SELECT id, name FROM t")
 	b.wordBack()
@@ -388,6 +420,28 @@ func TestAppendAndOpenEnterInsertWithPlacement(t *testing.T) {
 	}
 }
 
+func TestInsertStartAndAppendEOLPlacement(t *testing.T) {
+	m := editorAt(t, "  SELECT 1")
+	m = send(t, m, press('$'), press('I'))
+	if !m.editor.editing {
+		t.Fatal("I did not enter insert mode")
+	}
+	m = send(t, m, press('X'))
+	if m.script() != "  XSELECT 1" {
+		t.Fatalf("I placed the caret wrong: %q", m.script())
+	}
+
+	m = editorAt(t, "ab")
+	m = send(t, m, press('A'))
+	if !m.editor.editing {
+		t.Fatal("A did not enter insert mode")
+	}
+	m = send(t, m, press('X'))
+	if m.script() != "abX" {
+		t.Fatalf("A placed the caret wrong: %q", m.script())
+	}
+}
+
 func TestNormalModeHelpListsTheVimKeys(t *testing.T) {
 	k := newKeyMap()
 	var flat []string
@@ -397,7 +451,8 @@ func TestNormalModeHelpListsTheVimKeys(t *testing.T) {
 		}
 	}
 	joined := strings.Join(flat, " ")
-	for _, want := range []string{"h/←", "w", "b", "0", "$", "gg", "G", "a", "o", "O", "x", "dd", "yy", "p"} {
+	for _, want := range []string{"h/←", "w", "b", "e", "0", "$", "gg", "G",
+		"a", "I", "A", "o", "O", "x", "dd", "yy", "p", "enter"} {
 		found := false
 		for _, got := range flat {
 			if got == want {

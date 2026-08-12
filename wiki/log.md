@@ -1328,3 +1328,19 @@ Chronological history of wiki changes, newest last.
   sanitizes a typed tab into spaces before it reaches the buffer, so the
   renderer never sees one. Pinned by a test, since it is a property of the
   component rather than of lazysql.
+
+## 2026-08-12 — Extend vim mode; enter runs the statement under the cursor (issue #133)
+
+- Updated [design/vim-mode-query-editor](design/vim-mode-query-editor.md):
+  the normal-mode key set grew `e` (word end), `I` (insert at first
+  non-blank) and `A` (append at line end), and `enter` — previously a
+  second spelling of `i` — now runs exactly the statement the caret is
+  in. `Model.runStatementAtCursor` reuses `editorOffset` +
+  `db.StatementAt` (the span-aware, literal/comment-safe splitter
+  `ctrl+e`'s explain already used) and hands the one statement to
+  `submitQuery`, so the placeholder prompt, read-only guard and
+  unguarded-write confirm apply unchanged. Wired as a panel action
+  (`actRunStatement`), so the options bar, `?` and dispatch stay on the
+  one `panelActions` slice; documented the esc/enter precedence rules
+  (popup → insert → panel; newline in insert, run in normal). Undo
+  stays deliberately omitted — the v2 textarea keeps no edit history.

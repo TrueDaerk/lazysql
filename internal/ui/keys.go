@@ -135,6 +135,14 @@ type keyMap struct {
 	ViewCell    key.Binding
 	RowDetail   key.Binding
 
+	// Multi-row selection. SelectRows (ctrl+v) anchors a selection at the
+	// cursor row and `j`/`k` extend it; CopySelection (ctrl+c) copies what
+	// is selected. CopySelection is enabled only while a selection is up,
+	// the same way CancelQuery is enabled only during a run — `ctrl+c`
+	// keeps meaning quit the rest of the time.
+	SelectRows    key.Binding
+	CopySelection key.Binding
+
 	// Foreign-key navigation. FollowFK jumps along the constraint the
 	// cursor column takes part in, IncomingRefs goes the other way, and
 	// BrowseBack walks the jumps back — as does `esc`, which pops the
@@ -321,6 +329,15 @@ func newKeyMap() keyMap {
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
+
+		// ctrl+v is vim's visual-block key, and the grid is the one place
+		// it is free: bracketed paste arrives as tea.PasteMsg rather than
+		// as a key, so nothing in the app reads ctrl+v as "paste".
+		SelectRows: key.NewBinding(
+			key.WithKeys("ctrl+v"), key.WithHelp("ctrl+v", "select rows")),
+		// Disabled until a selection exists — see the field comment.
+		CopySelection: key.NewBinding(
+			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "copy selection…"), key.WithDisabled()),
 
 		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
 		IncomingRefs: key.NewBinding(
@@ -510,6 +527,7 @@ const (
 	actNextPage
 	actPrevPage
 	actSortColumn
+	actSelectRows
 	actWhereFilter
 	actClearFilter
 	actViewCell
@@ -542,6 +560,11 @@ const (
 	actCopyTableSchema
 	actCopyPageCSV
 	actCopyPageJSON
+	actCopySelectionMenu
+	actCopySelectionCSV
+	actCopySelectionJSON
+	actCopySelectionInsert
+	actCopySelectionColumn
 	actExportTable
 	actExportDDL
 	actCancelExport
@@ -605,6 +628,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actNextPage, k.NextPage},
 			{actPrevPage, k.PrevPage},
 			{actSortColumn, k.SortColumn},
+			{actSelectRows, k.SelectRows},
+			{actCopySelectionMenu, k.CopySelection},
 			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
@@ -767,6 +792,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
+		{"select-rows", &k.SelectRows}, {"copy-selection", &k.CopySelection},
 		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},
 		{"browse-back", &k.BrowseBack},
 

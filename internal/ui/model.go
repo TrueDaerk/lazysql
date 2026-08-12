@@ -1206,6 +1206,17 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		m.modal = newCommandLogModal(m.commandLogEntries())
 		return true, m, nil
 
+	// With rows marked in the data grid, ctrl+c copies the selection
+	// instead of quitting. CopySelection is enabled only while a
+	// selection is up, so key.Matches only takes this branch then — and
+	// it is matched here, ahead of Quit, because the global keys run
+	// before the focused view ever sees the key. A running query still
+	// wins above: cancelling it is the more urgent reading of ctrl+c,
+	// and the copy is one esc-free key press away afterwards.
+	case m.focus == panelMain && key.Matches(msg, k.CopySelection):
+		cmd := m.copySelectionMenu()
+		return true, m, cmd
+
 	case key.Matches(msg, k.Quit):
 		if n := m.changes.Len(); n > 0 {
 			m.modal = &confirmModal{

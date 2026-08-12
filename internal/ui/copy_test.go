@@ -312,3 +312,240 @@ func TestCopyDegradesToTempFile(t *testing.T) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
 }
+
+// ---------- the multi-row selection ----------
+
+// ctrlKey is a control chord as the terminal delivers it, for the two
+// keys the selection flow binds: ctrl+v and ctrl+c.
+func ctrlKey(r rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl}
+}
+
+// selectRows enters selection mode on the copy fixture and extends it
+// over n rows, leaving the cursor on the last one.
+func selectRows(t *testing.T, n int) Model {
+	t.Helper()
+	m := send(t, copyBrowsing(t), ctrlKey('v'))
+	for i := 1; i < n; i++ {
+		m = send(t, m, press('j'))
+	}
+	if got := len(m.data.selectedRows()); got != n {
+		t.Fatalf("selected %d rows, want %d", got, n)
+	}
+	return m
+}
+
+// ctrl+v anchors a selection, j extends it and esc ends it — and while
+// it is up, ctrl+c is bound to the copy rather than to quit.
+func TestSelectionModeStartsExtendsAndClears(t *testing.T) {
+	m := send(t, copyBrowsing(t), ctrlKey('v'))
+	if !m.data.selecting() || len(m.data.selectedRows()) != 1 {
+		t.Fatalf("ctrl+v did not anchor a selection: %+v", m.data.sel)
+	}
+	if !m.keys.CopySelection.Enabled() {
+		t.Fatal("ctrl+c is not bound to the copy while a selection is up")
+	}
+
+	m = send(t, m, press('j'), press('j'))
+	if got := m.data.selectedRows(); len(got) != 3 || got[0] != 0 || got[2] != 2 {
+		t.Fatalf("j did not extend the selection: %v", got)
+	}
+	// Moving back up shrinks it again: the anchor stays put.
+	m = send(t, m, press('k'))
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("k left %d rows selected, want 2", got)
+	}
+
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.data.selecting() || len(m.data.selectedRows()) != 0 {
+		t.Fatal("esc did not clear the selection")
+	}
+	if m.keys.CopySelection.Enabled() {
+		t.Fatal("ctrl+c stayed bound to the copy after the selection was cleared")
+	}
+}
+
+// A selection anchored below the cursor selects upwards too: the range
+// is between the anchor and the cursor, whichever way round they are.
+func TestSelectionExtendsUpwards(t *testing.T) {
+	m := send(t, copyBrowsing(t), press('j'), press('j'), ctrlKey('v'), press('k'))
+	if got := m.data.selectedRows(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("upwards selection = %v, want rows 1 and 2", got)
+	}
+}
+
+// A reload puts different rows under the same indices, so the selection
+// does not survive one.
+func TestSelectionIsClearedByAReload(t *testing.T) {
+	m := selectRows(t, 2)
+	m = send(t, m, press('R'))
+	if m.data.selecting() {
+		t.Fatal("the selection survived a reload")
+	}
+	if m.keys.CopySelection.Enabled() {
+		t.Fatal("ctrl+c stayed bound to the copy across a reload")
+	}
+}
+
+// With a selection up, ctrl+c opens the copy menu instead of quitting,
+// and the menu offers the two selection scopes.
+func TestCtrlCOpensTheSelectionCopyMenu(t *testing.T) {
+	m := send(t, selectRows(t, 2), ctrlKey('c'))
+	labels := menuLabels(t, m)
+	for _, want := range []string{"2 selected rows — CSV", "2 selected rows — JSON",
+		"2 selected rows — INSERT", "column values of selection"} {
+		if !hasLabel(labels, want) {
+			t.Errorf("selection copy menu is missing %q: %v", want, labels)
+		}
+	}
+	// The single-row scopes are gone: with rows marked, "row" is not what
+	// the user means any more.
+	if hasLabel(labels, "row — CSV") {
+		t.Errorf("the selection menu still offers the single-row scope: %v", labels)
+	}
+	// The table scopes stay: they do not depend on the selection.
+	if !hasLabel(labels, "table — CSV") {
+		t.Errorf("the selection menu dropped the table scope: %v", labels)
+	}
+}
+
+// Without a selection ctrl+c still quits, exactly as before.
+func TestCtrlCWithoutASelectionStillQuits(t *testing.T) {
+	m := copyBrowsing(t)
+	m.focus = panelMain
+	handled, _, cmd := m.updateGlobal(ctrlKey('c'))
+	if !handled {
+		t.Fatal("ctrl+c was not handled at all")
+	}
+	if cmd == nil {
+		t.Fatal("ctrl+c did not quit with no selection")
+	}
+	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
+		t.Fatalf("ctrl+c produced %T, want a quit", cmd())
+	}
+}
+
+// The row formats of a selection are the row formats of one row applied
+// to the set: a CSV copy carries a header, a JSON copy is one array and
+// the INSERTs are one statement per row.
+func TestCopySelectionRowFormats(t *testing.T) {
+	got := fakeClipboard(t)
+	base := selectRows(t, 2)
+
+	send(t, base, ctrlKey('c'), press('r'))
+	lines := strings.Split(strings.TrimRight(*got, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("selection CSV has %d lines, want a header and 2 rows:\n%s", len(lines), *got)
+	}
+	if lines[0] != "id,person_id,status" {
+		t.Errorf("selection CSV header = %q", lines[0])
+	}
+	if lines[1] != "1,1,new" || lines[2] != "2,1," {
+		t.Errorf("selection CSV rows = %q, %q", lines[1], lines[2])
+	}
+
+	send(t, base, ctrlKey('c'), press('o'))
+	var decoded []map[string]any
+	if err := json.Unmarshal([]byte(*got), &decoded); err != nil {
+		t.Fatalf("selection JSON does not parse: %v\n%s", err, *got)
+	}
+	if len(decoded) != 2 {
+		t.Fatalf("selection JSON has %d objects, want 2", len(decoded))
+	}
+	if decoded[1]["status"] != nil {
+		t.Errorf("NULL decoded as %#v", decoded[1]["status"])
+	}
+
+	m := send(t, base, ctrlKey('c'), press('i'))
+	stmts := strings.Split(strings.TrimRight(*got, "\n"), "\n")
+	if len(stmts) != 2 {
+		t.Fatalf("selection INSERTs = %d statements, want 2:\n%s", len(stmts), *got)
+	}
+	for _, s := range stmts {
+		if !strings.HasPrefix(s, `INSERT INTO "orders"`) || !strings.HasSuffix(s, ";") {
+			t.Errorf("malformed INSERT: %q", s)
+		}
+	}
+	if !logContains(m, "2 selected rows of orders as SQL") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// The column scope copies the cursor column's value in every selected
+// row, one per line, with a NULL copied as an empty line.
+func TestCopySelectionColumnValues(t *testing.T) {
+	got := fakeClipboard(t)
+	// Cursor on "status": row 0 is 'new', row 1 is NULL, row 2 is quoted.
+	m := send(t, copyBrowsing(t), press('l'), press('l'),
+		ctrlKey('v'), press('j'), press('j'), ctrlKey('c'), press('c'))
+
+	if want := "new\n\na,b \"c\"\n"; *got != want {
+		t.Errorf("column values = %q, want %q", *got, want)
+	}
+	if !logContains(m, "orders.status of 3 selected rows") || !logContains(m, "1 NULL → empty") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// A staged edit is copied as the grid shows it, for a selection exactly
+// as for a single row.
+func TestCopySelectionUsesStagedEdits(t *testing.T) {
+	got := fakeClipboard(t)
+
+	m := send(t, copyBrowsing(t), press('l'), press('l'), press('e'))
+	if m.modal == nil {
+		t.Fatal("e did not open the cell editor")
+	}
+	m = send(t, m, press('X'), special(tea.KeyEnter, 0))
+	m = send(t, m, ctrlKey('v'), press('j'), ctrlKey('c'), press('c'))
+	if want := "newX\n\n"; *got != want {
+		t.Errorf("column values = %q, want the staged value first", *got)
+	}
+}
+
+// A query result can be selected and copied too — with no INSERT scope,
+// since there is no relation to insert into.
+func TestCopySelectionOfAQueryResult(t *testing.T) {
+	got := fakeClipboard(t)
+	m := runQuery(t, queryable(t), "SELECT id, name FROM q")
+	m = send(t, m, special(tea.KeyTab, 0), ctrlKey('v'), press('j'), ctrlKey('c'))
+
+	labels := menuLabels(t, m)
+	if !hasLabel(labels, "2 selected rows — CSV") {
+		t.Fatalf("query-result selection menu = %v", labels)
+	}
+	if hasLabel(labels, "selected rows — INSERT") {
+		t.Errorf("the selection menu offers INSERTs for a query result: %v", labels)
+	}
+
+	send(t, m, press('r'))
+	if lines := strings.Split(strings.TrimRight(*got, "\n"), "\n"); len(lines) != 3 {
+		t.Fatalf("query selection CSV has %d lines, want a header and 2 rows:\n%s", len(lines), *got)
+	}
+}
+
+// The selection keys are documented where every other grid key is: the
+// options bar and `?` both read the panel's action table.
+func TestSelectionKeysAreDocumented(t *testing.T) {
+	m := selectRows(t, 2)
+	documented := map[string]bool{}
+	for _, group := range m.keys.helpGroups(panelMain) {
+		for _, b := range group.bindings {
+			documented[b.Help().Key] = true
+		}
+	}
+	for _, want := range []string{"ctrl+v", "ctrl+c"} {
+		if !documented[want] {
+			t.Errorf("`?` does not document %q while a selection is up", want)
+		}
+	}
+	bar := map[string]bool{}
+	for _, b := range m.optionsBarBindings() {
+		if b.Enabled() {
+			bar[b.Help().Key] = true
+		}
+	}
+	if !bar["ctrl+c"] {
+		t.Error("the options bar does not offer ctrl+c during selection mode")
+	}
+}

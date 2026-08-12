@@ -45,13 +45,30 @@ func (m Model) onPhantomRow() bool {
 	return ok
 }
 
-// clampCursor re-derives how many phantom rows the grid has and then
-// clamps the cell cursor. Every place that moves the cursor or changes
-// the page goes through here, so staging or unstaging an insert can
-// never leave the cursor pointing past the last rendered row.
+// clampCursor re-derives how many phantom rows the grid has, clamps the
+// cell cursor into the page, and settles the scroll window around it.
+// Every place that moves the cursor, changes the page or touches the
+// changeset goes through here, so staging or unstaging an insert can
+// never leave the cursor pointing past the last rendered row, and the
+// window the next frame draws is the one the cursor just moved in.
 func (m *Model) clampCursor() {
 	m.data.extraRows = len(m.stagedInserts())
 	m.data.clampCursor()
+	m.settleGridWindow()
+}
+
+// settleGridWindow writes back the scroll window the current cursor and
+// the current layout imply. Rendering clamps the stored offsets anyway —
+// a resize moves the box without moving the cursor — so this only has to
+// be right often enough to keep the window steady between frames, which
+// is why it can quietly do nothing when the grid is not on screen.
+func (m *Model) settleGridWindow() {
+	w, h, ok := m.gridViewport()
+	if !ok {
+		return
+	}
+	g := m.gridLayout(w, h)
+	m.data.rowOff, m.data.colOff = g.rs, g.cs
 }
 
 // ---------- delete ----------

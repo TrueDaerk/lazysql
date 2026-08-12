@@ -187,18 +187,23 @@ func flatten(s string) string {
 	return strings.Join(strings.Fields(strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)), " ")
 }
 
-// columnWindow picks the slice of columns that fits in w cells while
-// keeping the cursor column visible. The window is derived from the
-// cursor rather than remembered, so it survives a resize: the cursor
-// stays put and the window re-packs around it.
-func columnWindow(cols []gridColumn, cursor, w int) (start, end int) {
+// columnWindow picks the slice of columns that fits in w cells, starting
+// at off and scrolled just far enough to keep the cursor column visible.
+//
+// The offset is a hint, not the truth: it is clamped here on every use,
+// so a window left over from a wider terminal — or from a result with
+// more columns — can never hide the cursor. Scrolling minimally from it
+// rather than re-deriving the window from the cursor alone is what keeps
+// the cursor cell rendered where it was: a window derived from the cursor
+// only would snap back to column 0 the moment the cursor fits in the
+// leftmost window, moving the highlight out from under the user.
+func columnWindow(cols []gridColumn, cursor, w, off int) (start, end int) {
 	if len(cols) == 0 {
 		return 0, 0
 	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	for start = 0; start <= cursor; start++ {
+	cursor = clampInt(cursor, 0, len(cols)-1)
+	off = clampInt(off, 0, cursor)
+	for start = off; start <= cursor; start++ {
 		total := 0
 		for end = start; end < len(cols); end++ {
 			need := cols[end].width
@@ -220,22 +225,97 @@ func columnWindow(cols []gridColumn, cursor, w int) (start, end int) {
 	return cursor, cursor + 1
 }
 
-// rowWindow keeps the cursor row on screen: the page is anchored at the
-// top until the cursor passes the last visible row, then it follows.
-func rowWindow(n, cursor, rows int) (start, end int) {
-	if rows <= 0 || n == 0 {
+// rowWindow picks the rows visible in a window of `rows` lines that
+// starts at off, scrolled just far enough to keep the cursor row on
+// screen. Like columnWindow the offset is clamped rather than trusted,
+// which is what makes a resize — or a page that came back shorter —
+// safe without a separate invalidation step.
+func rowWindow(n, cursor, rows, off int) (start, end int) {
+	if rows <= 0 || n <= 0 {
 		return 0, 0
 	}
-	if cursor < rows {
-		start = 0
-	} else {
-		start = cursor - rows + 1
-	}
-	end = start + rows
+	cursor = clampInt(cursor, 0, n-1)
+	// Scroll to the cursor when it sits outside the window, and never
+	// leave a gap under the last row.
+	off = clampInt(off, cursor-rows+1, cursor)
+	off = clampInt(off, 0, maxInt(n-rows, 0))
+	end = off + rows
 	if end > n {
 		end = n
 	}
-	return start, end
+	return off, end
+}
+
+// clampInt confines v to [lo, hi]. lo wins when the range is empty, which
+// is what the window clamps above rely on: the cursor is always inside.
+func clampInt(v, lo, hi int) int {
+	if v > hi {
+		v = hi
+	}
+	if v < lo {
+		v = lo
+	}
+	return v
+}
+
+// gridLayout is the geometry of one rendered grid: the formatted page and
+// the two windows of it that fit in the content box. dataBody renders it,
+// clickGrid maps a click back through it and Model.clampCursor stores the
+// offsets it settled on — one function, so what is highlighted, what a
+// click selects and what the cursor points at cannot drift apart.
+type gridLayout struct {
+	cols   []gridColumn
+	kinds  []rowKind
+	cs, ce int  // visible column window
+	rs, re int  // visible row window
+	hint   bool // the columns do not all fit, so the h/l hint takes a row
+}
+
+// gridViewport is the content box the grid is rendered into by the
+// current layout, in cells. It walks the same numbers View does —
+// mainColumnRect, commandLogHeight and, while panel [3] is focused, the
+// editor block the result sits under — so a cursor move can settle the
+// scroll window on exactly the box the next frame will draw. ok is false
+// when the grid is not on screen at all.
+func (m Model) gridViewport() (w, h int, ok bool) {
+	_, _, mw, mh, ok := m.mainColumnRect()
+	if !ok {
+		return 0, 0, false
+	}
+	w = maxInt(mw-2, 1)
+	h = mh - commandLogHeight(mh) - 2
+	if m.focus == panelQuery {
+		// queryContent stacks the editor, its status line and the Data
+		// tab's own tab bar above the grid.
+		h -= m.editorBlockRows() + 1
+	}
+	if w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// gridLayout lays the grid out for a w x h content box.
+func (m Model) gridLayout(w, h int) gridLayout {
+	g := gridLayout{}
+	g.cols, g.kinds = m.buildGrid()
+	g.cs, g.ce = columnWindow(g.cols, m.data.col, w, m.data.colOff)
+	g.hint = g.cs > 0 || g.ce < len(g.cols)
+	g.rs, g.re = rowWindow(len(g.kinds), m.data.row, gridBodyRows(h, g.hint), m.data.rowOff)
+	return g
+}
+
+// gridBodyRows is how many rows of the page fit in an h-row content box.
+// The three header lines and the status line each take one, and the
+// horizontal-scroll hint takes one more when it is shown — budgeting it
+// is what keeps the grid from rendering one line more than the box holds
+// and pushing the command log and the options bar off the screen.
+func gridBodyRows(h int, hint bool) int {
+	rows := h - 4
+	if hint {
+		rows--
+	}
+	return maxInt(rows, 0)
 }
 
 // dataContent renders the Data tab with its tab bar on top. The main view
@@ -257,12 +337,6 @@ func (m Model) dataBody(w, h int) string {
 	d := m.data
 	var lines []string
 
-	// header (3 lines: name, type, rule) + status (1 line)
-	bodyRows := h - 4
-	if bodyRows < 0 {
-		bodyRows = 0
-	}
-
 	switch {
 	case len(d.cols) == 0 && d.loading:
 		lines = append(lines, "", m.style.pending.Render("running query…"))
@@ -275,24 +349,22 @@ func (m Model) dataBody(w, h int) string {
 	case len(d.cols) == 0:
 		lines = append(lines, "", m.style.muted.Render("no columns"))
 	default:
-		cols, kinds := m.buildGrid()
-		cs, ce := columnWindow(cols, d.col, w)
-		rs, re := rowWindow(len(kinds), d.row, bodyRows)
+		g := m.gridLayout(w, h)
 
-		lines = append(lines, m.gridHeader(cols[cs:ce], cs, w))
-		for r := rs; r < re; r++ {
-			lines = append(lines, m.gridRow(cols[cs:ce], cs, r, kinds[r], w))
+		lines = append(lines, m.gridHeader(g.cols[g.cs:g.ce], g.cs, w))
+		for r := g.rs; r < g.re; r++ {
+			lines = append(lines, m.gridRow(g.cols[g.cs:g.ce], g.cs, r, g.kinds[r], w))
 		}
-		if len(kinds) == 0 {
+		if len(g.kinds) == 0 {
 			msg := "table is empty"
 			if d.filter != nil {
 				msg = "no rows match"
 			}
 			lines = append(lines, m.style.muted.Render(msg))
 		}
-		if cs > 0 || ce < len(cols) {
+		if g.hint {
 			lines = append(lines, m.style.muted.Render(fmt.Sprintf(
-				"columns %d–%d of %d — h/l scrolls", cs+1, ce, len(cols))))
+				"columns %d–%d of %d — h/l scrolls", g.cs+1, g.ce, len(g.cols))))
 		}
 	}
 

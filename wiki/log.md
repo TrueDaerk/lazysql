@@ -1098,3 +1098,25 @@ Chronological history of wiki changes, newest last.
   new generic `formModal.onKey` hook and `dialRequest.form` routing the
   `connTestedMsg` back into the form's green `info` / red `err` line;
   untouched secrets fall back to the keyring under `oldName`.
+
+## 2026-08-12
+
+- Fixed the data grid's rendered cursor desyncing from its actual position
+  (issue #118). Three root causes: the scroll windows were derived from the
+  cursor alone, so `k` inside a scrolled page slid the rows under a
+  highlight pinned to the last visible line and a click near the top of a
+  scrolled page re-anchored the window several lines away from the pointer;
+  the `columns m–n of N — h/l scrolls` hint line was appended without a row
+  budget, so a sideways-scrolled full page rendered one line more than its
+  box held and pushed the command log and options bar off the screen; and
+  discarding (`U`) or committing the changeset dropped the phantom insert
+  rows without clamping a cursor that was standing on one, leaving no
+  highlight at all and every cell action working on nothing.
+  `rowWindow`/`columnWindow` (`internal/ui/datagrid.go`) now clamp a stored
+  `dataView.rowOff`/`colOff` instead, one `Model.gridLayout` backs the
+  render, `clickGrid`'s hit test and `Model.clampCursor` alike, and
+  `gridBodyRows` budgets the hint.
+- Added [design/grid-cursor-window](design/grid-cursor-window.md) with the
+  invariant behind it — the tinted cell is the cell the actions act on —
+  and updated [design/data-grid](design/data-grid.md), whose "scroll windows
+  are derived, not stored" section this supersedes.

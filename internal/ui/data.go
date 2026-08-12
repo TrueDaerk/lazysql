@@ -80,10 +80,18 @@ type dataView struct {
 	total    int64
 	hasTotal bool
 
-	// Cell cursor. The row and column scroll windows are derived from it
-	// at render time rather than stored, so a resize can never leave a
-	// stale offset behind.
+	// Cell cursor.
 	row, col int
+
+	// Top-left cell of the scroll window. It is where the grid last
+	// settled, not where it must be: rowWindow and columnWindow clamp it
+	// on every render so it can only ever scroll the cursor into view,
+	// never hide it. Keeping it — rather than deriving the window from
+	// the cursor alone — is what makes the highlight stay under the cell
+	// it belongs to instead of the window snapping back to the top-left
+	// as soon as the cursor fits in it. Model.clampCursor settles it
+	// after every cursor move; see wiki/design/grid-cursor-window.md.
+	rowOff, colOff int
 
 	// extraRows is how many phantom rows (staged inserts) the grid
 	// appends after the page. The changeset owns them; this is the count

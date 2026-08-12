@@ -1036,6 +1036,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, historyCmd(s.SQL))
 		}
 		m.changes.Clear()
+		// The phantom rows of the staged inserts are gone with it, and
+		// the fresh page is still a round trip away: the cursor cannot be
+		// left standing on one of them in the meantime.
+		m.clampCursor()
 		cmds = append(cmds,
 			logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))),
 			m.reloadPage(),

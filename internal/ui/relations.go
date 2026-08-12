@@ -213,7 +213,9 @@ func (m Model) relationsLines(w, h int) []string {
 	}
 
 	body := maxInt(h-1, 0)
-	start, end := rowWindow(len(lines), cursorLine, body)
+	// Like the Structure tab, the Relations tab keeps no offset of its
+	// own and asks for the top-anchored window.
+	start, end := rowWindow(len(lines), cursorLine, body, 0)
 	out := append([]string(nil), lines[start:end]...)
 	return append(out, m.style.keyHint.Render(truncate(
 		"j/k select · enter walks to the table · esc back · R re-scans", w)))

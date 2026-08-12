@@ -47,15 +47,32 @@ ordered or differently sized result means nothing.
 `s` cycles the column under the cursor ASC → DESC → unsorted, marked in
 the header with `▲`/`▼`.
 
-### Scroll windows are derived, not stored
+### Scroll windows are remembered, then clamped
 
-Both the visible row range and the visible column range are computed
-from the cell cursor at render time (`rowWindow`, `columnWindow`) rather
-than kept in the model. `View` has a value receiver, so a window stored
-during rendering would be thrown away anyway — and deriving it means a
-resize can never leave a stale offset behind. The rule is the usual one:
-anchored at the start until the cursor passes the last visible slot,
-then following the cursor.
+Both the visible row range and the visible column range come from
+`rowWindow`/`columnWindow`, which take the window's top-left cell
+(`dataView.rowOff`/`colOff`) and scroll it as little as it takes to keep
+the cursor on screen.
+
+The offsets were originally *derived* from the cursor alone — anchored at
+the start until the cursor passed the last visible slot, then following
+it — so that a resize could not leave a stale offset behind. That rule
+has no memory, and a window with no memory moves out from under the
+cursor: `k` inside a scrolled page slid the rows up under a highlight
+pinned to the last visible line, and a click near the top of a scrolled
+page re-anchored the window so the highlight appeared several lines below
+the pointer. Both are issue #118.
+
+Keeping the offset costs nothing as long as it is treated as a *hint*:
+`rowWindow`/`columnWindow` clamp it on every use, so a window left over
+from a taller terminal or a longer page can only ever scroll the cursor
+into view, never hide it. `View` still has a value receiver and still
+writes nothing back; the offsets are settled in `Model.clampCursor`,
+which every cursor move, page change and changeset edit already goes
+through. See
+[grid-cursor-window](grid-cursor-window.md) for the invariant this
+protects and how the render, the hit test and the cursor are kept on one
+code path.
 
 Column widths come from the *whole page*, not the visible rows, so
 scrolling vertically never makes the grid jitter sideways. Widths are

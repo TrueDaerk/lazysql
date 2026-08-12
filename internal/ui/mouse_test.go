@@ -330,6 +330,37 @@ func TestClickGridFocusesThenSelectsACell(t *testing.T) {
 	}
 }
 
+// A click lands the highlight on the line that was clicked and leaves it
+// there. The row window used to be derived from the cursor alone, so
+// clicking near the top of a scrolled page re-anchored the window and the
+// highlight appeared several lines below the pointer — on the right row,
+// but not where the user had aimed.
+func TestClickKeepsTheHighlightOnTheClickedLine(t *testing.T) {
+	for _, size := range [][2]int{{120, 40}, {100, 30}, {80, 24}, {60, 18}} {
+		for _, scrolled := range []int{0, 30, 99} {
+			m := dataBrowsing(t)
+			m = send(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			m = send(t, m, repeatKey('j', scrolled)...)
+
+			x, y, _, _, ok := m.mainColumnRect()
+			if !ok {
+				t.Fatalf("%dx%d: the main column is not on screen", size[0], size[1])
+			}
+			// The first three content rows are the header; the data rows
+			// start under them.
+			for row := 3; row < 6; row++ {
+				clicked := send(t, m, click(x+2, y+1+row))
+				_, line, n := highlightedCell(gridBox(clicked))
+				if n != 1 || line != row {
+					t.Fatalf("%dx%d scrolled %d: a click on content row %d highlighted line %d (%d tinted cells, cursor row %d)",
+						size[0], size[1], scrolled, row, line, n, clicked.data.row)
+				}
+				assertCursorRendered(t, clicked, fmt.Sprintf("%dx%d click on row %d", size[0], size[1], row))
+			}
+		}
+	}
+}
+
 // The wheel moves the grid's row cursor and stops at the page boundary:
 // a page turn is a round trip, and the wheel must never issue one.
 func TestWheelScrollsGridWithoutTurningThePage(t *testing.T) {

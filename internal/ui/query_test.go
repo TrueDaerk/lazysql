@@ -210,6 +210,49 @@ func TestEditorKeysAreDocumented(t *testing.T) {
 	}
 }
 
+// `enter` in normal mode runs exactly the statement the caret is in, and
+// stays in normal mode so the result is navigable at once.
+func TestEnterRunsTheStatementUnderTheCursor(t *testing.T) {
+	m := queryable(t)
+	m.setScript("SELECT id FROM q ORDER BY id;\nSELECT name FROM q")
+	m = send(t, m, press('3'))
+	if m.focus != panelQuery || m.editor.editing {
+		t.Fatalf("focus = %v (editing=%v), want panel [3] in normal mode",
+			m.focus, m.editor.editing)
+	}
+	m = send(t, m, press('g'), press('g'), special(tea.KeyEnter, 0))
+	if m.editor.editing {
+		t.Fatal("enter in normal mode entered insert mode")
+	}
+	if len(m.data.cols) != 1 || m.data.cols[0].Name != "id" {
+		t.Fatalf("enter on the first statement showed %v, want the id column", m.data.cols)
+	}
+	if !logContains(m, "SELECT id FROM q ORDER BY id;") {
+		t.Fatalf("the statement is missing from the command log: %v", m.commandLog)
+	}
+	if logContains(m, "SELECT name FROM q") {
+		t.Fatalf("enter ran more than the statement under the cursor: %v", m.commandLog)
+	}
+	m = send(t, m, press('G'), special(tea.KeyEnter, 0))
+	if len(m.data.cols) != 1 || m.data.cols[0].Name != "name" {
+		t.Fatalf("enter on the second statement showed %v, want the name column", m.data.cols)
+	}
+}
+
+// The statement-under-cursor split must not be fooled by a `;` inside a
+// string literal.
+func TestEnterIsNotFooledBySemicolonsInLiterals(t *testing.T) {
+	m := queryable(t)
+	m.setScript("SELECT 'a;b' AS lit; SELECT 2 AS n")
+	m = send(t, m, press('3'), press('g'), press('g'), special(tea.KeyEnter, 0))
+	if len(m.data.cols) != 1 || m.data.cols[0].Name != "lit" {
+		t.Fatalf("enter showed %v, want the lit column of the full first statement", m.data.cols)
+	}
+	if !logContains(m, "SELECT 'a;b' AS lit;") {
+		t.Fatalf("the full statement is missing from the command log: %v", m.commandLog)
+	}
+}
+
 func TestSelectRendersInTheDataTab(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id, name FROM q ORDER BY id")
 

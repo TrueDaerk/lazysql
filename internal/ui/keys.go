@@ -135,6 +135,17 @@ type keyMap struct {
 	ViewCell    key.Binding
 	RowDetail   key.Binding
 
+	// The inline WHERE line `/` opens on the grid. Like the editor's
+	// LeaveInsert these are bindings of their own rather than second
+	// meanings of Enter and Back, so `?` can name what the keys do while
+	// the line has the keyboard. FilterHistPrev/Next walk the relation's
+	// own filter history, which is why they are not the completion
+	// popup's bindings even though they share ctrl+p/ctrl+n.
+	ApplyFilter    key.Binding
+	CancelFilter   key.Binding
+	FilterHistPrev key.Binding
+	FilterHistNext key.Binding
+
 	// Multi-row selection. SelectRows (ctrl+v) anchors a selection at the
 	// cursor row and `j`/`k` extend it; CopySelection (ctrl+c) copies what
 	// is selected. CopySelection is enabled only while a selection is up,
@@ -351,6 +362,20 @@ func newKeyMap() keyMap {
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
 
+		// ctrl+enter/cmd+enter alias enter here through acceptKeys, like
+		// everywhere else a line is submitted.
+		ApplyFilter: key.NewBinding(
+			key.WithKeys(append([]string{"enter"}, acceptKeys...)...),
+			key.WithHelp("enter", "apply filter")),
+		CancelFilter: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel filter")),
+		// ctrl+p/ctrl+n are the readline spelling and work in every
+		// terminal; the arrows are the discoverable alias, free because
+		// the line is one line and has nowhere to move vertically.
+		FilterHistPrev: key.NewBinding(
+			key.WithKeys("up", "ctrl+p"), key.WithHelp("↑/ctrl+p", "prev filter")),
+		FilterHistNext: key.NewBinding(
+			key.WithKeys("down", "ctrl+n"), key.WithHelp("↓/ctrl+n", "next filter")),
+
 		// ctrl+v is vim's visual-block key, and the grid is the one place
 		// it is free: bracketed paste arrives as tea.PasteMsg rather than
 		// as a key, so nothing in the app reads ctrl+v as "paste".
@@ -535,6 +560,16 @@ func (k keyMap) datePicker() []key.Binding {
 		k.OpenPicker, k.PickPrev, k.PickNext, k.PickUp, k.PickDown,
 		k.PickMonthPrev, k.PickMonthNext, k.PickToday, k.PickSection, k.PickRaw,
 		k.Enter, k.Back,
+	}
+}
+
+// filterInput are the keys the grid's inline WHERE line owns while it is
+// open. Every other key types into the clause, which is why this slice —
+// not the grid's action list — is what the options bar and `?` show
+// there, the same deal the editor's insert mode gets.
+func (k keyMap) filterInput() []key.Binding {
+	return []key.Binding{
+		k.FilterHistPrev, k.FilterHistNext, k.ApplyFilter, k.CancelFilter,
 	}
 }
 
@@ -784,9 +819,15 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 		)
 	}
 	// The cell editor and the insert form both open from the data grid,
-	// and so does the date picker they hand temporal columns to.
+	// and so does the date picker they hand temporal columns to. `/`
+	// opens the inline WHERE line right in the grid, which swallows every
+	// key it does not claim — so its own short list is documented here
+	// rather than being reachable only from a line `?` cannot open.
 	if id == panelMain {
-		groups = append(groups, helpGroup{"In the date picker:", k.datePicker()})
+		groups = append(groups,
+			helpGroup{"In the filter input (/):", k.filterInput()},
+			helpGroup{"In the date picker:", k.datePicker()},
+		)
 	}
 	// The connection form is opened from the Connections panel, so its
 	// path-completion keys are documented there.
@@ -850,6 +891,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
+		{"apply-filter", &k.ApplyFilter}, {"cancel-filter", &k.CancelFilter},
+		{"filter-hist-prev", &k.FilterHistPrev}, {"filter-hist-next", &k.FilterHistNext},
 		{"select-rows", &k.SelectRows}, {"select-columns", &k.SelectColumns}, {"copy-selection", &k.CopySelection},
 		{"shift-up", &k.ShiftUp}, {"shift-down", &k.ShiftDown},
 		{"shift-left", &k.ShiftLeft}, {"shift-right", &k.ShiftRight},

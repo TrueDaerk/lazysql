@@ -182,6 +182,14 @@ func qualifiedTable(d Dialect, database, table string) string {
 	return d.QuoteIdent(database) + "." + d.QuoteIdent(table)
 }
 
+// FilterPrefixSQL renders the immutable part of the grid's inline filter
+// input: the statement a typed WHERE clause completes. The relation is
+// quoted by the dialect here rather than spelled by the UI, so the label
+// the user types after is the same identifier PageSQL will run against.
+func FilterPrefixSQL(d Dialect, database, table string) string {
+	return "SELECT * FROM " + qualifiedTable(d, database, table) + " WHERE "
+}
+
 // writeWhere appends the filter's WHERE clause, if it has one.
 func writeWhere(b *strings.Builder, filter *Filter) {
 	if filter.empty() {

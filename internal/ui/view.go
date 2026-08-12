@@ -517,6 +517,11 @@ func (m Model) renderOptionsBar() string {
 			bindings = m.keys.editorCompletion()
 		}
 	}
+	// The inline WHERE line claims every key it does not bind, exactly
+	// like insert mode, so the bar shows the four it does.
+	if m.filterInputOpen() {
+		bindings = m.keys.filterInput()
+	}
 	// The date picker claims every key while it is open, so the bar shows
 	// its own set instead of the grid's — the one modal that rebinds the
 	// bar, because it is the one whose keys are motions rather than a

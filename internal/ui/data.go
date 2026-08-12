@@ -69,12 +69,6 @@ type dataView struct {
 	filter *db.Filter
 	sort   *db.Sort
 
-	// conds are the structured conditions behind filter, kept so `/` can
-	// offer to AND another one onto them. A filter typed as free-form SQL
-	// (advanced mode) has none, which is exactly why the AND toggle is
-	// not offered on top of one: there is nothing to take apart.
-	conds []db.FilterCond
-
 	// total is the COUNT(*) behind the same filter. It arrives in its
 	// own round trip, so until it does the status line omits it.
 	total    int64
@@ -399,6 +393,9 @@ func (m *Model) openTable(name string) tea.Cmd {
 	// The relation replaces whatever the main view was showing, trigger
 	// definition included.
 	m.trigger = nil
+	// An inline filter line is labelled with the relation it was opened
+	// on, so it cannot follow the grid to another one.
+	m.closeFilterInput()
 	// The metadata described the relation being closed. The selected
 	// tab survives — walking a table list with Structure open is the
 	// point of the tabs — but its contents and scroll positions do not.
@@ -465,30 +462,9 @@ func (m *Model) setDataFilter(raw string) tea.Cmd {
 		return nil
 	}
 	m.data.filter = db.ParseFilter(m.driver.Dialect(), raw)
-	// The fragment was typed as SQL, so whatever structured conditions
-	// were running are no longer what the grid shows.
-	m.data.conds = nil
 	m.data.page = 0
 	m.data.row = 0
 	return m.reloadPage()
-}
-
-// applyFilterConds applies structured conditions built by the filter
-// modal. A build error — an unparseable value against a numeric column —
-// leaves the current filter alone and comes back for the modal to show.
-func (m *Model) applyFilterConds(conds []db.FilterCond) (tea.Cmd, error) {
-	if !m.data.browsing() || m.driver == nil {
-		return nil, nil
-	}
-	f, err := db.BuildFilter(m.driver.Dialect(), conds)
-	if err != nil {
-		return nil, err
-	}
-	m.data.filter = f
-	m.data.conds = conds
-	m.data.page = 0
-	m.data.row = 0
-	return m.reloadPage(), nil
 }
 
 // clearFilter drops the active filter and reloads the unfiltered first
@@ -502,29 +478,9 @@ func (m *Model) clearFilter() tea.Cmd {
 		return logCmd("-- no filter to clear")
 	}
 	m.data.filter = nil
-	m.data.conds = nil
 	m.data.page = 0
 	m.data.row = 0
 	return m.reloadPage()
-}
-
-// openFilterModal opens `/`: the structured filter popup, starting on
-// the column the cell cursor sits on.
-func (m *Model) openFilterModal() tea.Cmd {
-	if !m.data.browsing() {
-		return logCmd("-- filter skipped: no relation open")
-	}
-	cols := m.filterColumns()
-	start := ""
-	if m.data.col >= 0 && m.data.col < len(m.data.cols) {
-		start = m.data.cols[m.data.col].Name
-	}
-	raw := ""
-	if m.data.filter != nil {
-		raw = m.data.filter.Raw
-	}
-	m.modal = newFilterModal(cols, start, len(m.data.conds) > 0, raw)
-	return nil
 }
 
 // toggleSort cycles the column under the cursor through ASC, DESC and
@@ -802,7 +758,7 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		cmd := m.extendColumnSelection(1)
 		return m, cmd, true
 	case actWhereFilter:
-		cmd := m.openFilterModal()
+		cmd := m.openFilterInput()
 		return m, cmd, true
 	case actClearFilter:
 		cmd := m.clearFilter()

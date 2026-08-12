@@ -53,13 +53,21 @@ type Entry struct {
 	// them and the panel annotates each entry with it.
 	Engine string    `json:"engine"`
 	At     time.Time `json:"at"`
+	// Database and Table narrow Connection to one relation. They are
+	// empty on a statement — the editor's history is scoped by connection
+	// alone — and set on a filter, where `/` on `orders` must recall what
+	// was typed on `orders` and nothing else. An empty Database is
+	// meaningful rather than missing: it is the pseudo-namespace the file
+	// engines browse under. See filters.go.
+	Database string `json:"database,omitempty"`
+	Table    string `json:"table,omitempty"`
 }
 
 // ForConnection filters entries newest-first to those belonging to the
 // given connection, plus any legacy entry with no Connection recorded
-// (see Entry.Connection). Also the mechanism a planned per-table filter
-// history is meant to share: a caller keys entries by whatever scope it
-// needs and always keeps the empty-scope entries visible everywhere.
+// (see Entry.Connection). The data grid's filter history keys the same
+// way, one level finer and without the legacy leniency — see ForRelation
+// in filters.go.
 func ForConnection(entries []Entry, connection string) []Entry {
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {

@@ -487,6 +487,28 @@ func TestCopySelectionColumnValues(t *testing.T) {
 	}
 }
 
+// A selection narrowed to columns copies as a block: the CSV carries
+// only the selected columns, header included, and the menu says so
+// before the copy happens.
+func TestCopySelectionNarrowedToColumns(t *testing.T) {
+	got := fakeClipboard(t)
+	// Two rows tall, two columns wide: id and person_id, leaving status out.
+	m := send(t, copyBrowsing(t), ctrlKey('v'), press('j'),
+		special(tea.KeyRight, tea.ModShift), ctrlKey('c'))
+
+	if labels := menuLabels(t, m); !hasLabel(labels, "2 selected rows × 2 columns — CSV") {
+		t.Fatalf("block selection menu = %v", labels)
+	}
+	m = send(t, m, press('r'))
+	lines := strings.Split(strings.TrimRight(*got, "\n"), "\n")
+	if len(lines) != 3 || lines[0] != "id,person_id" {
+		t.Fatalf("block CSV = %q, want an id,person_id header and 2 rows", *got)
+	}
+	if !logContains(m, "2 selected rows × 2 columns") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
 // A staged edit is copied as the grid shows it, for a selection exactly
 // as for a single row.
 func TestCopySelectionUsesStagedEdits(t *testing.T) {
@@ -534,7 +556,12 @@ func TestSelectionKeysAreDocumented(t *testing.T) {
 			documented[b.Help().Key] = true
 		}
 	}
-	for _, want := range []string{"ctrl+v", "ctrl+c", "shift+↑", "shift+↓"} {
+	// Each shifted key documents its unshifted fallback in the same
+	// label, so terminals that cannot report shift+arrows still show a
+	// way in — see wiki/reference/terminal-key-reporting.md.
+	for _, want := range []string{
+		"ctrl+v/V", "ctrl+c", "shift+↑/K", "shift+↓/J", "shift+←", "shift+→", "C",
+	} {
 		if !documented[want] {
 			t.Errorf("`?` does not document %q while a selection is up", want)
 		}

@@ -98,10 +98,10 @@ type dataView struct {
 	// Model.clampCursor mirrors here so the cursor can reach them.
 	extraRows int
 
-	// sel is the multi-row selection (`ctrl+v`). It is deliberately not
+	// sel is the grid selection (`ctrl+v`). It is deliberately not
 	// copy-specific: it is the grid's own state, so every action that can
 	// mean "these rows" reads it.
-	sel rowSelection
+	sel gridSelection
 
 	loading bool
 	err     string
@@ -111,18 +111,29 @@ type dataView struct {
 	req int
 }
 
-// rowSelection is the data grid's multi-row selection: an anchor row and
-// the cursor, with everything between them selected. Only the anchor is
+// gridSelection is the data grid's selection: an anchor row and the
+// cursor, with everything between them selected. Only the anchor is
 // stored — the other end is the cell cursor itself, which is what makes
 // `j`/`k` extend the selection without a second movement path.
 //
-// The anchor is a page-row index, so it is only meaningful for the page
-// that was on screen when the selection started: every reload, sort,
-// filter and page turn drops it (see clearSelection) rather than risk a
-// stale index pointing at a different row.
-type rowSelection struct {
+// A selection starts out full-width — every column of the marked rows —
+// and narrows to a block only once `shift+←`/`shift+→` anchors a column
+// too (cols). The same anchor-plus-cursor trick applies sideways:
+// colAnchor is one edge and the cell cursor's column is the other.
+//
+// Both anchors are indices into the page that was on screen when the
+// selection started, so every reload, sort, filter and page turn drops it
+// (see clearSelection) rather than risk a stale index pointing at a
+// different row.
+type gridSelection struct {
 	active bool
 	anchor int
+
+	// cols reports whether the column span is part of the selection. A
+	// selection without one covers every column, which is what a
+	// row-wise selection has always meant.
+	cols      bool
+	colAnchor int
 }
 
 // selecting reports whether a multi-row selection is up.
@@ -165,16 +176,79 @@ func (d dataView) selectedRows() []int {
 }
 
 // inSelection reports whether a rendered row is part of the selection.
+// It is the row-wise question — whether the row takes part at all — so a
+// block selection narrowed to a few columns still answers yes.
 func (d dataView) inSelection(r int) bool {
 	start, end := d.selectionRange()
 	return r >= start && r < end
+}
+
+// columnRange is the half-open range of columns the selection covers. A
+// selection that never anchored a column covers all of them, so the
+// row-wise scopes keep reading the full width without asking whether a
+// block is up.
+func (d dataView) columnRange() (start, end int) {
+	if !d.sel.active || len(d.cols) == 0 {
+		return 0, 0
+	}
+	if !d.sel.cols {
+		return 0, len(d.cols)
+	}
+	start, end = d.sel.colAnchor, d.col
+	if start > end {
+		start, end = end, start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end >= len(d.cols) {
+		end = len(d.cols) - 1
+	}
+	if start > end {
+		return 0, 0
+	}
+	return start, end + 1
+}
+
+// selectedCols lists the columns of the selection, in column order.
+func (d dataView) selectedCols() []int {
+	start, end := d.columnRange()
+	if end <= start {
+		return nil
+	}
+	out := make([]int, 0, end-start)
+	for c := start; c < end; c++ {
+		out = append(out, c)
+	}
+	return out
+}
+
+// narrowedToCols reports whether the selection is a block rather than
+// whole rows — i.e. whether a column span was anchored and it leaves at
+// least one column out.
+func (d dataView) narrowedToCols() bool {
+	if !d.sel.cols {
+		return false
+	}
+	start, end := d.columnRange()
+	return end-start < len(d.cols)
+}
+
+// cellSelected reports whether a rendered cell is part of the selection:
+// its row takes part and its column is inside the block.
+func (d dataView) cellSelected(r, c int) bool {
+	if !d.inSelection(r) {
+		return false
+	}
+	start, end := d.columnRange()
+	return c >= start && c < end
 }
 
 // clearSelection drops the selection. Every query-shape change goes
 // through here: a sort, a filter, a page turn or a reload puts different
 // rows under the same indices, and a selection that survived would stage
 // or copy the wrong ones.
-func (d *dataView) clearSelection() { d.sel = rowSelection{} }
+func (d *dataView) clearSelection() { d.sel = gridSelection{} }
 
 // open reports whether the Data tab has anything to show — a browsed
 // relation or a query result.
@@ -606,27 +680,77 @@ func (m *Model) toggleSelection() tea.Cmd {
 	if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
 		return logCmd("-- selection skipped: no row under the cursor")
 	}
-	m.data.sel = rowSelection{active: true, anchor: m.data.row}
+	m.data.sel = gridSelection{active: true, anchor: m.data.row}
 	m.keys.CopySelection.SetEnabled(true)
 	return logCmd(
-		"-- selection started at row %d (j/k extend, e edits the cursor column in every row, ctrl+c copies, esc clears)",
+		"-- selection started at row %d (j/k extend, shift+←/→ narrows it to columns, e edits the cursor column in every row, ctrl+c copies, esc clears)",
 		m.data.offset()+m.data.row+1)
 }
 
-// extendSelection is `shift+up`/`shift+down` (delta -1/+1): with no
-// selection up it anchors one at the cursor row first, exactly like
-// toggleSelection, and then moves the cursor through the same wheel path as
-// plain Up/Down — so a selection already running just grows or shrinks,
-// matching what j/k do today.
+// extendSelection is `shift+up`/`shift+down` — or their `K`/`J` fallbacks
+// (delta -1/+1): with no selection up it anchors one at the cursor row
+// first, exactly like toggleSelection, and then moves the cursor through
+// the same wheel path as plain Up/Down — so a selection already running
+// just grows or shrinks, matching what j/k do today.
 func (m *Model) extendSelection(delta int) tea.Cmd {
-	if !m.data.selecting() {
-		if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
-			return nil
-		}
-		m.data.sel = rowSelection{active: true, anchor: m.data.row}
-		m.keys.CopySelection.SetEnabled(true)
+	if !m.startSelection() {
+		return nil
 	}
 	return m.wheelAt(scrollTarget{zone: zoneMain}, delta)
+}
+
+// extendColumnSelection is `shift+left`/`shift+right` (or `<`/`>`), the
+// sideways half of the same gesture: it anchors a selection at the cursor
+// row if none is up, anchors the column span at the cursor column the
+// first time it runs, and then moves the cell cursor one column — the
+// other edge of the span. Narrowing a selection to columns is what turns
+// the copy scopes from whole rows into a block.
+func (m *Model) extendColumnSelection(delta int) tea.Cmd {
+	if !m.startSelection() {
+		return nil
+	}
+	if !m.data.sel.cols {
+		m.data.sel.cols = true
+		m.data.sel.colAnchor = m.data.col
+	}
+	m.data.col += delta
+	m.clampCursor()
+	return nil
+}
+
+// toggleColumnSelection is `C`: it anchors the column span at the cursor
+// column without moving anything, or drops it again — the sideways twin
+// of `ctrl+v`, and the way in for terminals that never report
+// shift+arrows. It needs no direction key of its own: once the span is
+// anchored, plain `h`/`l` move the cell cursor, which *is* its open edge.
+func (m *Model) toggleColumnSelection() tea.Cmd {
+	if m.data.selecting() && m.data.sel.cols {
+		m.data.sel.cols = false
+		return logCmd("-- column selection cleared (the rows stay selected)")
+	}
+	if !m.startSelection() {
+		return logCmd("-- column selection skipped: no row under the cursor")
+	}
+	m.data.sel.cols = true
+	m.data.sel.colAnchor = m.data.col
+	name := m.cursorColumnLabel()
+	return logCmd("-- column selection anchored at %s (h/l extend, C clears it)", name)
+}
+
+// startSelection makes sure a selection is up, anchoring one at the
+// cursor row if it is not, and reports whether the grid can hold one at
+// all: the metadata tabs have no rows, and a phantom row (a staged
+// insert) has no fetched values for a copy or a bulk edit to work from.
+func (m *Model) startSelection() bool {
+	if m.data.selecting() {
+		return true
+	}
+	if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
+		return false
+	}
+	m.data.sel = gridSelection{active: true, anchor: m.data.row}
+	m.keys.CopySelection.SetEnabled(true)
+	return true
 }
 
 // focusBack pops the focus stack, the same way `esc` does in a panel.
@@ -667,6 +791,15 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actExtendSelectionDown:
 		cmd := m.extendSelection(1)
+		return m, cmd, true
+	case actSelectColumns:
+		cmd := m.toggleColumnSelection()
+		return m, cmd, true
+	case actExtendSelectionLeft:
+		cmd := m.extendColumnSelection(-1)
+		return m, cmd, true
+	case actExtendSelectionRight:
+		cmd := m.extendColumnSelection(1)
 		return m, cmd, true
 	case actWhereFilter:
 		cmd := m.openFilterModal()

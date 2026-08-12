@@ -37,7 +37,7 @@ When building TUI code, use the `tui:lazygit-style` skill — it contains the Bu
 
 - `go vet ./...` and `go build ./...` must pass before finishing any task.
 - `go test ./...` for packages with tests; driver code needs unit tests against SQLite/DuckDB (in-process, no server required).
-- Run the TUI in a real PTY when possible; check resize behavior and the tiny-terminal guard.
+- Run the TUI in a real PTY when possible; check resize behavior and the tiny-terminal guard. `scripts/ptycheck.py <cols> <rows> <cmd>…` drives one in a PTY, feeds it escape-coded keys from stdin and renders the final screen (needs `pyte`); `lazysql --debug-keys` shows what a terminal actually reports for a key.
 
 ## Project wiki (OKF 0.2)
 

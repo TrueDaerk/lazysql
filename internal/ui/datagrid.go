@@ -188,21 +188,36 @@ func flatten(s string) string {
 }
 
 // columnWindow picks the slice of columns that fits in w cells while
-// keeping the cursor column visible. The window is derived from the
-// cursor rather than remembered, so it survives a resize: the cursor
-// stays put and the window re-packs around it.
-func columnWindow(cols []gridColumn, cursor, w int) (start, end int) {
+// keeping the cursor column visible, scrolling minimally: off (the
+// previous window's left edge) is reused as-is when the cursor is still
+// inside it, only pulled left to the cursor when the cursor moved past
+// its left edge, and only pushed right when the cursor no longer fits
+// within w cells of it. off also survives a resize, since it is re-packed
+// and re-clamped against the current cols/w on every call rather than
+// trusted outright — a stale offset from a wider terminal (or a shrunk
+// column list) can never leave the cursor, or the window itself, out of
+// bounds.
+func columnWindow(cols []gridColumn, cursor, off, w int) (start, end int) {
 	if len(cols) == 0 {
 		return 0, 0
 	}
 	if cursor < 0 {
 		cursor = 0
 	}
-	for start = 0; start <= cursor; start++ {
+	if cursor >= len(cols) {
+		cursor = len(cols) - 1
+	}
+	if off < 0 {
+		off = 0
+	}
+	if off > cursor {
+		off = cursor
+	}
+	for {
 		total := 0
-		for end = start; end < len(cols); end++ {
+		for end = off; end < len(cols); end++ {
 			need := cols[end].width
-			if end > start {
+			if end > off {
 				need += colGap
 			}
 			if total+need > w {
@@ -210,14 +225,31 @@ func columnWindow(cols []gridColumn, cursor, w int) (start, end int) {
 			}
 			total += need
 		}
-		if end == start {
-			end = start + 1 // never render zero columns
+		if end == off {
+			end = off + 1 // never render zero columns
 		}
 		if cursor < end {
-			return start, end
+			return off, end
 		}
+		off++
 	}
-	return cursor, cursor + 1
+}
+
+// syncColOff keeps dataView.colOff in step with the cursor so the next
+// render's columnWindow call resumes from the right offset instead of one
+// left over from wherever the cursor used to be. It runs through every
+// call site that already goes through Model.clampCursor, using the width
+// the grid is actually drawn at.
+func (m *Model) syncColOff() {
+	if !m.data.hasResult() {
+		return
+	}
+	_, _, w, _, ok := m.mainColumnRect()
+	if !ok {
+		return
+	}
+	cols, _ := m.buildGrid()
+	m.data.colOff, _ = columnWindow(cols, m.data.col, m.data.colOff, maxInt(w-2, 1))
 }
 
 // rowWindow keeps the cursor row on screen: the page is anchored at the
@@ -276,7 +308,7 @@ func (m Model) dataBody(w, h int) string {
 		lines = append(lines, "", m.style.muted.Render("no columns"))
 	default:
 		cols, kinds := m.buildGrid()
-		cs, ce := columnWindow(cols, d.col, w)
+		cs, ce := columnWindow(cols, d.col, d.colOff, w)
 		rs, re := rowWindow(len(kinds), d.row, bodyRows)
 
 		lines = append(lines, m.gridHeader(cols[cs:ce], cs, w))

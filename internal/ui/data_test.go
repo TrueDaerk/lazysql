@@ -435,11 +435,11 @@ func TestWideTableScrollsHorizontally(t *testing.T) {
 	m = next.(Model)
 
 	cols, _ := m.buildGrid()
-	start, end := columnWindow(cols, 0, 30)
+	start, end := columnWindow(cols, 0, 0, 30)
 	if start != 0 || end >= len(cols) {
 		t.Fatalf("window at the first column = [%d,%d), want a partial window from 0", start, end)
 	}
-	lastStart, lastEnd := columnWindow(cols, len(cols)-1, 30)
+	lastStart, lastEnd := columnWindow(cols, len(cols)-1, 0, 30)
 	if len(cols)-1 < lastStart || len(cols)-1 >= lastEnd {
 		t.Fatalf("window [%d,%d) does not contain the cursor column %d", lastStart, lastEnd, len(cols)-1)
 	}
@@ -451,6 +451,100 @@ func TestWideTableScrollsHorizontally(t *testing.T) {
 	if out := m.View().Content; !strings.Contains(out, "columns ") {
 		t.Error("the grid does not report the visible column range")
 	}
+}
+
+// columnWindow scrolls right minimally (by exactly enough to keep the
+// cursor visible), and moving the cursor back left must not scroll at all
+// while it is still inside that window — it should only scroll once the
+// cursor passes the window's left edge.
+func TestColumnWindowMinimalScroll(t *testing.T) {
+	cols := make([]gridColumn, 5)
+	for i := range cols {
+		cols[i].width = 10
+	}
+	const w = 32 // 10 + 1 + 10 + 1 + 10 = 32: exactly three columns fit.
+
+	start, end := columnWindow(cols, 0, 0, w)
+	if start != 0 || end != 3 {
+		t.Fatalf("initial window = [%d,%d), want [0,3)", start, end)
+	}
+
+	// Cursor moves right past the window: it scrolls by exactly one column.
+	start, end = columnWindow(cols, 3, start, w)
+	if start != 1 || end != 4 {
+		t.Fatalf("scroll-right window = [%d,%d), want [1,4)", start, end)
+	}
+
+	// Cursor moves back left but stays inside [1,4): no shift, no dropped column.
+	start2, end2 := columnWindow(cols, 2, start, w)
+	if start2 != start || end2 != end {
+		t.Fatalf("move left within the window shifted it: [%d,%d) -> [%d,%d)", start, end, start2, end2)
+	}
+
+	// Cursor moves left past the window's left edge (column 1 -> column 0):
+	// the window must scroll left to keep it visible.
+	start3, end3 := columnWindow(cols, 0, start2, w)
+	if start3 != 0 {
+		t.Fatalf("scroll-left window start = %d, want 0", start3)
+	}
+	if end3 <= 0 {
+		t.Fatalf("scroll-left window = [%d,%d), want a non-empty window", start3, end3)
+	}
+}
+
+// A remembered offset from a wider terminal (or a column list that shrank)
+// must not leave the cursor, or the window itself, out of bounds.
+func TestColumnWindowClampsStaleOffset(t *testing.T) {
+	cols := make([]gridColumn, 5)
+	for i := range cols {
+		cols[i].width = 10
+	}
+	if start, end := columnWindow(cols, 1, 4, 32); start > 1 || end <= 1 {
+		t.Fatalf("window [%d,%d) does not contain cursor 1 with a stale offset ahead of it", start, end)
+	}
+	if start, end := columnWindow(cols, 1, 999, 32); start > 1 || end <= 1 {
+		t.Fatalf("window [%d,%d) does not contain cursor 1 with an out-of-range offset", start, end)
+	}
+}
+
+// Moving the cursor left within the currently visible columns must not
+// scroll the grid or drop the rightmost visible column; only moving past
+// the window's left edge should scroll it.
+func TestColumnLeftScrollIsMinimal(t *testing.T) {
+	m := dataBrowsing(t)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	m = next.(Model)
+
+	m = send(t, m, press('l'), press('l'), press('l'))
+	scrolled := gridColumnsLine(t, m)
+	if scrolled == "" {
+		t.Fatal("expected the grid to report a scrolled column window")
+	}
+
+	m = send(t, m, press('h'))
+	afterOneLeft := gridColumnsLine(t, m)
+	if afterOneLeft != scrolled {
+		t.Fatalf("moving left within the window scrolled it: %q -> %q", scrolled, afterOneLeft)
+	}
+
+	// Walk the cursor past the window's left edge: it must scroll back.
+	m = send(t, m, press('h'), press('h'), press('h'))
+	afterEdge := gridColumnsLine(t, m)
+	if afterEdge == afterOneLeft {
+		t.Fatalf("moving left past the window's edge did not scroll: stayed at %q", afterEdge)
+	}
+}
+
+// gridColumnsLine returns the "columns X–Y of Z" status line, or "" when
+// the grid renders every column and reports no window at all.
+func gridColumnsLine(t *testing.T, m Model) string {
+	t.Helper()
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if strings.Contains(line, "columns ") {
+			return line
+		}
+	}
+	return ""
 }
 
 // The grid survives every terminal size the shell claims to support.

@@ -6,6 +6,10 @@ tags: [tui, db, main-view, pagination, sorting, filtering, security]
 generated:
   by: claude-code/opus-5
   at: 2026-08-09T00:00:00Z
+updated:
+  - by: claude-code/sonnet-5
+    at: 2026-08-12T00:00:00Z
+    note: column window now takes a remembered offset so leftward cursor moves scroll minimally (issue #126)
 ---
 
 # Data grid
@@ -47,15 +51,37 @@ ordered or differently sized result means nothing.
 `s` cycles the column under the cursor ASC → DESC → unsorted, marked in
 the header with `▲`/`▼`.
 
-### Scroll windows are derived, not stored
+### The row window is derived, not stored — the column window can't be
 
-Both the visible row range and the visible column range are computed
-from the cell cursor at render time (`rowWindow`, `columnWindow`) rather
-than kept in the model. `View` has a value receiver, so a window stored
-during rendering would be thrown away anyway — and deriving it means a
-resize can never leave a stale offset behind. The rule is the usual one:
-anchored at the start until the cursor passes the last visible slot,
-then following the cursor.
+The visible row range is computed from the cell cursor at render time
+(`rowWindow`) rather than kept in the model: anchored at the top until the
+cursor passes the last visible row, then following it. That rule works
+because it is a pure function of the cursor alone — for a given cursor row
+there is only one right answer for where the page-window starts.
+
+The column window cannot be purely derived the same way. Minimal-scroll
+means: while the cursor is inside the current window, the window does not
+move — including leftward moves, which is the part issue #126 regressed.
+But "is the cursor still inside the current window" needs the
+current window's left edge as an input, and for a given cursor column more
+than one window can legally contain it (e.g. cursor 2 fits both `[0,3)` and
+`[1,4)`); which one is right depends on where the window was a moment ago,
+not on the cursor value in isolation. So `columnWindow(cols, cursor, off,
+w)` takes the previous left edge `off` (`dataView.colOff`) as an explicit
+argument: it is reused unchanged while `cursor` is still inside `[off,
+end)`, pulled left to `cursor` when the cursor passed the left edge, and
+pushed right only as far as needed when the cursor passed the right edge.
+
+`View` has a value receiver, so it cannot persist `colOff` back into the
+model itself. `Model.clampCursor` — the single choke point every cursor-
+or page-changing action already runs through — calls `syncColOff` after
+clamping, which re-derives the grid's column widths and content width and
+recomputes `colOff` the same way the next render will. That keeps the
+stored offset in step with what's on screen without View ever mutating
+state. `columnWindow` still re-clamps `off` against the current `cols`/`w`
+on every call (`0 <= off <= cursor`, then re-packed to fit `w`), so a
+stale offset — left over from a wider terminal, or a column list that
+shrank — can never leave the cursor, or the window itself, out of bounds.
 
 Column widths come from the *whole page*, not the visible rows, so
 scrolling vertically never makes the grid jitter sideways. Widths are

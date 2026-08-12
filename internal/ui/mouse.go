@@ -530,7 +530,7 @@ func (m *Model) clickGrid(row, col int) {
 	ch := maxInt(mh-commandLogHeight(mh)-2, 1)
 
 	cols, kinds := m.buildGrid()
-	cs, ce := columnWindow(cols, m.data.col, cw)
+	cs, ce := columnWindow(cols, m.data.col, m.data.colOff, cw)
 	rs, re := rowWindow(len(kinds), m.data.row, maxInt(ch-4, 0))
 	r := rs + row - 3
 	if r < rs || r >= re {

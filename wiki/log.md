@@ -1155,3 +1155,29 @@ Chronological history of wiki changes, newest last.
   first row's parameterized statement plus how many more rows share it —
   instead of N near-identical ones, and the selection is consumed by the
   edit the way vim leaves visual mode after an operator.
+
+## 2026-08-12 — Minimal-scroll column window (issue #126)
+
+- Updated [design/data-grid](design/data-grid.md): moving the cursor left
+  used to re-derive the column window from scratch each render, which
+  always restarted the pack from column 0 and dropped the rightmost
+  visible column even when the cursor never left the window. Fixed by
+  giving `columnWindow` a fourth argument, the previous window's left
+  edge (`dataView.colOff`): it is reused unchanged while the cursor is
+  still inside `[off, end)`, pulled left to the cursor when the cursor
+  passes the left edge, and pushed right only as far as needed when the
+  cursor passes the right edge — symmetric with how right-scroll already
+  worked.
+- `columnWindow` still re-clamps `off` to `[0, cursor]` and re-packs it
+  against the current `cols`/`w` on every call, so a stale offset left
+  over from a wider terminal (or a column list that shrank) can never
+  leave the cursor or the window out of bounds — the resize guarantee the
+  row window already had is unchanged.
+- Since `View` has a value receiver and cannot persist state, `colOff` is
+  kept in step from the Update side instead: `Model.clampCursor` (the
+  existing choke point every cursor- or page-changing action already
+  runs through) now calls `syncColOff`, which re-derives the grid's
+  column widths and content width the same way the next render will and
+  recomputes `colOff` to match. The row window needed no such change — a
+  given cursor row has only one valid window, so it stays purely
+  render-derived.

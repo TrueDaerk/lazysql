@@ -58,6 +58,7 @@ func (m *Model) clampCursor() {
 	if m.data.selecting() && len(m.data.selectedRows()) == 0 {
 		m.clearSelection()
 	}
+	m.syncColOff()
 }
 
 // ---------- delete ----------

@@ -80,10 +80,18 @@ type dataView struct {
 	total    int64
 	hasTotal bool
 
-	// Cell cursor. The row and column scroll windows are derived from it
-	// at render time rather than stored, so a resize can never leave a
-	// stale offset behind.
+	// Cell cursor. The row window is derived from it at render time rather
+	// than stored, so a resize can never leave a stale offset behind.
 	row, col int
+
+	// colOff is the left edge of the column window, in step with col via
+	// Model.syncColOff so h/l scroll minimally: it only moves when the
+	// cursor would otherwise leave the visible window. Unlike the row
+	// window it cannot be purely re-derived at render time, because for a
+	// given cursor column more than one window can validly contain it —
+	// which one is right depends on where the window was before, not just
+	// on the cursor. columnWindow still re-clamps it against a resize.
+	colOff int
 
 	// extraRows is how many phantom rows (staged inserts) the grid
 	// appends after the page. The changeset owns them; this is the count

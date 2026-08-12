@@ -53,6 +53,11 @@ func (m Model) updatePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 		p.setFilter(p.filter + flattenPaste(msg.Content))
 		return m, nil
 	}
+	// 2b. The grid's inline WHERE line is one line for the same reason,
+	// and takes a paste the same way.
+	if m.filterInputOpen() {
+		return m.pasteIntoFilterInput(msg)
+	}
 	// 3. The query editor, in either mode.
 	if m.focus == panelQuery {
 		return m.pasteIntoEditor(msg)

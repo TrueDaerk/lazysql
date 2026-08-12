@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Paginated data grid with sorting and row filtering
-description: How the main view browses a relation one page at a time, how the cell cursor and the column window work, and how the row filter binds every value as a parameter in both its structured and its free-text mode.
+description: How the main view browses a relation one page at a time, how the cell cursor and the column window work, and how the typed WHERE clause behind `/` is parsed into bound parameters before anything runs verbatim.
 tags: [tui, db, main-view, pagination, sorting, filtering, security]
 generated:
   by: claude-code/opus-5
@@ -123,47 +123,24 @@ Any code indexing `Model.panels` or `panelHeights` by focus has to guard
 `m.focus < panelCount` — half screen mode, for instance, expands the
 focused *side* panel and keeps the even split when the grid is focused.
 
-## Row filter: a modal with two modes
+## Row filter: one inline `WHERE` line
 
-`/` (`f` still works) opens `filterModal`, and `F` clears whatever it
-applied. The modal has two modes because filtering has two audiences,
-and one popup covers both:
+`/` (`f` still works) opens an input line at the bottom of the grid, and
+`F` clears whatever it applied. The line is labelled with the statement
+the clause completes (`SELECT * FROM "orders" WHERE `) and takes nothing
+but the clause; `enter` applies it, `esc` leaves the grid untouched, and
+applied clauses are recalled per connection + relation. See
+[inline-where-filter](inline-where-filter.md) for the whole interaction
+and its history storage.
 
-**Structured** (the default) is three fields — column, operator, value —
-over `formModal`, the same multi-field popup the connection editor uses.
-The column select starts on the column the cell cursor sits on, which is
-almost always the one meant, so a wide table costs no cycling. The
-operators are `=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL` and
-`IS NOT NULL`; the value field hides itself for the two NULL tests,
-since they bind nothing. With a structured filter already active a
-fourth field offers to `AND` the new condition onto it (`dataView.conds`
-keeps the conditions for exactly that); the conditions of a fragment
-typed as free-form SQL cannot be taken apart, so the toggle is not
-offered on top of one.
+It replaced a two-mode popup (`filterModal`): a structured
+column/operator/value form over `formModal`, with `ctrl+t` toggling to
+the free-text fragment described below. The builder behind the
+structured half — `db.BuildFilter`, `db.FilterCond` and the type-directed
+value binding around them — is still in `internal/db` with its tests, but
+nothing in the UI calls it any more.
 
-`db.BuildFilter` turns the conditions into the `Filter`: identifiers
-through `Dialect.QuoteIdent`, every value into a `Dialect.Placeholder`
-bound as a query parameter. A value can therefore never be SQL — a
-quote does not end a literal and `%` is a wildcard only under `LIKE`.
-
-What a value binds *as* is decided by the column's declared type
-(`db.typeClass`), not by sniffing the text: `intcol = $1` has to reach
-PostgreSQL with an integer parameter, and `textcol = $1` with a string,
-or the engine rejects the comparison. `LIKE` is the exception — its
-pattern is text even against a numeric column. Type names are matched
-whole after the length and any trailing modifier are cut off, because a
-substring test would read PostgreSQL's `point` and `interval` as
-integers. An unknown type falls back to sniffing a number; a value the
-column's type cannot hold is reported on the modal's error line, which
-keeps the form open rather than sending a statement the engine would
-refuse with a worse message.
-
-**Advanced** (`ctrl+t`) replaces the three fields with one free-text
-`WHERE` fragment — the mode the filter used to be, unchanged, described
-below. Applying it drops the structured conditions, because they are no
-longer what the grid shows.
-
-## The advanced fragment: parse first, interpolate last
+## The typed fragment: parse first, interpolate last
 
 Interpolating a typed fragment into the statement
 is the injection shape lazysql must not have, so `db.ParseFilter` first
@@ -203,19 +180,16 @@ the statement it is about, so it cannot scroll out of sight above it.
 - `Driver.QueryPage` takes a `*db.Filter` rather than a string, so the
   parameterization decision is made once, in one place, and cannot be
   bypassed by a caller assembling its own WHERE text.
-- The structured mode offers only `AND`. `OR`, `IN`, `BETWEEN` and
-  parentheses stay the advanced mode's business, where they run verbatim
-  and are flagged as such — a condition builder that grew a boolean tree
-  would be a query editor, and there already is one.
-- The column list comes from the introspected metadata when the
-  Structure tab has loaded it and from the page's own result columns
-  otherwise. The fallback carries whatever type names the driver reports
-  for the result set, which can be less precise than the declared ones —
-  an unknown type only costs the value the type-directed binding and
-  falls back to sniffing.
+- `OR`, `IN`, `BETWEEN` and parentheses are the typed clause's business,
+  where they run verbatim and are flagged as such — a condition builder
+  that grew a boolean tree would be a query editor, and there already is
+  one.
 
 ## See also
 
+- [inline-where-filter](inline-where-filter.md) — the `/` line that
+  replaced the filter popup, and the per-relation filter history behind
+  its recall keys.
 - [cell-detail-popup](cell-detail-popup.md) — what `v` renders and how
   it decides.
 - [row-detail-view](row-detail-view.md) — `x`'s expanded name/type/value

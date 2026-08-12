@@ -1269,6 +1269,35 @@ Chronological history of wiki changes, newest last.
   `scripts/ptycheck.py` drives any command in a real PTY and renders the
   screen through `pyte`, which is how the above was verified headlessly.
 
+## 2026-08-12 — Inline WHERE input with per-table filter history (issue #130)
+
+- Added [design/inline-where-filter](design/inline-where-filter.md): `/` on
+  the data grid now opens a line at the bottom of the grid instead of
+  `filterModal`. The `SELECT * FROM "orders" WHERE ` label is the
+  textinput's `Prompt`, which is what makes it immutable for free, and it
+  is built by the new `db.FilterPrefixSQL` so the relation shown is quoted
+  by the same dialect code `db.PageSQL` will use.
+- Recorded the routing step the line needed (`Model.Update` step 2b, ahead
+  of the global keys, mirroring the side panels' `/` filter) and why its
+  four keys are `key.Binding`s of their own — `ApplyFilter`,
+  `CancelFilter`, `FilterHistPrev`, `FilterHistNext`, one
+  `keyMap.filterInput()` slice behind the options bar and `?`.
+- Filter history reuses `internal/history` rather than inventing a store
+  *or* a second way of keying one: it narrows the `Entry.Connection`
+  issue #131 added with new `Entry.Database`/`Entry.Table` fields, read
+  back by `history.InRelation` next to that issue's
+  `history.ForConnection`. The clauses live in their own `filters` file —
+  same JSON Lines format, next to `history` — because a WHERE fragment is
+  not a statement the `H` pane could run. Documented the exact match (no
+  empty-`Connection` leniency, and an empty database being the file
+  engines' pseudo-namespace rather than a missing value), the
+  de-duplicate-and-rewrite rule and the per-relation cap.
+- Updated [design/data-grid](design/data-grid.md): the two-mode filter
+  popup section became a pointer to the new concept, noting that
+  `db.BuildFilter`/`db.FilterCond` and their tests stay in `internal/db`
+  with no UI caller, and that `dataView.conds` and
+  `Model.applyFilterConds` are gone with the structured form.
+
 ## 2026-08-12 — Fix the cursor caret rendered offset from its actual position (issue #132)
 
 - Added [reference/runes-cells-and-ansi-in-rendering](reference/runes-cells-and-ansi-in-rendering.md):

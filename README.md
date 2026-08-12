@@ -89,7 +89,7 @@ In the data grid (`enter` on a table, `esc` back):
 | `h`/`l`, `←`/`→` | Move the cell cursor between columns |
 | `ctrl+f` / `ctrl+b`, `pgdn`/`pgup` | Next / previous page |
 | `s` | Sort the cursor column (ASC → DESC → off) |
-| `/` (or `f`) | Filter rows (modal) |
+| `/` (or `f`) | Filter rows: type a `WHERE` clause inline (`enter` applies, `esc` cancels, `↑`/`ctrl+p` and `↓`/`ctrl+n` recall this table's previous filters) |
 | `F` | Clear the filter |
 | `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
 | `ctrl+v` (or `V`) | Select rows: anchored at the cursor, `j`/`k` extend, `esc` clears. `e` then edits the cursor column in every selected row, `ctrl+c` copies the selection |
@@ -182,16 +182,25 @@ text needs the terminal's override modifier (`shift` in most terminals,
 `option`/`alt` in iTerm2 and Terminal.app). `y` copies from inside the
 app and never needs it.
 
-`/` opens the filter modal on the column under the cursor: pick a column,
-an operator (`=`, `!=`, `<`, `>`, `<=`, `>=`, `LIKE`, `IS NULL`,
-`IS NOT NULL`) and a value. The value is always bound as a query
-parameter and the column name is quoted per dialect, so quotes and `%` in
-it are data, never SQL. With a filter already active the modal offers to
-`AND` the new condition onto it instead of replacing it. `ctrl+t` inside
-the modal switches to advanced mode: a free-form `WHERE` fragment, which
-is parameterized where it can be and flagged `where (verbatim)` in the
-status line where it cannot. The active filter is shown in the grid's
-status line, paging and the row count both respect it, and `F` clears it.
+`/` opens an input line at the bottom of the grid instead of a popup. The
+line is labelled with the statement the clause goes into — `SELECT * FROM
+"orders" WHERE ` — and that label is not editable: the relation is quoted
+per dialect, and what you type is the `WHERE` clause and nothing else.
+`enter` applies it, `esc` cancels and leaves the grid exactly as it was,
+and an empty clause clears the filter (as does `F`).
+
+The clause is your SQL: lazysql takes it apart into comparisons whose
+values travel as bound query parameters — so quotes and `%` inside a
+literal are data, never SQL — and anything it cannot parse (`IN`, `OR`,
+parentheses, a subselect) runs verbatim and is flagged `where (verbatim)`
+in the status line. The active filter is shown there too, and paging, the
+row count and exports all respect it.
+
+Applied filters are remembered per connection and table in
+`${XDG_STATE_HOME:-~/.local/state}/lazysql/filters`, so `↑`/`ctrl+p` and
+`↓`/`ctrl+n` walk what you filtered this table by before — including in
+the next session. Walking forward past the newest entry gives back the
+clause you were half-way through typing.
 
 Columns that take part in a foreign key are marked `⇒` in the grid
 header. `g` on one of them opens the referenced table filtered to the

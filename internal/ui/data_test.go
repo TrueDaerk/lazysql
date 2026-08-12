@@ -157,55 +157,23 @@ func TestSortCyclesAndReachesTheQuery(t *testing.T) {
 	}
 }
 
-// applyWhereFilter drives the filter modal's advanced mode: open it
-// with `/`, toggle to the free-text field and apply the fragment. An
-// empty fragment clears the filter.
-func applyWhereFilter(t *testing.T, m Model, fragment string) Model {
+// applyWhereFilter types a WHERE clause into the grid's inline `/` line
+// and applies it, the way a user does: open the line, type, enter. An
+// empty clause clears the filter.
+func applyWhereFilter(t *testing.T, m Model, clause string) Model {
 	t.Helper()
 	m = send(t, m, press('/'))
-	fm, ok := m.modal.(*filterModal)
-	if !ok {
-		t.Fatalf("/ opened %T, want the filter modal", m.modal)
+	if m.filterInput == nil {
+		t.Fatalf("/ opened no filter line (modal = %T)", m.modal)
 	}
-	if !fm.advanced {
-		m = send(t, m, ctrl('t'))
-	}
-	fm.form.field(filterFieldWhere).input.SetValue(fragment)
+	// The line opens on the filter that is running, so the clause is
+	// typed over it rather than after it.
+	m = send(t, m, ctrl('u'))
+	m = typeKeys(t, m, clause)
 	return send(t, m, special(tea.KeyEnter, 0))
 }
 
-// applyColumnFilter drives the modal's structured mode: cycle to the
-// column and the operator, type the value, apply.
-func applyColumnFilter(t *testing.T, m Model, column string, op db.FilterOp, value string) Model {
-	t.Helper()
-	m = send(t, m, press('/'))
-	fm, ok := m.modal.(*filterModal)
-	if !ok {
-		t.Fatalf("/ opened %T, want the filter modal", m.modal)
-	}
-	col := fm.form.field(filterFieldColumn)
-	if !selectChoice(col, column) {
-		t.Fatalf("column %q not offered: %v", column, col.values)
-	}
-	if !selectChoice(fm.form.field(filterFieldOperator), string(op)) {
-		t.Fatalf("operator %q not offered", op)
-	}
-	fm.form.field(filterFieldValue).input.SetValue(value)
-	return send(t, m, special(tea.KeyEnter, 0))
-}
-
-// selectChoice moves a select field onto one of its values.
-func selectChoice(f *formField, value string) bool {
-	for i, v := range f.values {
-		if v == value {
-			f.choice = i
-			return true
-		}
-	}
-	return false
-}
-
-// The advanced mode takes a WHERE fragment, binds its value, and the
+// The line takes a WHERE clause, binds its value, and the
 // filter then survives both paging and a sort change.
 func TestFilterIsBoundAndComposesWithSortAndPaging(t *testing.T) {
 	m := dataBrowsing(t)
@@ -562,89 +530,97 @@ func TestOpeningAnotherTableResetsQueryShape(t *testing.T) {
 	}
 }
 
-// `/` opens the structured modal on the cursor's column and applies a
-// parameterized condition: the value is bound, the page reloads from the
-// first page and the count sees the same rows.
-func TestFilterModalBindsStructuredCondition(t *testing.T) {
+// `/` opens no popup: it opens a line inside the grid, labelled with the
+// statement the clause completes, and typing appends to the clause
+// alone.
+func TestFilterInputShowsTheStatementAsAnImmutablePrefix(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, ctrl('f'))  // page 2, so applying has to return to page 1
-	m = send(t, m, press('l')) // cursor onto `name`
+	m = send(t, m, press('/'))
 
-	m2 := send(t, m, press('/'))
-	fm, ok := m2.modal.(*filterModal)
-	if !ok {
-		t.Fatalf("/ opened %T, want the filter modal", m2.modal)
-	}
-	if fm.advanced {
-		t.Error("the modal opened in advanced mode, want the structured one")
-	}
-	if got := fm.form.rawValue(filterFieldColumn); got != "name" {
-		t.Errorf("column preselected = %q, want the cursor column name", got)
-	}
-
-	m = applyColumnFilter(t, m, "name", db.OpLike, "name-1%")
 	if m.modal != nil {
-		t.Fatal("the modal stayed open")
+		t.Fatalf("/ opened %T, want no popup at all", m.modal)
 	}
-	if m.data.filter == nil || m.data.filter.Verbatim {
-		t.Fatalf("filter = %+v, want a parameterized one", m.data.filter)
+	if m.filterInput == nil {
+		t.Fatal("/ opened no filter line")
 	}
-	if len(m.data.filter.Args) != 1 || m.data.filter.Args[0] != "name-1%" {
-		t.Fatalf("args = %#v, want the pattern bound", m.data.filter.Args)
+	if want := `SELECT * FROM "grid" WHERE `; m.filterInput.prefix != want {
+		t.Fatalf("prefix = %q, want %q", m.filterInput.prefix, want)
 	}
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want the first page", m.data.page)
+	if !strings.Contains(m.View().Content, `SELECT * FROM "grid" WHERE`) {
+		t.Error("the grid does not show the statement the clause goes into")
 	}
-	if !logContains(m, `WHERE "name" LIKE ?`) || !logContains(m, "-- args [name-1%]") {
-		t.Fatalf("command log = %v", m.commandLog)
+
+	m = typeKeys(t, m, "id > 100")
+	if got := m.filterInput.value(); got != "id > 100" {
+		t.Fatalf("clause = %q, want only what was typed", got)
 	}
-	// name-1, name-1x and name-1xx: 1, 10–19, 100–199 = 111 rows.
-	if m.data.total != 111 {
-		t.Fatalf("total = %d, want the filtered count 111", m.data.total)
+	// Backspacing past the start eats the clause, never the prefix.
+	for i := 0; i < 20; i++ {
+		m = send(t, m, special(tea.KeyBackspace, 0))
 	}
-	if !strings.Contains(m.View().Content, "where name LIKE 'name-1%'") {
-		t.Error("the status line does not name the active filter")
+	if got := m.filterInput.value(); got != "" {
+		t.Fatalf("clause = %q, want it emptied", got)
+	}
+	if m.filterInput.prefix == "" {
+		t.Fatal("backspace ate the prefix")
 	}
 }
 
-// A value that would end a string literal or act as a wildcard is data:
-// it is bound, so it matches literally and injects nothing.
-func TestFilterModalBindsQuotesAndWildcards(t *testing.T) {
+// The line owns every key while it is open: `q` types instead of
+// quitting, a digit types instead of jumping panels, and the options bar
+// says which four keys still act.
+func TestFilterInputSwallowsTheGlobalKeys(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, press('/'))
+	m = typeKeys(t, m, "q = 2")
+
+	if got := m.filterInput.value(); got != "q = 2" {
+		t.Fatalf("clause = %q, want the global keys typed into it", got)
+	}
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the digit to have typed rather than jumped", m.focus)
+	}
+	bar := m.View().Content
+	for _, want := range []string{"apply filter", "cancel filter", "prev filter"} {
+		if !strings.Contains(bar, want) {
+			t.Errorf("the options bar does not offer %q", want)
+		}
+	}
+}
+
+// A quoted literal is bound as a parameter, so a value that would end
+// the string or act as a wildcard matches literally and injects nothing.
+func TestFilterInputBindsQuotedLiterals(t *testing.T) {
 	m := dataBrowsing(t)
 	if _, err := m.driver.Exec(context.Background(),
 		`INSERT INTO grid (id, name, note, payload) VALUES (900, 'o''%brien', NULL, NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	m = applyColumnFilter(t, m, "name", db.OpEq, `o'%brien`)
+	m = applyWhereFilter(t, m, `name = 'o''%brien'`)
+	if m.data.filter == nil || m.data.filter.Verbatim {
+		t.Fatalf("filter = %+v, want a parameterized one", m.data.filter)
+	}
 	if len(m.data.rows) != 1 {
 		t.Fatalf("rows = %d, want the one literal match", len(m.data.rows))
 	}
+	if !logContains(m, `WHERE "name" = ?`) {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
 
-	m = applyColumnFilter(t, m, "name", db.OpEq, `x' OR 1=1 --`)
+	m = applyWhereFilter(t, m, `name = 'x'' OR 1=1 --'`)
 	if len(m.data.rows) != 0 {
-		t.Fatalf("rows = %d, want none — the value is not SQL", len(m.data.rows))
+		t.Fatalf("rows = %d, want none — the literal is data, not SQL", len(m.data.rows))
 	}
 	if m.data.err != "" {
 		t.Fatalf("the injected value broke the statement: %s", m.data.err)
 	}
 }
 
-// IS NULL and IS NOT NULL take no value, so the modal hides the field
-// and the filter carries no argument.
-func TestFilterModalNullOperatorsNeedNoValue(t *testing.T) {
+// A NULL test needs no parameter, and several terms ANDed together are
+// each bound in turn.
+func TestFilterInputBindsNullTestsAndAndedTerms(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('/'))
-	fm := m.modal.(*filterModal)
-	if !selectChoice(fm.form.field(filterFieldOperator), string(db.OpIsNull)) {
-		t.Fatal("IS NULL not offered")
-	}
-	for _, f := range fm.form.visibleFields() {
-		if f.name == filterFieldValue {
-			t.Error("the value field is visible for IS NULL")
-		}
-	}
-
-	m = applyColumnFilter(t, m, "note", db.OpIsNull, "")
+	m = applyWhereFilter(t, m, "note IS NULL")
 	if m.data.filter == nil || len(m.data.filter.Args) != 0 {
 		t.Fatalf("filter = %+v, want no bound argument", m.data.filter)
 	}
@@ -655,23 +631,30 @@ func TestFilterModalNullOperatorsNeedNoValue(t *testing.T) {
 		t.Fatalf("total = %d, want all %d rows (note is always NULL)", m.data.total, gridRows)
 	}
 
-	m = applyColumnFilter(t, m, "note", db.OpIsNotNull, "")
-	if m.data.total != 0 {
-		t.Fatalf("total = %d, want none", m.data.total)
+	m = applyWhereFilter(t, m, "id > 200 AND name LIKE 'name-24%'")
+	if m.data.filter == nil || len(m.data.filter.Args) != 2 {
+		t.Fatalf("filter = %+v, want both values bound", m.data.filter)
+	}
+	if !logContains(m, `WHERE "id" > ? AND "name" LIKE ?`) {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+	// 240–249 are above 200 and match the pattern.
+	if m.data.total != 10 {
+		t.Fatalf("total = %d, want 10", m.data.total)
 	}
 }
 
 // `F` drops the filter and reloads the unfiltered first page.
 func TestClearFilterRestoresTheFullView(t *testing.T) {
 	m := dataBrowsing(t)
-	m = applyColumnFilter(t, m, "id", db.OpGt, "200")
+	m = applyWhereFilter(t, m, "id > 200")
 	if m.data.total != 50 {
 		t.Fatalf("total = %d, want 50", m.data.total)
 	}
 
 	m = send(t, m, press('F'))
-	if m.data.filter != nil || m.data.conds != nil {
-		t.Fatalf("filter = %+v, conds = %+v, want both cleared", m.data.filter, m.data.conds)
+	if m.data.filter != nil {
+		t.Fatalf("filter = %+v, want it cleared", m.data.filter)
 	}
 	if m.data.total != gridRows {
 		t.Fatalf("total = %d, want the unfiltered %d", m.data.total, gridRows)
@@ -688,92 +671,116 @@ func TestClearFilterRestoresTheFullView(t *testing.T) {
 	}
 }
 
-// Repeating `/` with the AND toggle on adds a condition to the active
-// filter instead of replacing it.
-func TestFilterModalAndsConditions(t *testing.T) {
+// esc closes the line and changes nothing: the page keeps the filter it
+// was showing, which is what the popup's esc did too.
+func TestFilterInputEscCancelsWithoutTouchingTheGrid(t *testing.T) {
 	m := dataBrowsing(t)
-	m = applyColumnFilter(t, m, "id", db.OpGt, "200")
+	m = applyWhereFilter(t, m, "id > 200")
 
 	m = send(t, m, press('/'))
-	fm := m.modal.(*filterModal)
-	andField := fm.form.field(filterFieldAnd)
-	if !fm.form.isVisible(andField) {
-		t.Fatal("the AND toggle is hidden while a structured filter is active")
-	}
-	andField.on = true
-	selectChoice(fm.form.field(filterFieldColumn), "name")
-	selectChoice(fm.form.field(filterFieldOperator), string(db.OpLike))
-	fm.form.field(filterFieldValue).input.SetValue("name-24%")
-	m = send(t, m, special(tea.KeyEnter, 0))
+	m = send(t, m, ctrl('u'))
+	m = typeKeys(t, m, "id > 1")
+	m = send(t, m, special(tea.KeyEscape, 0))
 
-	if len(m.data.conds) != 2 {
-		t.Fatalf("conds = %+v, want both conditions", m.data.conds)
+	if m.filterInput != nil {
+		t.Fatal("esc left the line open")
 	}
-	if !logContains(m, `WHERE "id" > ? AND "name" LIKE ?`) {
-		t.Fatalf("command log = %v", m.commandLog)
+	if m.data.filter == nil || m.data.filter.Raw != "id > 200" {
+		t.Fatalf("filter = %+v, want the one that was running", m.data.filter)
 	}
-	// 240–249 are above 200 and match the pattern.
-	if m.data.total != 10 {
-		t.Fatalf("total = %d, want 10", m.data.total)
+	if m.data.total != 50 {
+		t.Fatalf("total = %d, want the page untouched", m.data.total)
+	}
+	// The status line is back now that the line is gone.
+	if !strings.Contains(m.View().Content, "where id > 200") {
+		t.Error("the status line did not come back after esc")
 	}
 }
 
-// A value the column cannot hold is reported in the modal, which stays
-// open with the rest of the form intact.
-func TestFilterModalReportsBadValue(t *testing.T) {
+// The line lives inside the grid's box, so it may never render wider
+// than the box — a long prefix gives way to `WHERE ` rather than pushing
+// the border out or truncating the caret off the end.
+func TestFilterInputFitsEveryBoxWidth(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('/'))
-	fm := m.modal.(*filterModal)
-	selectChoice(fm.form.field(filterFieldColumn), "id")
-	fm.form.field(filterFieldValue).input.SetValue("abc")
-	m = send(t, m, special(tea.KeyEnter, 0))
+	m = typeKeys(t, m, "status = 'open'")
 
-	if m.modal == nil {
-		t.Fatal("the modal closed on an invalid value")
-	}
-	if fm.form.err == "" {
-		t.Error("the modal shows no reason")
-	}
-	if m.data.filter != nil {
-		t.Fatalf("filter = %+v, want the grid untouched", m.data.filter)
-	}
-}
-
-// ctrl+t swaps the structured fields for the free-text fragment and
-// back; esc cancels either mode without touching the grid.
-func TestFilterModalTogglesAdvancedAndCancels(t *testing.T) {
-	m := dataBrowsing(t)
-	m = send(t, m, press('/'))
-	out := m.View().Content
-	for _, want := range []string{"Filter rows", "Column", "Operator", "Value", "ctrl+t advanced"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("the modal is missing %q", want)
+	for _, w := range []int{4, 8, 12, 20, 40, 120} {
+		line := m.filterInput.view(w)
+		if got := lipgloss.Width(line); got > w {
+			t.Errorf("line at w=%d renders %d cells wide", w, got)
+		}
+		if w >= 60 && !strings.Contains(line, `SELECT * FROM "grid"`) {
+			t.Errorf("line at w=%d dropped the full prefix: %q", w, line)
 		}
 	}
 
-	m = send(t, m, ctrl('t'))
-	fm := m.modal.(*filterModal)
-	if !fm.advanced {
-		t.Fatal("ctrl+t did not switch to advanced mode")
+	// And the grid's own frame stays the size it was given with the line
+	// open, at every layout.
+	for _, size := range [][2]int{{60, 18}, {80, 24}, {200, 60}} {
+		next, _ := m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		m = next.(Model)
+		for _, mode := range []screenMode{screenNormal, screenHalf, screenFull} {
+			m.screen = mode
+			out := m.View().Content
+			for _, row := range strings.Split(out, "\n") {
+				if got := lipgloss.Width(row); got > size[0] {
+					t.Fatalf("%dx%d mode %v: a row is %d cells wide", size[0], size[1], mode, got)
+				}
+			}
+		}
 	}
-	names := map[string]bool{}
-	for _, f := range fm.form.visibleFields() {
-		names[f.name] = true
+}
+
+// The line opens on the filter that is running, so re-filtering starts
+// from what is on screen instead of from an empty clause.
+func TestFilterInputOpensOnTheActiveFilter(t *testing.T) {
+	m := dataBrowsing(t)
+	m = applyWhereFilter(t, m, "id > 200")
+	m = send(t, m, press('/'))
+	if got := m.filterInput.value(); got != "id > 200" {
+		t.Fatalf("line = %q, want the active filter", got)
 	}
-	if !names[filterFieldWhere] || names[filterFieldColumn] {
-		t.Fatalf("advanced mode shows %v", names)
+}
+
+// Leaving the grid closes the line. The keyboard cannot leave it — tab
+// types into the clause like every other key, and esc cancels in place —
+// but a click on a side panel moves the focus, and a line left open
+// behind it would be a caret nothing types into.
+func TestFilterInputClosesWhenTheGridLosesFocus(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, press('/'))
+	m = send(t, m, special(tea.KeyTab, 0))
+	if m.filterInput == nil || m.focus != panelMain {
+		t.Fatalf("tab left the line: focus = %v, line = %v", m.focus, m.filterInput)
 	}
 
-	m = send(t, m, ctrl('t'))
-	if fm.advanced {
-		t.Fatal("ctrl+t does not toggle back")
+	m = send(t, m, click(2, 2)) // panel [1], the top of the side column
+	if m.focus == panelMain {
+		t.Fatal("the click did not move the focus off the grid")
 	}
-	m = send(t, m, special(tea.KeyEsc, 0))
-	if m.modal != nil {
-		t.Fatal("esc did not close the modal")
+	if m.filterInput != nil {
+		t.Fatalf("the line survived a focus change to %v", m.focus)
 	}
-	if m.data.filter != nil {
-		t.Fatalf("filter = %+v, want esc to change nothing", m.data.filter)
+}
+
+// So does opening another relation: the label names one relation of one
+// connection. The relation change cannot be driven by keys while the
+// line is open — it swallows them, which is the point — so the model's
+// own entry point stands in for the tree.
+func TestFilterInputClosesWhenAnotherRelationOpens(t *testing.T) {
+	m := dataBrowsing(t)
+	if _, err := m.driver.Exec(context.Background(),
+		`CREATE TABLE IF NOT EXISTS other (id INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	m = send(t, m, press('/'))
+	if m.filterInput == nil {
+		t.Fatal("/ opened no filter line")
+	}
+	m.openTable("other")
+	if m.filterInput != nil {
+		t.Fatal("the line followed the grid to another relation")
 	}
 }
 

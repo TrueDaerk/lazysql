@@ -1188,3 +1188,19 @@ Chronological history of wiki changes, newest last.
   documents for `ctrl+enter`; where a terminal doesn't answer that
   capability query the bindings just never match and plain arrow movement
   is unaffected.
+
+## 2026-08-12 — Scope query editor history per connection (issue #131)
+
+- Extended [design/query-editor-and-history](design/query-editor-and-history.md)
+  §5 with a new `Entry.Connection` field (`internal/history/history.go`):
+  `recordHistory` stamps the active connection name, and `H`'s pane filters
+  through the new `history.ForConnection` before the modal is built, so
+  statements from one connection no longer show up while another is active.
+- Keyed by connection **name**, not a synthetic ID — `config.Connection` has
+  none, and every other place in the codebase (`m.active`,
+  `refreshConnections`) already accepts the same rename trade-off. Documented
+  as the mechanism a planned per-table filter history is meant to share.
+- An entry with no `Connection` (written before this field existed) is shown
+  for every connection rather than hidden or migrated — there is no way to
+  recover which connection it belonged to, and the history is a convenience
+  list, not an audit trail.

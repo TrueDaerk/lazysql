@@ -200,6 +200,10 @@ scope, uppercase the table scope.
 
 - `y` no longer copies the DDL directly; it opens the menu, whose `d`
   entry does. The DDL tab's hint changed to match.
+- With a multi-row selection up, the same menu leads with the selection
+  scopes and drops the single-row ones, and `ctrl+c` opens it as well as
+  `y` does. See
+  [design/grid-multi-row-selection](grid-multi-row-selection.md).
 - A copy never simply fails. With no native clipboard — an SSH session,
   a container — the text goes out as an OSC 52 escape sequence, and
   with no terminal to take that either it spills to a temp file whose

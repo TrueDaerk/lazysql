@@ -52,6 +52,12 @@ func (m Model) onPhantomRow() bool {
 func (m *Model) clampCursor() {
 	m.data.extraRows = len(m.stagedInserts())
 	m.data.clampCursor()
+	// A page that came back with fewer rows than the selection was
+	// anchored in leaves no rows selected; ending the mode outright keeps
+	// `ctrl+c` from staying bound to a copy of nothing.
+	if m.data.selecting() && len(m.data.selectedRows()) == 0 {
+		m.clearSelection()
+	}
 }
 
 // ---------- delete ----------

@@ -142,15 +142,23 @@ type keyMap struct {
 	// keeps meaning quit the rest of the time. ShiftUp/ShiftDown are the
 	// conventional alternative: with no selection up they anchor one at the
 	// cursor row and move, like ctrl+v followed by k/j; with one already up
-	// they just extend or shrink it, like plain k/j do. Whether the
-	// terminal reports shift+arrows at all depends on kitty keyboard
-	// protocol support — the same caveat acceptKeys documents for
-	// ctrl+enter — so where it is not reported these bindings simply never
-	// match and plain Up/Down keep working.
+	// they just extend or shrink it, like plain k/j do. ShiftLeft/ShiftRight
+	// do the same sideways, narrowing the selection to a block of columns.
+	//
+	// Whether the terminal reports shift+arrows at all is not something the
+	// app can decide: it needs the kitty keyboard protocol or
+	// modifyOtherKeys, and macOS Terminal.app supports neither — the same
+	// caveat acceptKeys documents for ctrl+enter. Every one of these
+	// bindings therefore carries an unshifted fallback (`V`, `K`/`J`,
+	// `<`/`>`) that works on any terminal, and where shift+arrows are not
+	// reported the shifted keys simply never match. See
+	// wiki/reference/terminal-key-reporting.md.
 	SelectRows    key.Binding
 	CopySelection key.Binding
 	ShiftUp       key.Binding
 	ShiftDown     key.Binding
+	ShiftLeft     key.Binding
+	ShiftRight    key.Binding
 
 	// Foreign-key navigation. FollowFK jumps along the constraint the
 	// cursor column takes part in, IncomingRefs goes the other way, and
@@ -342,15 +350,26 @@ func newKeyMap() keyMap {
 		// ctrl+v is vim's visual-block key, and the grid is the one place
 		// it is free: bracketed paste arrives as tea.PasteMsg rather than
 		// as a key, so nothing in the app reads ctrl+v as "paste".
+		// `V` is vim's visual-line key and the fallback for terminals that
+		// cannot report ctrl+v either (or where the user's terminal owns it
+		// as a paste key).
 		SelectRows: key.NewBinding(
-			key.WithKeys("ctrl+v"), key.WithHelp("ctrl+v", "select rows")),
+			key.WithKeys("ctrl+v", "V"), key.WithHelp("ctrl+v/V", "select rows")),
 		// Disabled until a selection exists — see the field comment.
 		CopySelection: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "copy selection…"), key.WithDisabled()),
+		// Each shifted arrow carries its unshifted fallback: the uppercase
+		// vim key for the rows, the angle brackets for the columns — `H`/`L`
+		// are already the main-view tabs, so the sideways pair borrows the
+		// "shifted `,`/`.`" shape instead.
 		ShiftUp: key.NewBinding(
-			key.WithKeys("shift+up"), key.WithHelp("shift+↑", "extend selection up")),
+			key.WithKeys("shift+up", "K"), key.WithHelp("shift+↑/K", "extend selection up")),
 		ShiftDown: key.NewBinding(
-			key.WithKeys("shift+down"), key.WithHelp("shift+↓", "extend selection down")),
+			key.WithKeys("shift+down", "J"), key.WithHelp("shift+↓/J", "extend selection down")),
+		ShiftLeft: key.NewBinding(
+			key.WithKeys("shift+left", "<"), key.WithHelp("shift+←/<", "extend selection a column left")),
+		ShiftRight: key.NewBinding(
+			key.WithKeys("shift+right", ">"), key.WithHelp("shift+→/>", "extend selection a column right")),
 
 		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
 		IncomingRefs: key.NewBinding(
@@ -543,6 +562,8 @@ const (
 	actSelectRows
 	actExtendSelectionUp
 	actExtendSelectionDown
+	actExtendSelectionLeft
+	actExtendSelectionRight
 	actWhereFilter
 	actClearFilter
 	actViewCell
@@ -646,6 +667,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actSelectRows, k.SelectRows},
 			{actExtendSelectionUp, k.ShiftUp},
 			{actExtendSelectionDown, k.ShiftDown},
+			{actExtendSelectionLeft, k.ShiftLeft},
+			{actExtendSelectionRight, k.ShiftRight},
 			{actCopySelectionMenu, k.CopySelection},
 			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
@@ -811,6 +834,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"row-detail", &k.RowDetail},
 		{"select-rows", &k.SelectRows}, {"copy-selection", &k.CopySelection},
 		{"shift-up", &k.ShiftUp}, {"shift-down", &k.ShiftDown},
+		{"shift-left", &k.ShiftLeft}, {"shift-right", &k.ShiftRight},
 		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},
 		{"browse-back", &k.BrowseBack},
 

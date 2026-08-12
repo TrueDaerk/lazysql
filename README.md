@@ -89,7 +89,9 @@ In the data grid (`enter` on a table, `esc` back):
 | `/` (or `f`) | Filter rows (modal) |
 | `F` | Clear the filter |
 | `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
-| `ctrl+v` | Select rows: anchored at the cursor, `j`/`k` extend, `esc` clears. `e` then edits the cursor column in every selected row, `ctrl+c` copies the selection |
+| `ctrl+v` (or `V`) | Select rows: anchored at the cursor, `j`/`k` extend, `esc` clears. `e` then edits the cursor column in every selected row, `ctrl+c` copies the selection |
+| `shift+↑`/`shift+↓` (or `K`/`J`) | Start a selection at the cursor row and extend it up / down |
+| `shift+←`/`shift+→` (or `<`/`>`) | Narrow the selection to a block of columns — the copy scopes then carry only those columns |
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
@@ -129,6 +131,31 @@ key the result set does not carry) drop out and are reported in the
 command log. The selection is dropped by anything that replaces the rows
 under it — a reload, a sort, a filter, a page turn — so a staged edit can
 never land on a row that was never picked.
+
+### Selecting a block of columns
+
+`shift+←`/`shift+→` narrows a selection to a block: the first press
+anchors the column span at the cursor column, each further press moves
+the other edge. Until one of them is pressed the selection means whole
+rows, exactly as before. With a block up, the status line reads
+`N rows × M columns selected`, only the block is tinted, and the copy
+scopes carry only those columns — the CSV header, the JSON keys and the
+INSERT column list all shrink with it. The cursor-column scope (`c` in
+the copy menu) and the bulk `e` edit stay aimed at the cursor column.
+
+### If shift+arrows do nothing
+
+Whether `shift+↑↓←→` reach lazysql is up to the terminal, not the app.
+kitty, WezTerm, Ghostty, iTerm2, Alacritty and xterm send them; **macOS
+Terminal.app does not** — there they are indistinguishable from plain
+arrows. Every one of those bindings therefore has an unshifted
+equivalent that works anywhere: `V` to start a selection, `K`/`J` to
+extend it up/down, `<`/`>` to narrow it to columns.
+
+`lazysql --debug-keys` prints what your terminal actually reports for
+each key you press (`ctrl+q` quits), which is the quickest way to tell a
+key that never arrived from a binding that did not match. Details in
+[`wiki/reference/terminal-key-reporting.md`](wiki/reference/terminal-key-reporting.md).
 
 ### Mouse
 

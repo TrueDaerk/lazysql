@@ -1188,3 +1188,30 @@ Chronological history of wiki changes, newest last.
   documents for `ctrl+enter`; where a terminal doesn't answer that
   capability query the bindings just never match and plain arrow movement
   is unaffected.
+
+## 2026-08-12 — Fix shift+arrow selection, add shift+left/right column selection (issue #134)
+
+- Root cause of "shift+up/shift+down does not work": nothing in the app.
+  Bubble Tea v2 has no `WithKeyboardEnhancements` program option and needs
+  none — `keyboardEnhancementsFlags` always enables basic key
+  disambiguation — and ultraviolet decodes `\x1b[1;2A`-style sequences into
+  `shift+up`/`shift+down`/`shift+left`/`shift+right` regardless. Verified in
+  a real PTY (`TERM=xterm-256color`): the four sequences reach the grid and
+  produce `3 rows selected` / `3 rows × 2 columns selected`. What varies is
+  the terminal: macOS Terminal.app never emits them. Recorded as
+  [reference/terminal-key-reporting](reference/terminal-key-reporting.md).
+- Every shifted selection binding gained an unshifted fallback in the same
+  `key.Binding`, so `?` and the options bar document both from one source:
+  `ctrl+v`/`V`, `shift+↑`/`K`, `shift+↓`/`J`, `shift+←`/`<`, `shift+→`/`>`
+  (`H`/`L` were taken by the main-view tabs).
+- `shift+←`/`shift+→` (`Model.extendColumnSelection`) narrow the selection
+  to a block of columns: `gridSelection` gained an opt-in `cols`/`colAnchor`
+  span, `cellSelected` replaces the row-wise tint in `gridRow`, the status
+  line reads `N rows × M columns selected`, and `copySelectionRows` cuts
+  columns and values to the span so CSV headers, JSON keys and INSERT
+  column lists shrink with it. The cursor-column copy scope and the bulk
+  `e` edit stay aimed at the cursor column.
+- `lazysql --debug-keys` (`internal/ui/keydebug.go`) dumps what the terminal
+  reports for each key plus whether it answered the enhancement query;
+  `scripts/ptycheck.py` drives any command in a real PTY and renders the
+  screen through `pyte`, which is how the above was verified headlessly.

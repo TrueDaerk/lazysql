@@ -20,9 +20,9 @@ sources:
 ## Decision
 
 The data grid carries one piece of selection state — `dataView.sel`, a
-`rowSelection{active, anchor}` — and every action that can mean "these
-rows" reads it. It is deliberately not copy-specific: the bulk column
-edit of issue #119 is meant to stage from the same range.
+`gridSelection{active, anchor, cols, colAnchor}` — and every action that
+can mean "these rows" reads it. It is deliberately not copy-specific: the
+bulk column edit of issue #119 is meant to stage from the same range.
 
 ### Anchor plus cursor, not a set of marked rows
 
@@ -145,7 +145,7 @@ has stopped thinking about.
 
 Issue #124 asked for the conventional shift+arrow gesture alongside the
 vim-style `ctrl+v` + `j`/`k`. Rather than add a second selection mode,
-`Model.extendSelection(delta)` reuses the same `rowSelection` and the same
+`Model.extendSelection(delta)` reuses the same `gridSelection` and the same
 movement path: with no selection up it anchors one at the cursor row
 exactly like `toggleSelection` does, then moves through `wheelAt` — the
 same coalescing entry point plain `Up`/`Down` already use — so the wheel
@@ -155,13 +155,48 @@ because that behavior was always "the cursor moved while `sel.active`",
 never something `toggleSelection` itself implements.
 
 `ShiftUp`/`ShiftDown` bind to the `shift+up`/`shift+down` key strings
-Bubble Tea v2 reports through the kitty keyboard protocol's
-disambiguation extension — the same mechanism `acceptKeys` (ctrl+enter)
-relies on. Not every terminal answers that capability query; where it
-doesn't, these two bindings simply never match, `up`/`down` keep meaning
-plain cursor movement exactly as before, and there is no crash or
-misread — the terminal continues sending bare `up`/`down` for the
-un-shifted key, which `keyMap.Up`/`keyMap.Down` already handle.
+Bubble Tea v2 reports for the terminal's modified-arrow sequences. Not
+every terminal sends them — macOS Terminal.app notably does not — and
+where they never arrive the bindings simply never match, `up`/`down`
+keep meaning plain cursor movement, and there is no crash or misread.
+Which terminals report what, and how it was verified in a real PTY, is
+[reference/terminal-key-reporting](../reference/terminal-key-reporting.md);
+because the answer is "not all of them", each binding carries an
+unshifted alias in the same `key.Binding` (`V`, `K`/`J`, `<`/`>`).
+
+### `shift+←`/`shift+→` narrow the selection to a block of columns
+
+Issue #134 extended the gesture sideways.
+`Model.extendColumnSelection(delta)` is the mirror of
+`extendSelection`: it anchors a selection at the cursor row if none is
+up (both go through `Model.startSelection`), anchors `colAnchor` at the
+cursor column the first time it runs, and then moves the cell cursor one
+column — the other edge of the span, exactly as the cursor row is the
+other edge of the row span.
+
+The column span is **opt-in**: `sel.cols` is false until a sideways key
+runs, and `columnRange` answers "all columns" while it is. A selection
+made with `ctrl+v` or `shift+↓` therefore means whole rows, as it always
+did, and only a deliberate `shift+←`/`shift+→` turns it into a block.
+That is what keeps the existing scopes honest — nothing silently starts
+copying fewer columns than it did before.
+
+What reads the span:
+
+- **The tint.** `cellSelected(r, c)` replaces the row-wise `inSelection`
+  in `gridRow`, so a column the block left out is not painted.
+- **The status line.** `N rows selected` becomes
+  `N rows × M columns selected` once the span leaves a column out.
+- **The copy scopes.** `copySelectionRows` cuts both the columns and
+  each row down to the span before handing them to `export.Rows`, so a
+  CSV copy carries only the selected header, a JSON copy only those
+  keys, and an INSERT copy an explicit, shorter column list. The menu
+  labels and the command log name both dimensions.
+
+The cursor-column scope (`c` — column values of the selection) and the
+bulk `e` edit stay aimed at the *cursor* column rather than the span: a
+single value staged into columns of different types is a different
+feature, not a wider version of this one.
 
 ## Consequences
 
@@ -173,9 +208,11 @@ un-shifted key, which `keyMap.Up`/`keyMap.Down` already handle.
   every other grid key, so dispatch, the options bar, the `a` menu and
   `?` all still read one table — see
   [design/keybindings-single-source](keybindings-single-source.md). Both
-  are rebindable as `select-rows` and `copy-selection`; `shift+up`/
-  `shift+down` are entries of their own (`shift-up`, `shift-down`) for the
-  same reasons.
+  are rebindable as `select-rows` and `copy-selection`; the four shifted
+  arrows are entries of their own (`shift-up`, `shift-down`,
+  `shift-left`, `shift-right`) for the same reasons, each carrying its
+  unshifted fallback in the same binding so both spellings are
+  documented from one source.
 - The bulk column edit builds on `dataView.selectedRows()` and touches
   none of the copy path; nothing in the selection state is specific to
   either consumer.

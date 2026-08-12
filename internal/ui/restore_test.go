@@ -59,7 +59,7 @@ func connectAndOpenWidgets(t *testing.T, m Model) Model {
 func TestRestoreSessionReconnectsToTableTabAndCursor(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 
 	m, err := New(false)
 	if err != nil {
@@ -106,7 +106,7 @@ func TestRestoreSessionReconnectsToTableTabAndCursor(t *testing.T) {
 func TestRestoreSessionClampsAnOutOfRangeCursor(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 
 	m, err := New(false)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestRestoreSessionClampsAnOutOfRangeCursor(t *testing.T) {
 // not an error and not a hang.
 func TestRestoreSessionDegradesOnDeletedConnection(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	writeConfig(t, &config.Config{Connections: nil})
+	writeConfig(t, &config.Config{Connections: nil, RestoreSession: true})
 	if err := session.Save(session.Session{Connection: "gone", Table: "widgets"}); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestRestoreSessionDegradesOnDeletedConnection(t *testing.T) {
 func TestRestoreSessionDegradesOnMissingTable(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 
 	// Connect once so the database file exists, then save a session naming
 	// a table that was never created.
@@ -207,7 +207,7 @@ func TestRestoreSessionDegradesOnMissingTable(t *testing.T) {
 func TestEscDuringRestoreDialCancels(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 
 	m, err := New(false)
 	if err != nil {
@@ -246,8 +246,7 @@ func TestEscDuringRestoreDialCancels(t *testing.T) {
 func TestRestoreSessionSkippedWhenConfigDisabled(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	off := false
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: &off})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: false})
 	if err := session.Save(session.Session{Connection: conn.Name, Table: "widgets"}); err != nil {
 		t.Fatal(err)
 	}
@@ -261,11 +260,35 @@ func TestRestoreSessionSkippedWhenConfigDisabled(t *testing.T) {
 	}
 }
 
+// A config file that never mentions restore_session at all — the state a
+// fresh install starts in — must default to no restore: connecting on
+// startup is a side effect the user has to opt into.
+func TestRestoreSessionSkippedWhenConfigAbsent(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	conn := restoreFixtureConn(t)
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	if err := session.Save(session.Session{Connection: conn.Name, Table: "widgets"}); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := New(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.restoreSess != nil {
+		t.Fatal("restoreSess set despite restore_session being absent from config")
+	}
+	m = send(t, m, drain(m.Init())...)
+	if m.active != "" {
+		t.Fatalf("active = %q, want no connection made", m.active)
+	}
+}
+
 // --no-restore skips restoration for this run without touching the config.
 func TestNoRestoreFlagSkipsRestoration(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	conn := restoreFixtureConn(t)
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 	if err := session.Save(session.Session{Connection: conn.Name, Table: "widgets"}); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +311,7 @@ func TestRestoreSessionAsksPasswordBeforeDialing(t *testing.T) {
 		Name: "asks", Engine: db.EnginePostgres,
 		Host: "127.0.0.1", Port: 1, User: "u", AskPassword: true,
 	}
-	writeConfig(t, &config.Config{Connections: []config.Connection{conn}})
+	writeConfig(t, &config.Config{Connections: []config.Connection{conn}, RestoreSession: true})
 	if err := session.Save(session.Session{Connection: conn.Name, Table: "widgets"}); err != nil {
 		t.Fatal(err)
 	}

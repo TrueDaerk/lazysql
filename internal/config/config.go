@@ -134,18 +134,16 @@ type Config struct {
 	// and color parsing live in internal/ui.
 	Theme map[string]string `toml:"theme,omitempty"`
 
-	// RestoreSession controls whether startup dials the last connection
-	// and navigates back to the last database/table/tab. A pointer, not a
-	// plain bool: absent from the file must default to true, so only an
-	// explicit `restore_session = false` turns it off — see
-	// RestoreSessionEnabled.
-	RestoreSession *bool `toml:"restore_session,omitempty"`
+	// RestoreSession controls whether startup dials the last connection and
+	// navigates back to the last database/table/tab. Opt-in: absent from
+	// the file means false, so a fresh config never auto-connects.
+	RestoreSession bool `toml:"restore_session,omitempty"`
 }
 
 // RestoreSessionEnabled reports whether startup should restore the last
-// session. Absent (nil) defaults to true.
+// session. Absent (false) means no restore.
 func (c *Config) RestoreSessionEnabled() bool {
-	return c.RestoreSession == nil || *c.RestoreSession
+	return c.RestoreSession
 }
 
 // Params converts a profile into the driver-agnostic connection parameters.
@@ -252,18 +250,15 @@ type configFile struct {
 	Connections    []connectionFile  `toml:"connections"`
 	Keys           map[string]string `toml:"keys,omitempty"`
 	Theme          map[string]string `toml:"theme,omitempty"`
-	RestoreSession *bool             `toml:"restore_session,omitempty"`
+	RestoreSession bool              `toml:"restore_session,omitempty"`
 }
 
 func (c *Config) forEncoding() configFile {
 	out := configFile{
-		Connections: make([]connectionFile, len(c.Connections)),
-		Keys:        c.Keys,
-		Theme:       c.Theme,
-	}
-	if c.RestoreSession != nil {
-		v := *c.RestoreSession
-		out.RestoreSession = &v
+		Connections:    make([]connectionFile, len(c.Connections)),
+		Keys:           c.Keys,
+		Theme:          c.Theme,
+		RestoreSession: c.RestoreSession,
 	}
 	for i, conn := range c.Connections {
 		e := connectionFile{
@@ -532,7 +527,10 @@ func (c *Config) Remove(name string) bool {
 // Clone returns a deep copy. Saving happens in a tea.Cmd goroutine; it works
 // on a clone so it can never race the model's copy.
 func (c *Config) Clone() *Config {
-	out := &Config{Connections: make([]Connection, len(c.Connections))}
+	out := &Config{
+		Connections:    make([]Connection, len(c.Connections)),
+		RestoreSession: c.RestoreSession,
+	}
 	copy(out.Connections, c.Connections)
 	if c.Keys != nil {
 		out.Keys = make(map[string]string, len(c.Keys))
@@ -545,10 +543,6 @@ func (c *Config) Clone() *Config {
 		for k, v := range c.Theme {
 			out.Theme[k] = v
 		}
-	}
-	if c.RestoreSession != nil {
-		v := *c.RestoreSession
-		out.RestoreSession = &v
 	}
 	for i, conn := range c.Connections {
 		if conn.SSH != nil {

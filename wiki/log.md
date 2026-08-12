@@ -1188,3 +1188,17 @@ Chronological history of wiki changes, newest last.
   documents for `ctrl+enter`; where a terminal doesn't answer that
   capability query the bindings just never match and plain arrow movement
   is unaffected.
+
+## 2026-08-12 — Layout-friendly main-tab navigation keys (issue #135)
+
+- Added [design/main-tab-navigation-keys](design/main-tab-navigation-keys.md):
+  `<` / `>` become the primary `PrevMainTab`/`NextMainTab` bindings —
+  layout-neutral on German QWERTZ (dedicated key, no AltGr) and US/UK
+  (shift+,/.)  — with the candidates rejected (`H`/`L` collides with the
+  `L` command-log alias; `ctrl+left`/`ctrl+right` isn't reliably delivered
+  and would be a fourth spelling) and why `[` / `]` and `,` / `.` stay
+  bound as legacy aliases rather than being removed.
+- Updated [reference/keyboard-layout-portability](reference/keyboard-layout-portability.md)
+  and [design/main-view-tabs](design/main-view-tabs.md) to point at the new
+  primary spelling; the options bar and `?` help now render `</[` and
+  `>/]`.

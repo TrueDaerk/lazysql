@@ -8,13 +8,15 @@ import (
 	"charm.land/bubbles/v2/key"
 )
 
-// `[` and `]` are AltGr chords on QWERTZ/AZERTY, so `,` and `.` switch
-// main-view tabs too. Both spellings must land on the same tab.
+// `<` / `>` are the primary main-tab bindings (a dedicated key on
+// QWERTZ, shift+,/. on US/UK); `[` / `]` and `,` / `.` remain bound as
+// legacy aliases. All three spellings must land on the same tab.
 func TestMainTabAliasesSwitchTabs(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		next, prev rune
 	}{
+		{"primary", '>', '<'},
 		{"us", ']', '['},
 		{"qwertz", '.', ','},
 	} {

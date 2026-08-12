@@ -77,7 +77,10 @@ The second spelling of a binding is there for non-US keyboards: `@`,
 `[` and `]` are AltGr chords on German QWERTZ and French AZERTY, which
 terminals may not deliver at all, so `L`, `,` and `.` reach the same
 actions. Both spellings stay bound, and either can be replaced through
-the `[keys]` config section.
+the `[keys]` config section. Main-tab switching goes further: `<` / `>`
+are the primary keys (a dedicated key on German QWERTZ, shift+,/. on
+US/UK — no AltGr either way), with `[` / `]` and `,` / `.` kept bound
+as legacy aliases.
 
 In the data grid (`enter` on a table, `esc` back):
 
@@ -91,11 +94,11 @@ In the data grid (`enter` on a table, `esc` back):
 | `v` | Cell detail popup: full value, JSON pretty-printed, BLOBs as a hex dump (`j`/`k`, `ctrl+d`/`ctrl+u` to scroll, `y` to copy the raw value, `esc` to close) |
 | `ctrl+v` (or `V`) | Select rows: anchored at the cursor, `j`/`k` extend, `esc` clears. `e` then edits the cursor column in every selected row, `ctrl+c` copies the selection |
 | `shift+↑`/`shift+↓` (or `K`/`J`) | Start a selection at the cursor row and extend it up / down |
-| `shift+←`/`shift+→` (or `<`/`>`) | Narrow the selection to a block of columns — the copy scopes then carry only those columns |
+| `shift+←`/`shift+→` (or `C`, then `h`/`l`) | Narrow the selection to a block of columns — the copy scopes then carry only those columns |
 | `g` | Follow the foreign key of the cursor column to the referenced row |
 | `G` | List the rows referencing this one and jump to them |
 | `ctrl+o` (or `esc`) | Back to the previous table, filter and cursor |
-| `[` / `]` (or `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
+| `<` / `>` (or `[` / `]`, `,` / `.`) | Previous / next main-view tab (Data, Structure, Indexes, DDL, Relations) |
 
 ### Date and time columns
 
@@ -150,7 +153,8 @@ kitty, WezTerm, Ghostty, iTerm2, Alacritty and xterm send them; **macOS
 Terminal.app does not** — there they are indistinguishable from plain
 arrows. Every one of those bindings therefore has an unshifted
 equivalent that works anywhere: `V` to start a selection, `K`/`J` to
-extend it up/down, `<`/`>` to narrow it to columns.
+extend it up/down, and `C` to anchor the column span — after which
+plain `h`/`l` move its open edge, exactly as `j`/`k` move the row one.
 
 `lazysql --debug-keys` prints what your terminal actually reports for
 each key you press (`ctrl+q` quits), which is the quickest way to tell a

@@ -168,6 +168,86 @@ func TestExpand(t *testing.T) {
 	}
 }
 
+func TestExpandEnvVar(t *testing.T) {
+	t.Setenv("LAZYSQL_TEST_DIR", "/tmp/lazysql-test")
+	if got, want := Expand("$LAZYSQL_TEST_DIR/x"), "/tmp/lazysql-test/x"; got != want {
+		t.Fatalf("Expand($VAR/x) = %q, want %q", got, want)
+	}
+	if got, want := Expand("${LAZYSQL_TEST_DIR}/x"), "/tmp/lazysql-test/x"; got != want {
+		t.Fatalf("Expand(${VAR}/x) = %q, want %q", got, want)
+	}
+	if got, want := Expand("$LAZYSQL_TEST_DIR_UNSET/x"), "/x"; got != want {
+		t.Fatalf("Expand(undefined $VAR) = %q, want %q", got, want)
+	}
+	if got := Expand("plain/path"); got != "plain/path" {
+		t.Fatalf("Expand(no $) = %q, want unchanged", got)
+	}
+}
+
+func TestCompleteExpandsEnvVar(t *testing.T) {
+	root := tree(t)
+	t.Setenv("LAZYSQL_TEST_ROOT", root)
+	r := Complete("$LAZYSQL_TEST_ROOT" + sep() + "Dev")
+	want := "$LAZYSQL_TEST_ROOT" + sep() + "Development" + sep()
+	if r.Completed != want {
+		t.Fatalf("Completed = %q, want %q", r.Completed, want)
+	}
+	if len(r.Candidates) != 1 || r.Candidates[0] != want {
+		t.Fatalf("Candidates = %v, want [%q]", r.Candidates, want)
+	}
+}
+
+func TestCompleteRanksDbExtensionsAboveOtherFiles(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{"z.sqlite", "a.txt", "m.duckdb", "b.csv"} {
+		if err := os.WriteFile(filepath.Join(root, f), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := Complete(root + sep())
+	want := []string{"m.duckdb", "z.sqlite", "a.txt", "b.csv"}
+	if len(r.Candidates) != len(want) {
+		t.Fatalf("Candidates = %v, want %v", r.Candidates, want)
+	}
+	for i, w := range want {
+		if r.Candidates[i] != root+sep()+w {
+			t.Fatalf("Candidates = %v, want %v under %q", r.Candidates, want, root)
+		}
+	}
+}
+
+func TestCompleteRanksDirectoriesFirst(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "zdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a.duckdb"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := Complete(root + sep())
+	wantDir, wantFile := root+sep()+"zdir"+sep(), root+sep()+"a.duckdb"
+	if len(r.Candidates) != 2 || r.Candidates[0] != wantDir || r.Candidates[1] != wantFile {
+		t.Fatalf("Candidates = %v, want [%q, %q] (directory first despite name)", r.Candidates, wantDir, wantFile)
+	}
+}
+
+func TestCompleteUnreadableDirNoCrash(t *testing.T) {
+	root := t.TempDir()
+	blocked := filepath.Join(root, "blocked")
+	if err := os.Mkdir(blocked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	in := blocked + sep() + "x"
+	r := Complete(in)
+	if r.Completed != in || r.Candidates != nil {
+		t.Fatalf("unreadable dir should keep input and not crash: %+v", r)
+	}
+}
+
 func TestCommonPrefixMixedCase(t *testing.T) {
 	// F/f and B/b fold together and 'a' matches both; the divergence is r/z.
 	if got := commonPrefix([]string{"Foobar", "fooBaz"}); !strings.EqualFold(got, "fooba") {
@@ -196,8 +276,10 @@ func TestCompleteFrom(t *testing.T) {
 	if got := join(CompleteFrom(base, "le").Candidates); got != "leads.csv,letters.txt" {
 		t.Fatalf("candidates = %q", got)
 	}
+	// Directories rank first: "lib/" sorts ahead of the two files even
+	// though "leads.csv" is alphabetically first among all three names.
 	dot := "." + sep()
-	if got := join(CompleteFrom(base, dot+"l").Candidates); got != dot+"leads.csv,"+dot+"letters.txt,"+dot+"lib"+sep() {
+	if got := join(CompleteFrom(base, dot+"l").Candidates); got != dot+"lib"+sep()+","+dot+"leads.csv,"+dot+"letters.txt" {
 		t.Fatalf("./ candidates = %q", got)
 	}
 	if got := CompleteFrom(base, "").Candidates; len(got) != 3 {

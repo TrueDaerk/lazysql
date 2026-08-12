@@ -62,10 +62,10 @@ func (m *Model) recordHistory(sql string) tea.Cmd {
 	if m.driver != nil {
 		engine = string(m.driver.Engine())
 	}
-	if len(m.history) > 0 && m.history[0].SQL == sql && m.history[0].Engine == engine {
+	if len(m.history) > 0 && m.history[0].SQL == sql && m.history[0].Engine == engine && m.history[0].Connection == m.active {
 		return nil
 	}
-	e := history.Entry{SQL: sql, Engine: engine, At: time.Now()}
+	e := history.Entry{SQL: sql, Connection: m.active, Engine: engine, At: time.Now()}
 	m.history = append([]history.Entry{e}, m.history...)
 	if len(m.history) > history.MaxEntries {
 		m.history = m.history[:history.MaxEntries]

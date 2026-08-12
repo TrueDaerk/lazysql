@@ -718,6 +718,25 @@ func (m *Model) extendColumnSelection(delta int) tea.Cmd {
 	return nil
 }
 
+// toggleColumnSelection is `C`: it anchors the column span at the cursor
+// column without moving anything, or drops it again — the sideways twin
+// of `ctrl+v`, and the way in for terminals that never report
+// shift+arrows. It needs no direction key of its own: once the span is
+// anchored, plain `h`/`l` move the cell cursor, which *is* its open edge.
+func (m *Model) toggleColumnSelection() tea.Cmd {
+	if m.data.selecting() && m.data.sel.cols {
+		m.data.sel.cols = false
+		return logCmd("-- column selection cleared (the rows stay selected)")
+	}
+	if !m.startSelection() {
+		return logCmd("-- column selection skipped: no row under the cursor")
+	}
+	m.data.sel.cols = true
+	m.data.sel.colAnchor = m.data.col
+	name := m.cursorColumnLabel()
+	return logCmd("-- column selection anchored at %s (h/l extend, C clears it)", name)
+}
+
 // startSelection makes sure a selection is up, anchoring one at the
 // cursor row if it is not, and reports whether the grid can hold one at
 // all: the metadata tabs have no rows, and a phantom row (a staged
@@ -772,6 +791,9 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actExtendSelectionDown:
 		cmd := m.extendSelection(1)
+		return m, cmd, true
+	case actSelectColumns:
+		cmd := m.toggleColumnSelection()
 		return m, cmd, true
 	case actExtendSelectionLeft:
 		cmd := m.extendColumnSelection(-1)

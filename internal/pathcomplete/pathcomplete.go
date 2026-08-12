@@ -6,10 +6,13 @@
 // hosting input (in lazysql: the connection form's file field).
 //
 // Inputs are completed in the user's own notation: a query written with a
-// leading "~" keeps the "~" in every candidate. Hidden entries are offered
-// only when the typed base name explicitly starts with a dot. Matching is
-// case-sensitive first and falls back to case-insensitive, so "~/dev" still
-// finds "~/Development".
+// leading "~" or a "$VAR"/"${VAR}" reference keeps that notation in every
+// candidate — only the directory read against the filesystem is expanded.
+// Hidden entries are offered only when the typed base name explicitly
+// starts with a dot. Matching is case-sensitive first and falls back to
+// case-insensitive, so "~/dev" still finds "~/Development". Candidates rank
+// directories first, then database-file extensions (.db, .sqlite,
+// .sqlite3, .duckdb), then everything else — nothing is ever filtered out.
 package pathcomplete
 
 import (
@@ -49,13 +52,18 @@ func CompleteFrom(baseDir, input string) Result { return complete(baseDir, input
 // project picker's flavor.
 func Dirs(input string) Result { return complete("", input, true) }
 
-// Expand resolves a leading "~" or "~/" against the home directory. It is
-// the single tilde-expansion helper; callers should not keep local copies.
+// Expand resolves a leading "~" or "~/" against the home directory, then
+// expands any "$VAR" or "${VAR}" environment variable references. It is the
+// single expansion helper; callers should not keep local copies. Undefined
+// variables expand to "", matching shell behaviour.
 func Expand(p string) string {
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			return home + p[1:]
+			p = home + p[1:]
 		}
+	}
+	if strings.ContainsRune(p, '$') {
+		p = os.Expand(p, os.Getenv)
 	}
 	return p
 }
@@ -102,12 +110,32 @@ func split(input string) (dir, base string) {
 	return input[:i+1], input[i+1:]
 }
 
+// dbExts are the file extensions this field cares about — SQLite and DuckDB
+// database files. Entries with one of these extensions rank above other
+// files (but never above directories); any other file still matches, it is
+// just listed last, and directories are never filtered by extension at all.
+var dbExts = map[string]bool{
+	".db":      true,
+	".sqlite":  true,
+	".sqlite3": true,
+	".duckdb":  true,
+}
+
+// entryMatch is a matched directory entry before it is turned into a
+// completed candidate string, kept around long enough to rank it.
+type entryMatch struct {
+	name  string
+	isDir bool
+}
+
 // match filters the entries of realDir against the partial base name: hidden
 // entries only on an explicit leading dot, exact-case prefix matches when any
-// exist, case-insensitive ones otherwise. Directory names (including symlinks
-// to directories) get the trailing separator. The result is sorted.
+// exist, case-insensitive ones otherwise. The result is ranked directories
+// first, then database-file extensions, then everything else, alphabetically
+// within each group, and directory names (including symlinks to
+// directories) get the trailing separator.
 func match(entries []os.DirEntry, realDir, base string, dirsOnly bool) []string {
-	var exact, folded []string
+	var exact, folded []entryMatch
 	lower := strings.ToLower(base)
 	for _, e := range entries {
 		name := e.Name()
@@ -123,23 +151,53 @@ func match(entries []os.DirEntry, realDir, base string, dirsOnly bool) []string 
 		if dirsOnly && !isDir {
 			continue
 		}
-		completed := name
-		if isDir {
-			completed += string(filepath.Separator)
-		}
+		m := entryMatch{name: name, isDir: isDir}
 		switch {
 		case strings.HasPrefix(name, base):
-			exact = append(exact, completed)
+			exact = append(exact, m)
 		case strings.HasPrefix(strings.ToLower(name), lower):
-			folded = append(folded, completed)
+			folded = append(folded, m)
 		}
 	}
 	out := exact
 	if len(out) == 0 {
 		out = folded
 	}
-	sort.Strings(out)
+	return rank(out)
+}
+
+// rank orders matches directories-first, then database extensions, then
+// everything else, alphabetically within each tier, and appends the
+// trailing separator a directory completes with.
+func rank(matches []entryMatch) []string {
+	sort.SliceStable(matches, func(i, j int) bool {
+		ri, rj := matchTier(matches[i]), matchTier(matches[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return matches[i].name < matches[j].name
+	})
+	out := make([]string, len(matches))
+	for i, m := range matches {
+		if m.isDir {
+			out[i] = m.name + string(filepath.Separator)
+		} else {
+			out[i] = m.name
+		}
+	}
 	return out
+}
+
+// matchTier is the sort priority of a matched entry: lower sorts first.
+func matchTier(m entryMatch) int {
+	switch {
+	case m.isDir:
+		return 0
+	case dbExts[strings.ToLower(filepath.Ext(m.name))]:
+		return 1
+	default:
+		return 2
+	}
 }
 
 // commonPrefix returns the longest prefix shared by all names. With mixed

@@ -162,7 +162,10 @@ keep meaning plain cursor movement, and there is no crash or misread.
 Which terminals report what, and how it was verified in a real PTY, is
 [reference/terminal-key-reporting](../reference/terminal-key-reporting.md);
 because the answer is "not all of them", each binding carries an
-unshifted alias in the same `key.Binding` (`V`, `K`/`J`, `<`/`>`).
+unshifted way in: `V` and `K`/`J` alias the vertical keys in the same
+`key.Binding`, and `C` (`SelectColumns`) anchors the column span for the
+sideways pair — `<`/`>` were not available, they are the main-view tab
+keys of issue #135.
 
 ### `shift+←`/`shift+→` narrow the selection to a block of columns
 
@@ -173,6 +176,11 @@ up (both go through `Model.startSelection`), anchors `colAnchor` at the
 cursor column the first time it runs, and then moves the cell cursor one
 column — the other edge of the span, exactly as the cursor row is the
 other edge of the row span.
+
+`C` (`SelectColumns`) is the same gesture without a shifted arrow: it
+anchors the span at the cursor column and moves nothing, because plain
+`h`/`l` already move the span's open edge. A second `C` drops the span
+and leaves the rows selected.
 
 The column span is **opt-in**: `sel.cols` is false until a sideways key
 runs, and `columnRange` answers "all columns" while it is. A selection

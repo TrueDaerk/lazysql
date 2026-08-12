@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Which terminals report shift+arrows, and the unshifted fallbacks that do not need them
-description: Why shift+up/shift+down looked broken although nothing in lazysql was wrong, what a real PTY shows Bubble Tea v2 receiving for CSI 1;2A-style sequences, which macOS terminals emit them, and why every shifted binding carries a `V`/`K`/`J`/`<`/`>` fallback.
+description: Why shift+up/shift+down looked broken although nothing in lazysql was wrong, what a real PTY shows Bubble Tea v2 receiving for CSI 1;2A-style sequences, which macOS terminals emit them, and why every shifted binding has a `V`/`K`/`J`/`C` fallback.
 tags: [tui, keybindings, bubbletea, terminal, selection, portability]
 generated:
   by: claude-code/opus-5
@@ -62,19 +62,30 @@ cursor.
 ## The consequence: unshifted fallbacks, always
 
 Because "does this terminal report it" is not answerable in advance,
-every shifted grid binding carries an unshifted alias in the *same*
-`key.Binding`, so the options bar and `?` document both from one source
+every shifted gesture has an unshifted way in. The vertical keys carry
+their alias in the *same* `key.Binding`, so the options bar and `?`
+document both from one source
 ([design/keybindings-single-source](../design/keybindings-single-source.md)):
 
 | Gesture | Shifted | Fallback |
 |---|---|---|
 | Start a selection | `ctrl+v` | `V` (vim visual-line) |
 | Extend up / down | `shift+↑` / `shift+↓` | `K` / `J` |
-| Extend a column left / right | `shift+←` / `shift+→` | `<` / `>` |
+| Narrow it to columns | `shift+←` / `shift+→` | `C`, then `h`/`l` |
 
-`H`/`L` were not available for the sideways pair — they are the
-main-view tab keys — so the angle brackets take the "shifted `,`/`.`"
-shape instead. All six are rebindable by name (`select-rows`,
+The sideways pair is the exception: no punctuation was left for it.
+`<`/`>` became the primary main-view tab keys in issue #135
+([design/main-tab-navigation-keys](../design/main-tab-navigation-keys.md)),
+`{`/`}` are AltGr chords on German QWERTZ (see
+[reference/keyboard-layout-portability](keyboard-layout-portability.md)),
+`H` is the history pane and `L` the command-log alias. So the fallback is
+a *single* key — `C` (`SelectColumns`) anchors the column span like
+`ctrl+v` anchors the rows — and no direction key is needed: once the span
+exists, plain `h`/`l` move the cell cursor, which is its open edge,
+exactly as `j`/`k` move the row one. A second `C` drops the span again
+and leaves the rows selected.
+
+All of them are rebindable by name (`select-rows`, `select-columns`,
 `shift-up`, `shift-down`, `shift-left`, `shift-right`) through the
 `[keys]` config section.
 

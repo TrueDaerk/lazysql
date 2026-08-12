@@ -1189,6 +1189,56 @@ Chronological history of wiki changes, newest last.
   capability query the bindings just never match and plain arrow movement
   is unaffected.
 
+## 2026-08-12 — Layout-friendly main-tab navigation keys (issue #135)
+
+- Added [design/main-tab-navigation-keys](design/main-tab-navigation-keys.md):
+  `<` / `>` become the primary `PrevMainTab`/`NextMainTab` bindings —
+  layout-neutral on German QWERTZ (dedicated key, no AltGr) and US/UK
+  (shift+,/.)  — with the candidates rejected (`H`/`L` collides with the
+  `L` command-log alias; `ctrl+left`/`ctrl+right` isn't reliably delivered
+  and would be a fourth spelling) and why `[` / `]` and `,` / `.` stay
+  bound as legacy aliases rather than being removed.
+- Updated [reference/keyboard-layout-portability](reference/keyboard-layout-portability.md)
+  and [design/main-view-tabs](design/main-view-tabs.md) to point at the new
+  primary spelling; the options bar and `?` help now render `</[` and
+  `>/]`.
+
+## 2026-08-12 — Scope query editor history per connection (issue #131)
+
+- Extended [design/query-editor-and-history](design/query-editor-and-history.md)
+  §5 with a new `Entry.Connection` field (`internal/history/history.go`):
+  `recordHistory` stamps the active connection name, and `H`'s pane filters
+  through the new `history.ForConnection` before the modal is built, so
+  statements from one connection no longer show up while another is active.
+- Keyed by connection **name**, not a synthetic ID — `config.Connection` has
+  none, and every other place in the codebase (`m.active`,
+  `refreshConnections`) already accepts the same rename trade-off. Documented
+  as the mechanism a planned per-table filter history is meant to share.
+- An entry with no `Connection` (written before this field existed) is shown
+  for every connection rather than hidden or migrated — there is no way to
+  recover which connection it belonged to, and the history is a convenience
+  list, not an audit trail.
+
+## 2026-08-12 — Improve SQLite/DuckDB file path autocomplete (issue #128)
+
+- Updated [design/path-completion-in-forms](design/path-completion-in-forms.md):
+  `internal/pathcomplete.Expand` now also expands `$VAR`/`${VAR}` environment
+  variables (via `os.Expand`, after the existing tilde expansion), on top of
+  the pre-existing `~` handling — both keep the typed notation in every
+  candidate, only the directory actually read from disk is resolved.
+- Candidates are now ranked directories-first, then the SQLite/DuckDB
+  extensions (`.db`, `.sqlite`, `.sqlite3`, `.duckdb`), then everything
+  else, alphabetically within each tier (`pathcomplete.rank`/`matchTier`).
+  Nothing is filtered out by extension — the field stays free text.
+- `tab` on the File field now extends to the longest shared prefix as
+  before, but once that prefix stops changing anything (an ambiguous match
+  like `sales.duckdb`/`sales.sqlite`), further `tab` presses cycle through
+  the candidates one at a time (`pathSuggest.cycling`/`selected`), and
+  `shift+tab` reverses the cycle instead of moving to the previous field
+  while one is in progress. The selected candidate is marked `▸` in the
+  suggestion list, and the footer swaps to `tab/shift+tab cycle path` so
+  the key's meaning is visible. Any input edit cancels the cycle.
+
 ## 2026-08-12 — Fix shift+arrow selection, add shift+left/right column selection (issue #134)
 
 - Root cause of "shift+up/shift+down does not work": nothing in the app.
@@ -1200,10 +1250,13 @@ Chronological history of wiki changes, newest last.
   produce `3 rows selected` / `3 rows × 2 columns selected`. What varies is
   the terminal: macOS Terminal.app never emits them. Recorded as
   [reference/terminal-key-reporting](reference/terminal-key-reporting.md).
-- Every shifted selection binding gained an unshifted fallback in the same
-  `key.Binding`, so `?` and the options bar document both from one source:
-  `ctrl+v`/`V`, `shift+↑`/`K`, `shift+↓`/`J`, `shift+←`/`<`, `shift+→`/`>`
-  (`H`/`L` were taken by the main-view tabs).
+- Every shifted selection gesture gained an unshifted way in: `ctrl+v`/`V`,
+  `shift+↑`/`K`, `shift+↓`/`J` alias inside one `key.Binding`, so `?` and
+  the options bar document both from one source. The sideways pair had no
+  punctuation left (`<`/`>` are the main-view tabs since #135, `{`/`}` need
+  AltGr on QWERTZ, `H`/`L` are the history pane and the command-log alias),
+  so `C` (`select-columns`) anchors the column span instead — `h`/`l` then
+  move its open edge, and a second `C` drops it.
 - `shift+←`/`shift+→` (`Model.extendColumnSelection`) narrow the selection
   to a block of columns: `gridSelection` gained an opt-in `cols`/`colAnchor`
   span, `cellSelected` replaces the row-wise tint in `gridRow`, the status

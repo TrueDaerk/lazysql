@@ -182,7 +182,7 @@ configuration, which is why it is not next to `config.toml`.
 One JSON object per line, oldest first:
 
 ```json
-{"sql":"SELECT * FROM users","engine":"sqlite","at":"2026-08-09T12:00:00Z"}
+{"sql":"SELECT * FROM users","connection":"prod","engine":"sqlite","at":"2026-08-09T12:00:00Z"}
 ```
 
 - **JSON, so a multi-line statement stays on one line.** `enter` on the
@@ -202,6 +202,31 @@ Everything lazysql executes goes in through one message,
 editor script. Re-running the newest entry does not duplicate it; only
 the timestamp would differ, and `enter`-and-run would otherwise grow the
 list on every replay.
+
+### History is scoped by connection name, and legacy entries are shown everywhere
+
+`recordHistory` stamps every new entry with `m.active`, the connection
+profile name, and the `H` pane filters with `history.ForConnection`
+before it ever builds a `historyModal` — so a session against `staging`
+does not offer statements last run against `prod`.
+
+Two things worth being deliberate about:
+
+- **Keyed by name, not a stable ID.** `config.Connection` has no
+  identifier besides its name, and renaming a connection already means
+  losing its earlier history under the old name — the same trade-off
+  `refreshConnections`/`m.active` already accept elsewhere. Introducing a
+  synthetic ID for history alone, while every other place in the codebase
+  keys off the name, would be a second source of truth for one feature.
+  If a stable ID is added to `config.Connection` later (e.g. for the
+  planned per-table filter history this mechanism is meant to share),
+  `Entry.Connection` should move to it then.
+- **An entry with no `Connection` (written before this field existed) is
+  shown for every connection, not hidden and not migrated.** There is no
+  way to recover which connection an old entry belonged to, and the
+  history is a convenience list, not an audit trail — silently dropping
+  half a user's history on upgrade would be a worse trade than showing a
+  few unscoped rows everywhere.
 
 ### The pane row is not the entry
 

@@ -149,11 +149,15 @@ type keyMap struct {
 	// app can decide: it needs the kitty keyboard protocol or
 	// modifyOtherKeys, and macOS Terminal.app supports neither — the same
 	// caveat acceptKeys documents for ctrl+enter. Every one of these
-	// bindings therefore carries an unshifted fallback (`V`, `K`/`J`,
-	// `<`/`>`) that works on any terminal, and where shift+arrows are not
+	// gestures therefore has an unshifted way in that works on any
+	// terminal: `V` for SelectRows, `K`/`J` for ShiftUp/ShiftDown, and
+	// SelectColumns (`C`) for the column span — once the span is anchored,
+	// plain `h`/`l` move its open edge like `j`/`k` move the row one, so a
+	// single key is the whole fallback. Where shift+arrows are not
 	// reported the shifted keys simply never match. See
 	// wiki/reference/terminal-key-reporting.md.
 	SelectRows    key.Binding
+	SelectColumns key.Binding
 	CopySelection key.Binding
 	ShiftUp       key.Binding
 	ShiftDown     key.Binding
@@ -328,7 +332,7 @@ func newKeyMap() keyMap {
 			key.WithKeys("esc"), key.WithHelp("esc", "close the popup")),
 
 		CompletePath: key.NewBinding(
-			key.WithKeys("tab"), key.WithHelp("tab", "complete path")),
+			key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/shift+tab", "complete/cycle path")),
 		NextField: key.NewBinding(
 			key.WithKeys("down", "tab"), key.WithHelp("↓/tab", "next field")),
 		PrevField: key.NewBinding(
@@ -355,21 +359,27 @@ func newKeyMap() keyMap {
 		// as a paste key).
 		SelectRows: key.NewBinding(
 			key.WithKeys("ctrl+v", "V"), key.WithHelp("ctrl+v/V", "select rows")),
+		// `C` anchors the column span without needing a shifted arrow;
+		// `h`/`l` then move its other edge. `<`/`>` are the main-view tabs
+		// (issue #135) and `H`/`L` are taken by the history pane and the
+		// command-log alias, so a letter is what is left — and one is
+		// enough, because the span extends through ordinary cursor
+		// movement.
+		SelectColumns: key.NewBinding(
+			key.WithKeys("C"), key.WithHelp("C", "select columns (h/l extend)")),
 		// Disabled until a selection exists — see the field comment.
 		CopySelection: key.NewBinding(
 			key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "copy selection…"), key.WithDisabled()),
-		// Each shifted arrow carries its unshifted fallback: the uppercase
-		// vim key for the rows, the angle brackets for the columns — `H`/`L`
-		// are already the main-view tabs, so the sideways pair borrows the
-		// "shifted `,`/`.`" shape instead.
+		// The vertical pair carries the uppercase vim key as its fallback;
+		// the sideways pair falls back to SelectColumns above.
 		ShiftUp: key.NewBinding(
 			key.WithKeys("shift+up", "K"), key.WithHelp("shift+↑/K", "extend selection up")),
 		ShiftDown: key.NewBinding(
 			key.WithKeys("shift+down", "J"), key.WithHelp("shift+↓/J", "extend selection down")),
 		ShiftLeft: key.NewBinding(
-			key.WithKeys("shift+left", "<"), key.WithHelp("shift+←/<", "extend selection a column left")),
+			key.WithKeys("shift+left"), key.WithHelp("shift+←", "extend selection a column left")),
 		ShiftRight: key.NewBinding(
-			key.WithKeys("shift+right", ">"), key.WithHelp("shift+→/>", "extend selection a column right")),
+			key.WithKeys("shift+right"), key.WithHelp("shift+→", "extend selection a column right")),
 
 		FollowFK: key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "follow foreign key")),
 		IncomingRefs: key.NewBinding(
@@ -414,11 +424,17 @@ func newKeyMap() keyMap {
 			key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "date picker")),
 
 		// `[` / `]` are AltGr+8 / AltGr+9 on QWERTZ (and AZERTY), which
-		// terminals may deliver as alt-chords or swallow outright. `,`
-		// and `.` sit on the same physical keys on both layouts and are
-		// free in the main view, so they are the portable alias.
-		PrevMainTab: key.NewBinding(key.WithKeys("[", ","), key.WithHelp("[/,", "prev tab")),
-		NextMainTab: key.NewBinding(key.WithKeys("]", "."), key.WithHelp("]/.", "next tab")),
+		// terminals may deliver as alt-chords or swallow outright, so they
+		// are kept only as legacy aliases for US-layout muscle memory.
+		// `<` / `>` are the primary spelling: on QWERTZ they sit on a
+		// dedicated key next to left shift (no AltGr), and on US/UK they
+		// are shift+comma/period, right next to the `,` / `.` alias below
+		// — so all three spellings land on the same physical keys.
+		// `H` / `L` (the lazygit idiom) were considered and rejected: `L`
+		// already opens the command log (see CommandLog above) and that
+		// binding is global, so it would collide.
+		PrevMainTab: key.NewBinding(key.WithKeys("<", "[", ","), key.WithHelp("</[", "prev tab")),
+		NextMainTab: key.NewBinding(key.WithKeys(">", "]", "."), key.WithHelp(">/]", "next tab")),
 
 		CopyMenu:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy…")),
 		ExportTable: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "export to file")),
@@ -560,6 +576,7 @@ const (
 	actPrevPage
 	actSortColumn
 	actSelectRows
+	actSelectColumns
 	actExtendSelectionUp
 	actExtendSelectionDown
 	actExtendSelectionLeft
@@ -665,6 +682,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actPrevPage, k.PrevPage},
 			{actSortColumn, k.SortColumn},
 			{actSelectRows, k.SelectRows},
+			{actSelectColumns, k.SelectColumns},
 			{actExtendSelectionUp, k.ShiftUp},
 			{actExtendSelectionDown, k.ShiftDown},
 			{actExtendSelectionLeft, k.ShiftLeft},
@@ -832,7 +850,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
-		{"select-rows", &k.SelectRows}, {"copy-selection", &k.CopySelection},
+		{"select-rows", &k.SelectRows}, {"select-columns", &k.SelectColumns}, {"copy-selection", &k.CopySelection},
 		{"shift-up", &k.ShiftUp}, {"shift-down", &k.ShiftDown},
 		{"shift-left", &k.ShiftLeft}, {"shift-right", &k.ShiftRight},
 		{"follow-fk", &k.FollowFK}, {"incoming-refs", &k.IncomingRefs},

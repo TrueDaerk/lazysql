@@ -1270,22 +1270,53 @@ func TestOnlySelectedColumnsAreTinted(t *testing.T) {
 }
 
 // The unshifted fallbacks exist for terminals that never report
-// shift+arrows: V anchors, J/K extend the rows, </> the columns. They go
-// through the same handlers, so one block is enough to prove the routing.
+// shift+arrows: V anchors the rows, J/K extend them, C anchors the
+// column span and plain l/h move its open edge.
 func TestUnshiftedSelectionFallbackKeys(t *testing.T) {
-	m := send(t, dataBrowsing(t), press('V'), press('J'), press('>'))
+	m := send(t, dataBrowsing(t), press('V'), press('J'), press('C'), press('l'))
 	if got := len(m.data.selectedRows()); got != 2 {
 		t.Fatalf("V then J selected %d rows, want 2", got)
 	}
 	if got := len(m.data.selectedCols()); got != 2 {
-		t.Fatalf("> selected %d columns, want 2", got)
+		t.Fatalf("C then l selected %d columns, want 2", got)
 	}
-	m = send(t, m, press('K'), press('<'))
+	m = send(t, m, press('K'), press('h'))
 	if got := len(m.data.selectedRows()); got != 1 {
 		t.Fatalf("K shrank the selection to %d rows, want 1", got)
 	}
 	if got := len(m.data.selectedCols()); got != 1 {
-		t.Fatalf("< shrank the selection to %d columns, want 1", got)
+		t.Fatalf("h shrank the selection to %d columns, want 1", got)
+	}
+}
+
+// `C` is a toggle like ctrl+v: pressing it again widens the selection
+// back to every column without dropping the selected rows.
+func TestSelectColumnsTogglesTheSpanOff(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('V'), press('j'), press('C'), press('l'))
+	if !m.data.narrowedToCols() {
+		t.Fatalf("C did not anchor a column span: %+v", m.data.sel)
+	}
+	m = send(t, m, press('C'))
+	if m.data.narrowedToCols() {
+		t.Fatalf("a second C did not drop the column span: %+v", m.data.sel)
+	}
+	if got := len(m.data.selectedRows()); got != 2 {
+		t.Fatalf("a second C dropped the rows too: %d selected, want 2", got)
+	}
+}
+
+// `C` with nothing selected anchors both ends at once — it is the
+// sideways `ctrl+v`, not something that needs one first.
+func TestSelectColumnsStartsASelection(t *testing.T) {
+	m := send(t, dataBrowsing(t), press('C'))
+	if !m.data.selecting() || !m.data.narrowedToCols() {
+		t.Fatalf("C did not start a block selection: %+v", m.data.sel)
+	}
+	if got := len(m.data.selectedRows()); got != 1 {
+		t.Fatalf("C selected %d rows, want the cursor row alone", got)
+	}
+	if got := len(m.data.selectedCols()); got != 1 {
+		t.Fatalf("C selected %d columns, want the cursor column alone", got)
 	}
 }
 

@@ -1460,7 +1460,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actHistory:
-		m.modal = newHistoryModal(m.history, m.snippets, m.sqlDialect(), m.keys)
+		m.modal = newHistoryModal(history.ForConnection(m.history, m.active), m.snippets, m.sqlDialect(), m.keys)
 
 	case actSaveSnippet:
 		cmd := m.promptSaveSnippet(m.script())

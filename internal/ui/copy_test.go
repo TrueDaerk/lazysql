@@ -560,7 +560,7 @@ func TestSelectionKeysAreDocumented(t *testing.T) {
 	// label, so terminals that cannot report shift+arrows still show a
 	// way in — see wiki/reference/terminal-key-reporting.md.
 	for _, want := range []string{
-		"ctrl+v/V", "ctrl+c", "shift+↑/K", "shift+↓/J", "shift+←/<", "shift+→/>",
+		"ctrl+v/V", "ctrl+c", "shift+↑/K", "shift+↓/J", "shift+←", "shift+→", "C",
 	} {
 		if !documented[want] {
 			t.Errorf("`?` does not document %q while a selection is up", want)

@@ -320,7 +320,7 @@ func newKeyMap() keyMap {
 			key.WithKeys("esc"), key.WithHelp("esc", "close the popup")),
 
 		CompletePath: key.NewBinding(
-			key.WithKeys("tab"), key.WithHelp("tab", "complete path")),
+			key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/shift+tab", "complete/cycle path")),
 		NextField: key.NewBinding(
 			key.WithKeys("down", "tab"), key.WithHelp("↓/tab", "next field")),
 		PrevField: key.NewBinding(

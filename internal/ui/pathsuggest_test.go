@@ -74,6 +74,60 @@ func TestFileFieldCompletes(t *testing.T) {
 	}
 }
 
+// Once tab has extended the input as far as the shared prefix goes, further
+// tab presses cycle through the remaining candidates one at a time, and
+// shift+tab reverses that cycle instead of moving to the previous field.
+func TestFileFieldCyclesOnAmbiguousPrefix(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "sales."))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+	if got := len(form.sugg.candidates); got != 2 {
+		t.Fatalf("candidates = %d, want 2 (%v)", got, form.sugg.candidates)
+	}
+
+	// Nothing left to extend: the first tab starts cycling on candidate 0.
+	m = send(t, m, special(tea.KeyTab, 0))
+	form = m.modal.(*formModal)
+	if !form.sugg.cycling {
+		t.Fatal("tab on an ambiguous, already-extended prefix should start cycling")
+	}
+	first := form.field("file").input.Value()
+	if first != filepath.Join(dir, "sales.duckdb") && first != filepath.Join(dir, "sales.sqlite") {
+		t.Fatalf("cycled value = %q, want one of the two candidates", first)
+	}
+	view := form.view(m.style, m.width, m.height)
+	if !strings.Contains(view, "▸ ") {
+		t.Errorf("view does not mark the selected candidate:\n%s", view)
+	}
+	if !strings.Contains(view, "tab/shift+tab cycle path") {
+		t.Errorf("footer does not advertise cycling:\n%s", view)
+	}
+
+	// A second tab moves to the other candidate.
+	m = send(t, m, special(tea.KeyTab, 0))
+	form = m.modal.(*formModal)
+	second := form.field("file").input.Value()
+	if second == first {
+		t.Fatalf("second tab left the value at %q, want the other candidate", second)
+	}
+
+	// shift+tab reverses the cycle, back to the first candidate.
+	m = send(t, m, special(tea.KeyTab, tea.ModShift))
+	form = m.modal.(*formModal)
+	if got := form.field("file").input.Value(); got != first {
+		t.Errorf("shift+tab = %q, want back to %q", got, first)
+	}
+}
+
 // With nothing to complete, tab keeps its usual meaning: move to the next
 // field. Same for a field that never opted into completion.
 func TestTabMovesWithoutCandidates(t *testing.T) {

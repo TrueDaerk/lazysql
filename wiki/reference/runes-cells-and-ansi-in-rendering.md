@@ -106,6 +106,18 @@ to end, so a **multi-line** block has to be cut row by row — `w` is a box
 width, not a budget spent across the block — or every row after the first
 is swallowed.
 
+## Checking it in a real terminal
+
+None of this is visible in the raw output stream — the renderer only
+writes the cells that changed — so a claim about where the caret *is*
+has to come from a terminal emulator. `scripts/ptycheck.py` does that,
+with one caveat for this particular area: it decodes its key steps with
+`unicode_escape` and feeds `pyte.Stream`, so non-ASCII input arrives as
+mojibake. To check wide runes or combining marks, write the keys as UTF-8
+bytes and feed a `pyte.ByteStream` instead; the attributes of each cell
+(`screen.buffer[y][x].reverse`, `.bg`) are then what says where the caret
+landed, rather than `screen.display`, which only carries the text.
+
 ## Rules of thumb
 
 - Never compare a rune index with a width. Convert first.

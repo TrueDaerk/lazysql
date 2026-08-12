@@ -1219,6 +1219,56 @@ Chronological history of wiki changes, newest last.
   recover which connection it belonged to, and the history is a convenience
   list, not an audit trail.
 
+## 2026-08-12 — Improve SQLite/DuckDB file path autocomplete (issue #128)
+
+- Updated [design/path-completion-in-forms](design/path-completion-in-forms.md):
+  `internal/pathcomplete.Expand` now also expands `$VAR`/`${VAR}` environment
+  variables (via `os.Expand`, after the existing tilde expansion), on top of
+  the pre-existing `~` handling — both keep the typed notation in every
+  candidate, only the directory actually read from disk is resolved.
+- Candidates are now ranked directories-first, then the SQLite/DuckDB
+  extensions (`.db`, `.sqlite`, `.sqlite3`, `.duckdb`), then everything
+  else, alphabetically within each tier (`pathcomplete.rank`/`matchTier`).
+  Nothing is filtered out by extension — the field stays free text.
+- `tab` on the File field now extends to the longest shared prefix as
+  before, but once that prefix stops changing anything (an ambiguous match
+  like `sales.duckdb`/`sales.sqlite`), further `tab` presses cycle through
+  the candidates one at a time (`pathSuggest.cycling`/`selected`), and
+  `shift+tab` reverses the cycle instead of moving to the previous field
+  while one is in progress. The selected candidate is marked `▸` in the
+  suggestion list, and the footer swaps to `tab/shift+tab cycle path` so
+  the key's meaning is visible. Any input edit cancels the cycle.
+
+## 2026-08-12 — Fix shift+arrow selection, add shift+left/right column selection (issue #134)
+
+- Root cause of "shift+up/shift+down does not work": nothing in the app.
+  Bubble Tea v2 has no `WithKeyboardEnhancements` program option and needs
+  none — `keyboardEnhancementsFlags` always enables basic key
+  disambiguation — and ultraviolet decodes `\x1b[1;2A`-style sequences into
+  `shift+up`/`shift+down`/`shift+left`/`shift+right` regardless. Verified in
+  a real PTY (`TERM=xterm-256color`): the four sequences reach the grid and
+  produce `3 rows selected` / `3 rows × 2 columns selected`. What varies is
+  the terminal: macOS Terminal.app never emits them. Recorded as
+  [reference/terminal-key-reporting](reference/terminal-key-reporting.md).
+- Every shifted selection gesture gained an unshifted way in: `ctrl+v`/`V`,
+  `shift+↑`/`K`, `shift+↓`/`J` alias inside one `key.Binding`, so `?` and
+  the options bar document both from one source. The sideways pair had no
+  punctuation left (`<`/`>` are the main-view tabs since #135, `{`/`}` need
+  AltGr on QWERTZ, `H`/`L` are the history pane and the command-log alias),
+  so `C` (`select-columns`) anchors the column span instead — `h`/`l` then
+  move its open edge, and a second `C` drops it.
+- `shift+←`/`shift+→` (`Model.extendColumnSelection`) narrow the selection
+  to a block of columns: `gridSelection` gained an opt-in `cols`/`colAnchor`
+  span, `cellSelected` replaces the row-wise tint in `gridRow`, the status
+  line reads `N rows × M columns selected`, and `copySelectionRows` cuts
+  columns and values to the span so CSV headers, JSON keys and INSERT
+  column lists shrink with it. The cursor-column copy scope and the bulk
+  `e` edit stay aimed at the cursor column.
+- `lazysql --debug-keys` (`internal/ui/keydebug.go`) dumps what the terminal
+  reports for each key plus whether it answered the enhancement query;
+  `scripts/ptycheck.py` drives any command in a real PTY and renders the
+  screen through `pyte`, which is how the above was verified headlessly.
+
 ## 2026-08-12 — Fix the cursor caret rendered offset from its actual position (issue #132)
 
 - Added [reference/runes-cells-and-ansi-in-rendering](reference/runes-cells-and-ansi-in-rendering.md):

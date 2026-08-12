@@ -26,6 +26,12 @@ type pathSuggest struct {
 	// names a folder must not offer files, because picking one could never
 	// produce a valid value. No form field needs it yet.
 	dirs bool
+	// cycling is true once tab has run out of prefix to extend and started
+	// stepping through candidates one at a time instead; selected is the
+	// index currently applied to the input. Any fresh keystroke (refresh)
+	// cancels a cycle — it means the user typed instead of continuing it.
+	cycling  bool
+	selected int
 }
 
 // query runs the engine in this input's flavor.
@@ -36,17 +42,47 @@ func (s *pathSuggest) query(input string) pathcomplete.Result {
 	return pathcomplete.Complete(input)
 }
 
-// refresh recomputes the candidates for the current input.
+// refresh recomputes the candidates for the current input and cancels any
+// in-progress cycle.
 func (s *pathSuggest) refresh(input string) {
 	s.candidates = s.query(input).Candidates
+	s.cycling = false
 }
 
-// complete applies a tab press: it returns the input extended to the longest
-// unambiguous prefix and refreshes the candidates for the new input.
+// complete applies a tab press. It first extends the input to the longest
+// prefix shared by every candidate, same as shell tab completion. Once that
+// prefix is already the whole input — an ambiguous prefix with nothing left
+// to extend — repeated tab presses instead cycle through the candidates one
+// at a time, so an ambiguous match can still be resolved from the keyboard
+// without touching the mouse or retyping.
 func (s *pathSuggest) complete(input string) string {
+	if s.cycling {
+		return s.step(1)
+	}
 	out := s.query(input).Completed
+	if out == input && len(s.candidates) > 1 {
+		s.cycling = true
+		s.selected = 0
+		return s.candidates[0]
+	}
 	s.refresh(out)
 	return out
+}
+
+// completeBack cycles backward — shift+tab's meaning while a cycle from
+// complete is already in progress. Callers should only invoke this when
+// cycling is true; the form falls back to its usual "previous field"
+// binding otherwise.
+func (s *pathSuggest) completeBack() string { return s.step(-1) }
+
+// step moves the selected candidate by delta, wrapping around the list.
+func (s *pathSuggest) step(delta int) string {
+	n := len(s.candidates)
+	if n == 0 {
+		return ""
+	}
+	s.selected = (s.selected + delta + n) % n
+	return s.candidates[s.selected]
 }
 
 // active reports whether there is anything to show — and, with it, whether tab
@@ -54,14 +90,19 @@ func (s *pathSuggest) complete(input string) string {
 func (s *pathSuggest) active() bool { return len(s.candidates) > 0 }
 
 // clear drops the candidates (field blurred, form closed or submitted).
-func (s *pathSuggest) clear() { s.candidates = nil }
+func (s *pathSuggest) clear() {
+	s.candidates = nil
+	s.cycling = false
+}
 
 // lines returns the rows to render under the field, indented to sit under the
 // input. Every candidate shares the typed directory, so only the final path
 // component is shown (a directory keeps its trailing separator) — long
 // absolute prefixes would otherwise truncate away the distinguishing part.
 // maxRows caps the rows including the "+N more" tail; 0 or less renders
-// nothing. Empty when there is nothing to suggest.
+// nothing. Empty when there is nothing to suggest. While cycling, the row
+// applied to the field is marked with "▸ " and the window scrolls to keep it
+// visible.
 func (s *pathSuggest) lines(maxRows int) []string {
 	n := len(s.candidates)
 	if n == 0 || maxRows <= 0 {
@@ -78,12 +119,24 @@ func (s *pathSuggest) lines(maxRows int) []string {
 	if shown < 0 {
 		shown = 0
 	}
-	out := make([]string, 0, maxRows)
-	for _, c := range s.candidates[:shown] {
-		out = append(out, lastPathComponent(c))
+	start := 0
+	if s.cycling && s.selected >= shown {
+		start = s.selected - shown + 1
 	}
-	if n > shown {
-		out = append(out, fmt.Sprintf("… +%d more", n-shown))
+	out := make([]string, 0, maxRows)
+	for i := start; i < start+shown && i < n; i++ {
+		name := lastPathComponent(s.candidates[i])
+		if s.cycling {
+			if i == s.selected {
+				name = "▸ " + name
+			} else {
+				name = "  " + name
+			}
+		}
+		out = append(out, name)
+	}
+	if rest := n - (start + shown); rest > 0 {
+		out = append(out, fmt.Sprintf("… +%d more", rest))
 	}
 	return out
 }

@@ -407,7 +407,6 @@ func (m Model) gridHeader(cols []gridColumn, first, w int) string {
 func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) string {
 	var b strings.Builder
 	onRow := r == m.data.row && m.focus == panelMain
-	selected := m.data.inSelection(r)
 	for i, c := range cols {
 		if i > 0 {
 			sep := m.style.gridSeparator.Render(colSepChar)
@@ -421,7 +420,9 @@ func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) str
 		if r < len(c.cells) {
 			text, isNull, isStaged = c.cells[r], c.nulls[r], c.staged[r]
 		}
-		b.WriteString(m.cellStyle(onRow, selected, first+i == m.data.col, isNull, isStaged, kind).
+		// The tint is per cell, not per row: a selection narrowed to a
+		// block of columns has to show which columns it kept.
+		b.WriteString(m.cellStyle(onRow, m.data.cellSelected(r, first+i), first+i == m.data.col, isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
 	return truncate(b.String(), w)
@@ -506,7 +507,13 @@ func (m Model) dataStatus() string {
 	// Selection mode is a mode: the status line says so, the way the
 	// filter and the sort do, so it is never on without being visible.
 	if n := len(d.selectedRows()); n > 0 {
-		line += m.style.keyHint.Render(fmt.Sprintf("  %d rows selected", n))
+		sel := fmt.Sprintf("  %d rows selected", n)
+		// A block says both of its dimensions: "3 rows selected" would
+		// otherwise claim columns the copy scopes have left out.
+		if d.narrowedToCols() {
+			sel = fmt.Sprintf("  %d rows × %d columns selected", n, len(d.selectedCols()))
+		}
+		line += m.style.keyHint.Render(sel)
 	}
 	if d.sort != nil {
 		dir := "asc"

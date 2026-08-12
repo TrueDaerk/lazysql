@@ -64,13 +64,19 @@ func (m *Model) copyMenu() tea.Cmd {
 	// no longer what the user means by a copy, so the selection scopes
 	// come first and take the row scope's own keys.
 	sel := m.data.selectedRows()
+	// A block selection names its columns too, so the entries say what
+	// they will leave out.
+	scope := fmt.Sprintf("%d selected rows", len(sel))
+	if m.data.narrowedToCols() {
+		scope = fmt.Sprintf("%d selected rows × %d columns", len(sel), len(m.data.selectedCols()))
+	}
 	if len(sel) > 0 {
-		add("r", fmt.Sprintf("%d selected rows — CSV", len(sel)), actCopySelectionCSV)
-		add("o", fmt.Sprintf("%d selected rows — JSON array", len(sel)), actCopySelectionJSON)
+		add("r", scope+" — CSV", actCopySelectionCSV)
+		add("o", scope+" — JSON array", actCopySelectionJSON)
 		// An INSERT needs a table to insert into, which a free-form result
 		// set does not have.
 		if m.data.browsing() {
-			add("i", fmt.Sprintf("%d selected rows — INSERT statements", len(sel)), actCopySelectionInsert)
+			add("i", scope+" — INSERT statements", actCopySelectionInsert)
 		}
 		// The one scope only a selection has: the cursor column's value in
 		// every selected row, one per line — a list of ids to paste into
@@ -108,7 +114,7 @@ func (m *Model) copyMenu() tea.Cmd {
 
 	title := "Copy — " + m.dataSubject()
 	if len(sel) > 0 {
-		title = fmt.Sprintf("Copy — %s (%d rows selected)", m.dataSubject(), len(sel))
+		title = fmt.Sprintf("Copy — %s (%s)", m.dataSubject(), scope)
 	}
 	m.modal = &menuModal{title: title, entries: entries}
 	return nil
@@ -227,22 +233,59 @@ func (m Model) selectionValues() [][]any {
 	return out
 }
 
+// selectionColumns is the columns the selection covers — all of them
+// unless `shift+←`/`shift+→` narrowed it to a block — together with the
+// indices they sit at, so a row can be cut down to the same shape.
+func (m Model) selectionColumns() ([]db.Column, []int) {
+	idx := m.data.selectedCols()
+	cols := make([]db.Column, 0, len(idx))
+	for _, c := range idx {
+		if c >= 0 && c < len(m.data.cols) {
+			cols = append(cols, m.data.cols[c])
+		}
+	}
+	return cols, idx
+}
+
 // copySelectionRows copies the whole selection in one of the row
 // formats. It goes through export.Rows, so a CSV copy carries its header
 // and a JSON copy is one array — a multi-row copy is a small table, not
-// a stack of single-row copies glued together.
+// a stack of single-row copies glued together. A selection narrowed to a
+// block copies only its columns: the CSV header, the JSON keys and the
+// INSERT column list all shrink with it.
 func (m Model) copySelectionRows(f export.Format) tea.Cmd {
 	rows := m.selectionValues()
 	if len(rows) == 0 {
 		return logCmd("-- copy selection skipped: nothing selected")
 	}
-	text, err := export.Rows(f, m.exportOptions(""), m.data.cols, rows)
+	cols, idx := m.selectionColumns()
+	if len(cols) == 0 {
+		return logCmd("-- copy selection skipped: no columns selected")
+	}
+	block := make([][]any, 0, len(rows))
+	for _, values := range rows {
+		out := make([]any, 0, len(idx))
+		for _, c := range idx {
+			var v any
+			if c < len(values) {
+				v = values[c]
+			}
+			out = append(out, v)
+		}
+		block = append(block, out)
+	}
+	text, err := export.Rows(f, m.exportOptions(""), cols, block)
 	if err != nil {
 		return logCmd("-- copy selection FAILED: %v", err)
 	}
+	subject := fmt.Sprintf("%d selected rows of %s as %s",
+		len(rows), m.dataSubject(), strings.ToUpper(string(f)))
+	if m.data.narrowedToCols() {
+		subject = fmt.Sprintf("%d selected rows × %d columns of %s as %s",
+			len(rows), len(cols), m.dataSubject(), strings.ToUpper(string(f)))
+	}
 	return copyTextCmd(
-		fmt.Sprintf("%d selected rows of %s as %s",
-			len(rows), m.dataSubject(), strings.ToUpper(string(f))),
+		subject,
 		fmt.Sprintf("%s-selection.%s", m.dataSubject(), f),
 		text,
 	)

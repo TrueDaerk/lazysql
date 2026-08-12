@@ -522,23 +522,20 @@ func (m *Model) clickGrid(row, col int) {
 	if len(m.data.cols) == 0 || m.data.err != "" || row < 3 {
 		return
 	}
-	_, _, mw, mh, ok := m.mainColumnRect()
+	w, h, ok := m.gridViewport()
 	if !ok {
 		return
 	}
-	cw := maxInt(mw-2, 1)
-	ch := maxInt(mh-commandLogHeight(mh)-2, 1)
-
-	cols, kinds := m.buildGrid()
-	cs, ce := columnWindow(cols, m.data.col, cw)
-	rs, re := rowWindow(len(kinds), m.data.row, maxInt(ch-4, 0))
-	r := rs + row - 3
-	if r < rs || r >= re {
+	// The layout the click landed on is the one the last frame drew, so
+	// the click is mapped back through exactly it.
+	g := m.gridLayout(w, h)
+	r := g.rs + row - 3
+	if r < g.rs || r >= g.re {
 		return
 	}
 	m.data.row = r
-	if c, ok := gridColumnAt(cols[cs:ce], col); ok {
-		m.data.col = cs + c
+	if c, ok := gridColumnAt(g.cols[g.cs:g.ce], col); ok {
+		m.data.col = g.cs + c
 	}
 	m.clampCursor()
 }

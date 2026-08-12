@@ -395,6 +395,9 @@ func (m *Model) confirmDiscard() tea.Cmd {
 		danger: true,
 		onConfirm: func(mm *Model) tea.Cmd {
 			mm.changes.Clear()
+			// The phantom rows went with the changeset; the cursor may
+			// have been standing on one of them.
+			mm.clampCursor()
 			return logCmd("-- discard %s", countChanges(n))
 		},
 	}

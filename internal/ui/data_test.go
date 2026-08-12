@@ -2,10 +2,12 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/db"
 )
@@ -435,11 +437,11 @@ func TestWideTableScrollsHorizontally(t *testing.T) {
 	m = next.(Model)
 
 	cols, _ := m.buildGrid()
-	start, end := columnWindow(cols, 0, 30)
+	start, end := columnWindow(cols, 0, 30, 0)
 	if start != 0 || end >= len(cols) {
 		t.Fatalf("window at the first column = [%d,%d), want a partial window from 0", start, end)
 	}
-	lastStart, lastEnd := columnWindow(cols, len(cols)-1, 30)
+	lastStart, lastEnd := columnWindow(cols, len(cols)-1, 30, 0)
 	if len(cols)-1 < lastStart || len(cols)-1 >= lastEnd {
 		t.Fatalf("window [%d,%d) does not contain the cursor column %d", lastStart, lastEnd, len(cols)-1)
 	}
@@ -773,6 +775,308 @@ func TestFilterModalTogglesAdvancedAndCancels(t *testing.T) {
 	if m.data.filter != nil {
 		t.Fatalf("filter = %+v, want esc to change nothing", m.data.filter)
 	}
+}
+
+// ---------- cursor and highlight ----------
+//
+// The cell cursor is only useful if the cell it points at is the cell the
+// user sees highlighted: `enter`, `e`, `v` and `y` all act on
+// m.data.row/col while the eye reads the tinted cell. The helpers below
+// read the highlight straight out of the rendered frame, so a test can
+// assert the two agree whatever the navigation, the page or the size.
+
+// cursorTint is the SGR parameter list the cell cursor sets as its
+// background. It is matched instead of the whole style because cellStyle
+// adds a foreground of its own to NULL, staged and phantom cells.
+func cursorTint() string {
+	probe := lipgloss.NewStyle().Background(colorCellCursorBg).Render("x")
+	i := strings.Index(probe, "\x1b[")
+	return probe[i+2 : i+strings.Index(probe[i:], "m")]
+}
+
+// gridBox renders the grid into exactly the content box the current
+// layout gives it — the frame the user is looking at.
+func gridBox(m Model) string {
+	w, h, ok := m.gridViewport()
+	if !ok {
+		return ""
+	}
+	return m.dataBody(w, h)
+}
+
+// highlightedCell returns the text of the cell rendered with the cursor
+// tint, the body line it sits on, and how many cells carry the tint —
+// which has to be exactly one while the grid has rows.
+func highlightedCell(body string) (text string, line, count int) {
+	tint := cursorTint()
+	line = -1
+	for i, l := range strings.Split(body, "\n") {
+		for _, seq := range strings.Split(l, "\x1b[")[1:] {
+			k := strings.Index(seq, "m")
+			if k < 0 || !strings.Contains(seq[:k], tint) {
+				continue
+			}
+			cell := seq[k+1:]
+			if e := strings.Index(cell, "\x1b"); e >= 0 {
+				cell = cell[:e]
+			}
+			text, line = strings.TrimRight(cell, " "), i
+			count++
+		}
+	}
+	return text, line, count
+}
+
+// cursorCellText is the value the cursor cell's actions work on — what
+// `v` shows, `e` edits and `y` copies — formatted the way the grid
+// formats it, so it can be compared with what was rendered.
+func cursorCellText(m Model) (string, bool) {
+	if m.data.col < 0 || m.data.col >= len(m.data.cols) {
+		return "", false
+	}
+	if ins, ok := m.phantomAtCursor(); ok {
+		v, bound := insertValueFor(ins, m.data.cols[m.data.col].Name)
+		if !bound {
+			return defaultText, true
+		}
+		return gridCellText(v, nullText), true
+	}
+	v, ok := m.data.cell()
+	if !ok {
+		return "", false
+	}
+	return gridCellText(v, nullText), true
+}
+
+// assertCursorRendered checks the one invariant this whole area exists
+// for: the highlighted cell is the cell the cursor points at.
+func assertCursorRendered(t *testing.T, m Model, what string) {
+	t.Helper()
+	want, ok := cursorCellText(m)
+	if !ok {
+		t.Fatalf("%s: cursor (%d,%d) points outside the page (%d rows, %d columns)",
+			what, m.data.row, m.data.col, m.data.rowCount(), len(m.data.cols))
+	}
+	cols, _ := m.buildGrid()
+	want = strings.TrimRight(truncate(want, cols[m.data.col].width), " ")
+
+	got, _, n := highlightedCell(gridBox(m))
+	if n != 1 {
+		t.Fatalf("%s: %d cells carry the cursor tint, want exactly 1 (cursor at %d,%d)",
+			what, n, m.data.row, m.data.col)
+	}
+	if got != want {
+		t.Fatalf("%s: the highlighted cell reads %q, but the cursor is on %q at (%d,%d)",
+			what, got, want, m.data.row, m.data.col)
+	}
+}
+
+// repeatKey is a run of the same key press.
+func repeatKey(r rune, n int) []tea.Msg {
+	out := make([]tea.Msg, n)
+	for i := range out {
+		out[i] = press(r)
+	}
+	return out
+}
+
+// repeatWheel is a run of wheel notches over the middle of the grid.
+func repeatWheel(button tea.MouseButton, n int) []tea.Msg {
+	out := make([]tea.Msg, n)
+	for i := range out {
+		out[i] = tea.MouseWheelMsg{X: 70, Y: 8, Button: button}
+	}
+	return out
+}
+
+// Whatever the user did to get there, the highlighted cell is the cell
+// every action operates on. Each step is checked in turn, so a
+// regression names the key that broke it.
+func TestHighlightFollowsTheCursorThroughEverySequence(t *testing.T) {
+	steps := []struct {
+		what string
+		msgs []tea.Msg
+	}{
+		{"j into the page", []tea.Msg{press('j'), press('j'), press('j')}},
+		{"j past the last visible row", repeatKey('j', 40)},
+		{"k back inside the window", []tea.Msg{press('k'), press('k')}},
+		{"l to the last column", repeatKey('l', 5)},
+		{"h back to the first", repeatKey('h', 5)},
+		{"shrink the terminal", []tea.Msg{tea.WindowSizeMsg{Width: 80, Height: 24}}},
+		{"grow it again", []tea.Msg{tea.WindowSizeMsg{Width: 200, Height: 60}}},
+		{"next page", []tea.Msg{ctrl('f')}},
+		{"previous page", []tea.Msg{ctrl('b')}},
+		{"sort", []tea.Msg{press('s')}},
+		{"refresh", []tea.Msg{special(tea.KeyEnter, 0)}},
+		{"wheel down", repeatWheel(tea.MouseWheelDown, 8)},
+		{"wheel up", repeatWheel(tea.MouseWheelUp, 2)},
+	}
+	m := dataBrowsing(t)
+	for _, step := range steps {
+		m = send(t, m, step.msgs...)
+		assertCursorRendered(t, m, step.what)
+	}
+}
+
+// Moving up inside a scrolled window moves the highlight, not the page.
+// A window derived from the cursor alone used to pin the cursor to the
+// last visible row: `k` scrolled the rows under a highlight that never
+// moved, and then jumped once the cursor fell inside the top window.
+func TestMovingUpMovesTheHighlightNotThePage(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, repeatKey('j', 40)...)
+
+	_, atBottom, _ := highlightedCell(gridBox(m))
+	first := strings.Split(stripStyles(gridBox(m)), "\n")[3]
+
+	m = send(t, m, press('k'))
+	_, line, _ := highlightedCell(gridBox(m))
+	if line != atBottom-1 {
+		t.Fatalf("k moved the highlight from line %d to %d, want one line up", atBottom, line)
+	}
+	if got := strings.Split(stripStyles(gridBox(m)), "\n")[3]; got != first {
+		t.Fatalf("k scrolled the page: the first row was %q, now %q", first, got)
+	}
+}
+
+// A cursor deep in a scrolled page keeps its cell across a resize: the
+// window is clamped around the cursor rather than re-derived from it.
+func TestResizeKeepsTheCursorUnderTheHighlight(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, repeatKey('j', 60)...)
+	before, _ := cursorCellText(m)
+
+	for _, size := range [][2]int{{60, 18}, {200, 60}, {100, 30}, {61, 19}} {
+		m = send(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		assertCursorRendered(t, m, fmt.Sprintf("resize to %dx%d", size[0], size[1]))
+		if got, _ := cursorCellText(m); got != before {
+			t.Fatalf("resize to %dx%d moved the cursor from %q to %q",
+				size[0], size[1], before, got)
+		}
+	}
+}
+
+// The horizontal-scroll hint takes a body row like every other line, so
+// a grid that scrolls sideways renders one row of the page less — rather
+// than one line more than the box holds, which pushed the command log
+// and the options bar off the bottom of the screen.
+func TestGridNeverRendersMoreLinesThanItsBox(t *testing.T) {
+	m := dataBrowsing(t)
+	for _, size := range [][2]int{{60, 18}, {80, 24}, {100, 30}, {200, 60}, {61, 19}} {
+		m = send(t, m, tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		w, h, ok := m.gridViewport()
+		if !ok {
+			t.Fatalf("%dx%d: the grid is not on screen", size[0], size[1])
+		}
+		if got := lipgloss.Height(m.dataBody(w, h)); got != h {
+			t.Errorf("%dx%d: the grid rendered %d lines into a %d-line box",
+				size[0], size[1], got, h)
+		}
+		if got := lipgloss.Height(m.View().Content); got != size[1] {
+			t.Errorf("%dx%d: the frame is %d lines tall", size[0], size[1], got)
+		}
+	}
+}
+
+// Discarding the changeset takes the phantom rows with it. A cursor
+// standing on one of them has to come back onto a row that still exists,
+// or every action after it works on nothing while the grid shows no
+// highlight at all.
+func TestDiscardingChangesBringsTheCursorBack(t *testing.T) {
+	m := dataBrowsing(t)
+	m, f := insertForm(t, m, 'n')
+	setField(f, "name", "phantom")
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	m.data.row = len(m.data.rows)
+	m.clampCursor()
+	assertCursorRendered(t, m, "on the phantom row")
+
+	m = send(t, m, press('U'), press('y'))
+	if m.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after U, want it discarded", m.changes.Len())
+	}
+	if m.data.row >= len(m.data.rows) {
+		t.Fatalf("cursor row = %d, want it back inside the %d-row page",
+			m.data.row, len(m.data.rows))
+	}
+	assertCursorRendered(t, m, "after discarding the changeset")
+}
+
+// The row window scrolls as little as it can and never hides the cursor,
+// whatever offset it starts from — including one left over from a taller
+// terminal or a longer page.
+func TestRowWindowClampsAroundTheCursor(t *testing.T) {
+	cases := []struct {
+		what                 string
+		n, cursor, rows, off int
+		wantStart, wantEnd   int
+	}{
+		{"short page fits whole", 3, 1, 10, 0, 0, 3},
+		{"cursor inside the window stays put", 100, 12, 10, 8, 8, 18},
+		{"cursor below scrolls down minimally", 100, 20, 10, 8, 11, 21},
+		{"cursor above scrolls up minimally", 100, 4, 10, 8, 4, 14},
+		{"offset past the end is pulled back", 100, 95, 10, 400, 90, 100},
+		{"offset left over from a shorter page", 100, 20, 5, 60, 20, 25},
+		{"empty page", 0, 0, 10, 3, 0, 0},
+		{"no room", 100, 20, 0, 0, 0, 0},
+	}
+	for _, c := range cases {
+		start, end := rowWindow(c.n, c.cursor, c.rows, c.off)
+		if start != c.wantStart || end != c.wantEnd {
+			t.Errorf("%s: rowWindow(%d,%d,%d,%d) = [%d,%d), want [%d,%d)",
+				c.what, c.n, c.cursor, c.rows, c.off, start, end, c.wantStart, c.wantEnd)
+		}
+		if c.n > 0 && c.rows > 0 && (c.cursor < start || c.cursor >= end) {
+			t.Errorf("%s: window [%d,%d) hides the cursor row %d", c.what, start, end, c.cursor)
+		}
+	}
+}
+
+// The column window follows the same rule: it packs from the offset it is
+// given and only scrolls far enough to keep the cursor column on screen.
+func TestColumnWindowClampsAroundTheCursor(t *testing.T) {
+	cols := make([]gridColumn, 8)
+	for i := range cols {
+		cols[i].width = 10
+	}
+	// Three ten-cell columns and their two separators fill 32 cells.
+	const w = 32
+
+	if start, end := columnWindow(cols, 0, w, 0); start != 0 || end != 3 {
+		t.Errorf("first column: window = [%d,%d), want [0,3)", start, end)
+	}
+	if start, end := columnWindow(cols, 4, w, 3); start != 3 || end != 6 {
+		t.Errorf("cursor inside the window: [%d,%d), want [3,6)", start, end)
+	}
+	if start, end := columnWindow(cols, 7, w, 3); start != 5 || end != 8 {
+		t.Errorf("cursor to the right: [%d,%d), want [5,8)", start, end)
+	}
+	if start, end := columnWindow(cols, 1, w, 5); start != 1 || end != 4 {
+		t.Errorf("cursor to the left: [%d,%d), want [1,4)", start, end)
+	}
+	// A column wider than the box still renders, alone.
+	wide := []gridColumn{{width: 4}, {width: 80}}
+	if start, end := columnWindow(wide, 1, 10, 0); start != 1 || end != 2 {
+		t.Errorf("oversized column: [%d,%d), want [1,2)", start, end)
+	}
+}
+
+// stripStyles drops the SGR sequences from a rendered block.
+func stripStyles(s string) string {
+	var b strings.Builder
+	in := false
+	for _, r := range s {
+		switch {
+		case r == 0x1b:
+			in = true
+		case in && r == 'm':
+			in = false
+		case !in:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // A selection is a set of page row indices, so every query-shape change

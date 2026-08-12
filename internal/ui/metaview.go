@@ -296,7 +296,10 @@ func (m Model) metaTable(headers []string, rows [][]string, cursor int, follow b
 	first := 0
 	if follow && h > 1 {
 		// One line went to the header.
-		start, end := rowWindow(len(rows), cursor, h-1)
+		// The Structure tab has no scroll offset of its own: passing 0
+		// asks for the top-anchored window, which is what it has always
+		// rendered.
+		start, end := rowWindow(len(rows), cursor, h-1, 0)
 		body, first = rows[start:end], start
 	}
 	for i, r := range body {

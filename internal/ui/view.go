@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazysql/internal/db"
 	"lazysql/internal/version"
@@ -568,25 +569,28 @@ func maxInt(a, b int) int {
 }
 
 // truncate shortens s to w display cells, appending an ellipsis when cut.
-// It walks forward accumulating rune widths rather than popping runes off
-// the end and re-measuring the prefix each time: a long line behind a
-// narrow box was quadratic, and the panel previews truncate on every
-// frame.
+//
+// It measures with ansi.Truncate rather than walking runes itself. Most
+// callers hand it text that is already styled — a grid row, the header,
+// the options bar — and an escape sequence is bytes, not cells: counting
+// its `[`, its digits and its `m` as visible width cut a tinted row cells
+// short of its box *and* threw away the closing reset, so the cursor
+// cell's tint was both too narrow and bled into the rest of the frame
+// (issue #132). ansi.Truncate skips the sequences, counts grapheme
+// clusters rather than runes, and re-closes the style it cut through.
+// A multi-line string is cut line by line: w is a box width, and
+// ansi.Truncate would otherwise measure the rows end to end and swallow
+// every one after the first.
 func truncate(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= w {
-		return s
+	if !strings.Contains(s, "\n") {
+		return ansi.Truncate(s, w, "…")
 	}
-	runes := []rune(s)
-	width := 0
-	for i, r := range runes {
-		rw := lipgloss.Width(string(r))
-		if width+rw > w-1 {
-			return string(runes[:i]) + "…"
-		}
-		width += rw
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, w, "…")
 	}
-	return string(runes) + "…"
+	return strings.Join(lines, "\n")
 }

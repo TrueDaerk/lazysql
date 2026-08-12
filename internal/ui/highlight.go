@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"lazysql/internal/sqlhl"
 )
@@ -74,12 +75,18 @@ func highlightSQL(s styles, d sqlhl.Dialect, line string) string {
 // letter. cursor is a rune index to draw with cursorStyle, or -1 for
 // none; cursor == len(runes) draws a trailing cell, which is where the
 // caret sits at the end of a line.
+//
+// The caret covers the whole grapheme cluster it lands on, not one rune:
+// an `ä` pasted in the decomposed form macOS hands over is a letter plus
+// a combining accent, two runes over a single cell, and styling only the
+// first of them would leave the accent outside the caret.
 func renderTokens(s styles, runes []rune, kinds []sqlhl.Kind, cursor int, cursorStyle lipgloss.Style) string {
 	var b strings.Builder
 	for i := 0; i < len(runes); {
 		if i == cursor {
-			b.WriteString(cursorStyle.Render(string(runes[i])))
-			i++
+			n := clusterRunes(runes[i:])
+			b.WriteString(cursorStyle.Render(string(runes[i : i+n])))
+			i += n
 			continue
 		}
 		k := kindAt(kinds, i)
@@ -133,10 +140,86 @@ func highlightLines(d sqlhl.Dialect, src string) []hlLine {
 	return out
 }
 
-// wrapSegments splits a line into display rows no wider than width, as
-// rune index ranges into the line. It hard-wraps: a query is code, and
+// The textarea counts its cursor in runes; the terminal lays a row out
+// in cells. The two only agree for plain ASCII, and every place the
+// editor turns one into the other has to say which it means — the bug
+// behind issue #132, where a caret at the end of a CJK line was appended
+// one cell past the box's right edge and clipped away with the border.
+//
+// lineCells is that translation, computed once per line: cells[i] is the
+// display column rune i starts at, and cells[len(runes)] is the line's
+// total width — the column an end-of-line caret occupies. Runes that
+// continue a grapheme cluster (the combining accent of a decomposed `ä`)
+// share their cluster's column, so cells never decreases and a repeated
+// value marks a rune that must not be split off from the one before it.
+//
+// The widths come from the same grapheme walk lipgloss.Width sums, so
+// what this measures and what the box measures can never disagree.
+func lineCells(runes []rune) []int {
+	cells := make([]int, len(runes)+1)
+	src := string(runes)
+	col, i := 0, 0
+	for i < len(runes) {
+		cluster, w := ansi.FirstGraphemeCluster(src, ansi.GraphemeWidth)
+		n := len([]rune(cluster))
+		if n < 1 {
+			// Nothing the segmenter returns should be empty, but a
+			// renderer that stalls on one byte of input is worse than one
+			// that mismeasures it.
+			n, cluster = 1, string(runes[i])
+		}
+		for k := 0; k < n && i < len(runes); k++ {
+			cells[i] = col
+			i++
+		}
+		col += w
+		src = src[len(cluster):]
+	}
+	cells[len(runes)] = col
+	return cells
+}
+
+// clusterStart snaps a rune index back onto the first rune of its
+// grapheme cluster. A caret that landed on a combining accent belongs on
+// the letter carrying it: that is the cell the eye sees.
+func clusterStart(cells []int, i int) int {
+	for i > 0 && i < len(cells) && cells[i] == cells[i-1] {
+		i--
+	}
+	return i
+}
+
+// clusterEnd is one past the last rune of the cluster starting at i. It
+// always advances, so a walk over it terminates.
+func clusterEnd(cells []int, i int) int {
+	j := i + 1
+	for j < len(cells) && cells[j] == cells[j-1] {
+		j++
+	}
+	return j
+}
+
+// clusterRunes is how many runes the grapheme cluster at the front of
+// runes spans: one for ordinary text, two for a letter carrying a
+// combining accent, more for an emoji sequence. Never zero, so a caller
+// stepping by it always makes progress.
+func clusterRunes(runes []rune) int {
+	if len(runes) == 0 {
+		return 0
+	}
+	cluster, _ := ansi.FirstGraphemeCluster(string(runes), ansi.GraphemeWidth)
+	if n := len([]rune(cluster)); n > 0 {
+		return n
+	}
+	return 1
+}
+
+// wrapSegments splits a line into display rows no wider than width cells,
+// as rune index ranges into the line. It hard-wraps: a query is code, and
 // breaking it on words would move the wrap point every time a word is
-// typed, which is exactly the flicker the editor must not have.
+// typed, which is exactly the flicker the editor must not have. It never
+// breaks inside a grapheme cluster, so an accent cannot end up on the row
+// below the letter it belongs to.
 //
 // The ranges always cover the line and always contain at least one
 // entry, so a caller can index segment 0 without checking.
@@ -144,38 +227,43 @@ func wrapSegments(runes []rune, width int) [][2]int {
 	if width < 1 {
 		width = 1
 	}
+	cells := lineCells(runes)
 	segs := [][2]int{}
-	start, w := 0, 0
-	for i, r := range runes {
-		rw := lipgloss.Width(string(r))
-		if rw < 1 {
-			rw = 1
-		}
-		if w+rw > width && i > start {
+	start := 0
+	for i := 0; i < len(runes); {
+		j := clusterEnd(cells, i)
+		if cells[j]-cells[start] > width && i > start {
 			segs = append(segs, [2]int{start, i})
-			start, w = i, 0
+			start = i
 		}
-		w += rw
+		i = j
 	}
 	segs = append(segs, [2]int{start, len(runes)})
 	return segs
 }
 
 // cursorSegment finds the display row a cursor column falls on, and its
-// offset within it. A cursor one past the end of a full row belongs to a
-// new empty row below — the same place the next typed character goes.
-func cursorSegment(segs [][2]int, col, width int) (row, offset int, extra bool) {
+// rune offset within it. A cursor one past the end of a full row belongs
+// to a new empty row below — the same place the next typed character
+// goes.
+//
+// "Full" is measured in cells, which is the whole point of taking cells:
+// a row of CJK is full at half the rune count of an ASCII one, and
+// comparing the rune offset against the box width — what this did before
+// — put the trailing caret cell one column past the editor's right edge,
+// where the layout clipped it and the caret vanished.
+func cursorSegment(cells []int, segs [][2]int, col, width int) (row, offset int, extra bool) {
+	col = clusterStart(cells, min(maxInt(col, 0), len(cells)-1))
 	for i, seg := range segs {
 		if col >= seg[0] && col < seg[1] {
 			return i, col - seg[0], false
 		}
 	}
 	last := len(segs) - 1
-	offset = col - segs[last][0]
-	if offset >= width {
+	if cells[col]-cells[segs[last][0]] >= width {
 		return last + 1, 0, true
 	}
-	return last, offset, false
+	return last, col - segs[last][0], false
 }
 
 // editorCache memoizes what renderEditor derives from the buffer alone:
@@ -365,12 +453,18 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 	rowStart := make([]int, len(lines))
 	cursorAt, cursorX := -1, 0 // display row of the caret and cell within it
 	curSeg, curOff, extra := -1, 0, false
+	// The cursor line's rune-to-cell map. Only the caret needs one, so it
+	// is built for that line alone rather than for the buffer.
+	var curCells []int
+	if showCursor {
+		curCells = lineCells(lines[cursorRow].runes)
+	}
 	total := 0
 	for i := range lines {
 		rowStart[i] = total
 		total += len(segs[i])
 		if showCursor && i == cursorRow {
-			curSeg, curOff, extra = cursorSegment(segs[i], cursorCol, contentW)
+			curSeg, curOff, extra = cursorSegment(curCells, segs[i], cursorCol, contentW)
 			if extra {
 				// A cursor past the end of a full row gets a row of its
 				// own, right after the line's last segment — every later
@@ -423,8 +517,8 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 			if onCursorLine && si == curSeg && !extra {
 				at = curOff
 				// The caret's *cell* is not its rune index: a wide rune
-				// before it takes two columns.
-				cursorX = gutterW + lipgloss.Width(string(line.runes[seg[0]:seg[0]+at]))
+				// before it takes two columns, a combining accent none.
+				cursorX = gutterW + curCells[seg[0]+at] - curCells[seg[0]]
 			}
 			rows = append(rows, gutter(s, gutterW, num)+
 				renderTokens(s, line.runes[seg[0]:seg[1]], line.kinds[seg[0]:seg[1]], at, cursorStyle))

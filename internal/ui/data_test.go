@@ -1069,6 +1069,40 @@ func TestColumnWindowClampsAroundTheCursor(t *testing.T) {
 	}
 }
 
+// A column too wide for the box is rendered alone and cut to fit, which
+// is the one place a grid row reaches gridRow's own truncate already
+// styled. Counting the escape sequences as visible width cut the tinted
+// cursor cell cells short of its box and left its background open, so the
+// highlight both missed its cell and bled down the frame (issue #132).
+func TestWideColumnKeepsTheCursorCellInItsBox(t *testing.T) {
+	m := sized(120, 40)
+	m.data = dataView{
+		conn: "c", database: "d", table: "t",
+		cols: []db.Column{{Name: "note", DataType: "text"}},
+		rows: [][]any{{strings.Repeat("x", 400)}, {strings.Repeat("y", 400)}},
+	}
+	m.table = "t"
+	m.setFocus(panelMain)
+
+	const w = 20
+	body := m.dataBody(w, 10)
+	// The header, the rule and both data rows all come from a column that
+	// alone overflows the box, so each of them is cut — to the box, not to
+	// wherever counting escape bytes as columns happened to land.
+	for i, l := range strings.Split(body, "\n")[:5] {
+		if got := lipgloss.Width(l); got != w {
+			t.Errorf("row %d is %d cells wide in a %d-cell box: %q", i, got, w, l)
+		}
+		if strings.Contains(l, "\x1b[") && !strings.HasSuffix(l, "\x1b[m") {
+			t.Errorf("row %d left a style open, which bleeds into the rest: %q", i, l)
+		}
+	}
+	// The cursor cell is still the cursor's, and still exactly one.
+	if _, _, n := highlightedCell(body); n != 1 {
+		t.Errorf("%d cells carry the cursor tint, want exactly 1", n)
+	}
+}
+
 // stripStyles drops the SGR sequences from a rendered block.
 func stripStyles(s string) string {
 	var b strings.Builder

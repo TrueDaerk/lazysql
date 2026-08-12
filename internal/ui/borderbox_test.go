@@ -92,3 +92,43 @@ func TestPanelBodyGainsTheTitleRow(t *testing.T) {
 		t.Errorf("the title is still in the body:\n%s", body)
 	}
 }
+
+// truncate is handed text that is already styled — a grid row, the grid
+// header, the options bar — and an escape sequence is bytes, not columns.
+// Counting its `[`, its digits and its `m` as visible width cut a tinted
+// row several cells short of its box and threw away the closing reset
+// with the rest, so the cursor cell's tint was both too narrow and bled
+// into the frame after it (issue #132).
+func TestTruncateMeasuresStyledTextInCells(t *testing.T) {
+	s := newStyles()
+	cases := []struct {
+		what string
+		text string
+		w    int
+		want int
+	}{
+		{"plain, fits", "abcdef", 10, 6},
+		{"plain, cut", "abcdefghij", 6, 6},
+		{"styled, fits", s.titleFocused.Render("abcdef"), 10, 6},
+		{"styled, cut", s.titleFocused.Render(strings.Repeat("x", 40)), 20, 20},
+		{"several runs", s.title.Render("abc") + s.muted.Render(strings.Repeat("y", 40)), 12, 12},
+		{"wide runes", strings.Repeat("日", 10), 9, 9},
+	}
+	for _, c := range cases {
+		got := truncate(c.text, c.w)
+		if w := lipgloss.Width(got); w != c.want {
+			t.Errorf("%s: truncate(…, %d) is %d cells wide, want %d: %q",
+				c.what, c.w, w, c.want, got)
+		}
+		// Nothing may be left open: a style the cut ran through has to be
+		// closed, or it runs on into the rest of the frame.
+		if strings.Contains(got, "\x1b[") && !strings.HasSuffix(got, "\x1b[m") {
+			t.Errorf("%s: truncate left a style open: %q", c.what, got)
+		}
+	}
+	// A multi-line block is cut row by row: w is a box width, not a budget
+	// spent across the whole block.
+	if got, want := truncate("aaaa\nbbbb\ncccc", 3), "aa…\nbb…\ncc…"; got != want {
+		t.Errorf("truncate over a block = %q, want %q", got, want)
+	}
+}

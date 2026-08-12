@@ -198,6 +198,12 @@ type Model struct {
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
 
+	// filterInput is the grid's inline `/` line — the WHERE clause being
+	// typed — nil when none is open. filters is the per-relation filter
+	// history behind its recall keys, newest first, across every scope.
+	filterInput *filterInput
+	filters     []history.Entry
+
 	// changes is the staged changeset: edits accumulate here and only
 	// execute on explicit commit. It is a pointer so every copied Model
 	// shares one changeset.
@@ -362,7 +368,7 @@ func New(noRestore bool) (Model, error) {
 }
 
 func (m Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{loadHistoryCmd(), loadSnippetsCmd()}
+	cmds := []tea.Cmd{loadHistoryCmd(), loadFiltersCmd(), loadSnippetsCmd()}
 	if m.startupErr != "" {
 		cmds = append(cmds, logCmd("-- config error: %s", m.startupErr))
 	}
@@ -481,6 +487,7 @@ func (m *Model) resetBrowse() {
 	m.database = ""
 	m.table = ""
 	m.data = dataView{}
+	m.closeFilterInput()
 	m.tab = mainTabData
 	m.resetMeta()
 	m.relations = nil
@@ -509,6 +516,7 @@ func (m *Model) openDatabase(name string) tea.Cmd {
 	// every state the jump history could go back to.
 	m.table = ""
 	m.data = dataView{}
+	m.closeFilterInput()
 	m.trigger = nil
 	m.browseStack = nil
 	m.fkAfter = actNone
@@ -597,8 +605,9 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 }
 
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
-// keys) → an open `/` filter → the query editor in insert mode → global
-// keys → focused panel. A bracketed paste takes the same order through
+// keys) → an open `/` filter (a panel's pattern or the grid's WHERE
+// line) → the query editor in insert mode → global keys → focused panel.
+// A bracketed paste takes the same order through
 // updatePaste, minus the steps that only make sense for a key, and a
 // mouse event through updateMouse — where a click that moves the focus
 // is the "global" step and the wheel is aimed by the pointer rather than
@@ -636,6 +645,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case historyWrittenMsg:
 		if msg.err != nil {
 			return m, logCmd("-- write query history FAILED: %v", msg.err)
+		}
+		return m, nil
+
+	case filtersLoadedMsg:
+		if msg.err != nil {
+			// A broken filter file costs `/` its recall list and nothing
+			// else; the session keeps recording into it.
+			return m, logCmd("-- read filter history FAILED: %v", msg.err)
+		}
+		m.filters = msg.entries
+		return m, nil
+
+	case filtersWrittenMsg:
+		if msg.err != nil {
+			return m, logCmd("-- write filter history FAILED: %v", msg.err)
 		}
 		return m, nil
 
@@ -1161,6 +1185,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focus < panelCount && m.panels[m.focus].filtering {
 			return m.updateFilter(msg)
 		}
+		// 2b. The data grid's own `/` — the inline WHERE line — captures
+		// them for the same reason: a clause is text, not commands.
+		if m.filterInputOpen() {
+			return m.updateFilterInput(msg)
+		}
 		// 3. The query editor in insert mode captures every key it does
 		// not reserve — ahead of the global keys, or `q` would quit in
 		// the middle of a statement.
@@ -1620,6 +1649,12 @@ func (m *Model) setFocus(id panelID) {
 	// back and pressing `d` must not complete a chord started before the
 	// detour.
 	m.editor.pending = 0
+	// Nor does a half-typed WHERE clause survive leaving the grid: the
+	// line only takes keys while the grid has them, so one left open
+	// elsewhere would be a caret nothing types into.
+	if id != panelMain {
+		m.closeFilterInput()
+	}
 }
 
 // actionsMenu is the `a` popup: one scrollable entry per binding of the

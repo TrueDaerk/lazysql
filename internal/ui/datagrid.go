@@ -368,13 +368,20 @@ func (m Model) dataBody(w, h int) string {
 		}
 	}
 
-	// The status line is pinned to the bottom of the box.
+	// The status line is pinned to the bottom of the box — and the inline
+	// WHERE line takes its place while it is open. The two never need to
+	// be read at once: the status describes the page underneath, which is
+	// exactly the page the clause being typed is about to replace.
+	last := truncate(m.dataStatus(), w)
+	if m.filterInputOpen() {
+		last = m.filterInput.view(w)
+	}
 	body := joinTruncated(lines, w, maxInt(h-1, 1))
 	pad := h - 1 - lipgloss.Height(body)
 	if pad > 0 {
 		body += strings.Repeat("\n", pad)
 	}
-	return body + "\n" + truncate(m.dataStatus(), w)
+	return body + "\n" + last
 }
 
 // gridHeader renders the column names and, under them, their types, then a

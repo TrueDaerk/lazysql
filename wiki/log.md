@@ -1202,3 +1202,29 @@ Chronological history of wiki changes, newest last.
   and [design/main-view-tabs](design/main-view-tabs.md) to point at the new
   primary spelling; the options bar and `?` help now render `</[` and
   `>/]`.
+
+## 2026-08-12 — Inline WHERE input with per-table filter history (issue #130)
+
+- Added [design/inline-where-filter](design/inline-where-filter.md): `/` on
+  the data grid now opens a line at the bottom of the grid instead of
+  `filterModal`. The `SELECT * FROM "orders" WHERE ` label is the
+  textinput's `Prompt`, which is what makes it immutable for free, and it
+  is built by the new `db.FilterPrefixSQL` so the relation shown is quoted
+  by the same dialect code `db.PageSQL` will use.
+- Recorded the routing step the line needed (`Model.Update` step 2b, ahead
+  of the global keys, mirroring the side panels' `/` filter) and why its
+  four keys are `key.Binding`s of their own — `ApplyFilter`,
+  `CancelFilter`, `FilterHistPrev`, `FilterHistNext`, one
+  `keyMap.filterInput()` slice behind the options bar and `?`.
+- Filter history reuses `internal/history` rather than inventing a store:
+  new `Entry.Key`, `history.Scope(conn, database, table)` (unit-separator
+  joined, so no name can spell another scope's key) and a `filters` file
+  in the same JSON Lines format next to `history`. Documented the
+  de-duplicate-and-rewrite rule, the per-scope cap, and why a coarser
+  `Scope` is all the query editor's history needs to become
+  per-connection.
+- Updated [design/data-grid](design/data-grid.md): the two-mode filter
+  popup section became a pointer to the new concept, noting that
+  `db.BuildFilter`/`db.FilterCond` and their tests stay in `internal/db`
+  with no UI caller, and that `dataView.conds` and
+  `Model.applyFilterConds` are gone with the structured form.

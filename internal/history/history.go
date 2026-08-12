@@ -41,6 +41,12 @@ type Entry struct {
 	// them and the panel annotates each entry with it.
 	Engine string    `json:"engine"`
 	At     time.Time `json:"at"`
+	// Key scopes the entry, empty for the app-wide statement history.
+	// The data grid's filter history writes a Scope here so `/` on one
+	// relation recalls that relation's filters — see filters.go, and
+	// note that a per-connection query history is the same field with a
+	// coarser Scope rather than a second file format.
+	Key string `json:"key,omitempty"`
 }
 
 // writeMu serializes writers. Appends run in tea.Cmd goroutines, so two

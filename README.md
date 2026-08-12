@@ -409,17 +409,20 @@ own foreground.
 
 On quit, lazysql remembers the connection, database, table, tab and grid
 cursor you were on in `${XDG_STATE_HOME:-~/.local/state}/lazysql/session.json`
-(a connection *name* only — never a password) and reconnects to it on the
-next start. Set `restore_session = false` to turn this off permanently, or
-pass `--no-restore` to skip it for one run:
+(a connection *name* only — never a password). This is **opt-in**: by
+default lazysql starts on the plain connections panel without dialing
+anything. Set `restore_session = true` to reconnect to that session on the
+next start:
 
 ```toml
-restore_session = false
+restore_session = true
 ```
 
-Either way, `esc` cancels an auto-connect in progress and drops back to
-the plain connections panel; a deleted connection, an unreachable host or
-a dropped table degrade the same way, with a note in the command log.
+With it enabled, pass `--no-restore` to skip the reconnect for one run
+without touching the config. Either way, `esc` cancels an auto-connect in
+progress and drops back to the plain connections panel; a deleted
+connection, an unreachable host or a dropped table degrade the same way,
+with a note in the command log.
 
 ### Clipboard
 

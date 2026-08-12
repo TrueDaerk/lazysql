@@ -1125,3 +1125,11 @@ Chronological history of wiki changes, newest last.
   all, so `ctrl+c` still quits, and disabling it is also what keeps it out
   of the options bar and `?` the rest of the time. Grid rendering tints
   selected rows and the status line reads `N rows selected`.
+- Flipped the default of `restore_session` (issue #116): startup no longer
+  auto-connects unless the config explicitly opts in. Extended
+  [design/session-restore](design/session-restore.md) — `Config.RestoreSession`
+  is now a plain `bool` (absent/omitted → false) instead of the `*bool` used
+  to make absence default to true; `RestoreSessionEnabled()` just returns
+  the field. The two call sites (`ui.New`'s startup decision and
+  `Model.quit`'s save-on-quit gate) needed no changes since both already
+  read through `RestoreSessionEnabled()`. `--no-restore` is unaffected.

@@ -532,12 +532,17 @@ func (m Model) renderOptionsBar() string {
 	// A form popup swallows every key too, so while one is open the bar
 	// offers the form contract — the same slices `?` documents — instead
 	// of panel verbs that could not act. A form with its own bar (the
-	// connection form adds ctrl+t) supplies it here.
+	// connection form adds ctrl+t and ctrl+e) supplies it here.
 	if fm, ok := m.modal.(*formModal); ok {
 		bindings = m.keys.formKeys()
 		if fm.bar != nil {
 			bindings = fm.bar(m.keys)
 		}
+	}
+	// The engine picker (step one of the connection flow) has its own
+	// five-key contract, documented in `?` under the Connections panel.
+	if _, ok := m.modal.(*enginePickerModal); ok {
+		bindings = m.keys.enginePickerKeys()
 	}
 	// A trigger definition is a read-only text block, so the grid's own
 	// actions would only ever be no-ops there: the bar offers the keys

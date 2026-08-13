@@ -11,13 +11,14 @@ import (
 )
 
 // formModal is the reusable multi-field popup: a vertical stack of labelled
-// fields with one cursor, an inline validation error line, and the usual
-// enter/esc contract. The connection editor is its user. (The row insert form
+// fields with one cursor, optional section headers, an inline validation
+// error line, a cursor-following scroll window and the usual enter/esc
+// contract. The connection editor is its main user. (The row insert form
 // is its own modal: its fields are columns, and each one cycles between a
 // typed value, NULL and the column's default rather than holding a string.)
 //
-// Fields can be hidden dynamically (`visible`), which is how the engine choice
-// swaps host/port for a file path without rebuilding the modal.
+// Fields can be hidden dynamically (`visible`), which is how the SSH
+// section unfolds under its toggle without rebuilding the modal.
 
 type fieldKind int
 
@@ -41,6 +42,11 @@ type formField struct {
 
 	on bool // fieldBool
 
+	// section names the header this field renders under. Consecutive
+	// fields sharing a section form one visually separated group; ""
+	// keeps the flat list every other form uses.
+	section string
+
 	help string
 	// suggest turns on filesystem path completion for this text field: the
 	// form recomputes candidates on every edit and `tab` completes instead
@@ -55,9 +61,6 @@ type formField struct {
 	// attempt (see errorFor), so an empty form does not open covered in
 	// red. Submitting is blocked while any visible field validates false.
 	validate func(f *formModal, value string) string
-	// onChange runs after a select or bool field flips its value — the
-	// engine choice uses it to retarget the port placeholder.
-	onChange func(f *formModal)
 }
 
 func newTextField(name, label, initial, placeholder string) *formField {
@@ -69,11 +72,21 @@ func newTextField(name, label, initial, placeholder string) *formField {
 	return &formField{name: name, label: label, kind: fieldText, input: ti}
 }
 
-func newPasswordField(name, label, placeholder string) *formField {
-	f := newTextField(name, label, "", placeholder)
+func newPasswordField(name, label, initial, placeholder string) *formField {
+	f := newTextField(name, label, initial, placeholder)
 	f.kind = fieldPassword
 	f.input.EchoMode = textinput.EchoPassword
 	f.input.EchoCharacter = '•'
+	return f
+}
+
+// newHiddenField is a never-visible carrier for one fixed value. The
+// engine-specific connection form stores its engine here, so every
+// predicate and reader that asks rawValue("engine") keeps working without
+// the engine being a walkable field.
+func newHiddenField(name, value string) *formField {
+	f := &formField{name: name, kind: fieldSelect, choices: []string{value}, values: []string{value}}
+	f.visible = func(*formModal) bool { return false }
 	return f
 }
 
@@ -93,6 +106,9 @@ func newBoolField(name, label string, on bool) *formField {
 
 func (f *formField) withHelp(h string) *formField { f.help = h; return f }
 
+// withSection puts the field under a named group header.
+func (f *formField) withSection(s string) *formField { f.section = s; return f }
+
 func (f *formField) withVisible(fn func(*formModal) bool) *formField { f.visible = fn; return f }
 
 // withSuggest enables path completion on a text field.
@@ -102,8 +118,6 @@ func (f *formField) withValidate(fn func(*formModal, string) string) *formField 
 	f.validate = fn
 	return f
 }
-
-func (f *formField) withChange(fn func(*formModal)) *formField { f.onChange = fn; return f }
 
 // requiredField is the validator for fields that cannot stay empty.
 func requiredField(what string) func(*formModal, string) string {
@@ -153,18 +167,25 @@ func (f *formField) value() string {
 	}
 }
 
-func (f *formField) display() string {
+// display renders the field's value cell. Selects wear their ‹ › chevrons
+// in the accent while focused — the visual cue that ←/→ acts here — and a
+// switched-on toggle is green, so state reads at a glance.
+func (f *formField) display(s styles, focused bool) string {
 	switch f.kind {
 	case fieldSelect:
+		v := ""
 		if f.choice >= 0 && f.choice < len(f.choices) {
-			return "‹ " + f.choices[f.choice] + " ›"
+			v = f.choices[f.choice]
 		}
-		return "‹ ›"
+		if focused {
+			return s.keyHint.Render("‹ ") + v + s.keyHint.Render(" ›")
+		}
+		return s.muted.Render("‹ ") + v + s.muted.Render(" ›")
 	case fieldBool:
 		if f.on {
-			return "[x] yes"
+			return s.toggleOn.Render("[x] yes")
 		}
-		return "[ ] no"
+		return s.muted.Render("[ ]") + " no"
 	default:
 		return f.input.View()
 	}
@@ -173,10 +194,10 @@ func (f *formField) display() string {
 // formModal is the popup itself. onSubmit returns close=false to keep the
 // form open after a failed validation; set f.err first so the user sees why.
 type formModal struct {
-	title    string
-	fields   []*formField
-	cursor   int
-	err      string
+	title  string
+	fields []*formField
+	cursor int
+	err    string
 	// info is the green counterpart of err: a transient status line, e.g.
 	// the connection form's test result.
 	info     string
@@ -215,6 +236,11 @@ type formModal struct {
 	// that field opted into completion. It is emptied whenever the cursor
 	// leaves the field, and whenever the form closes or submits.
 	sugg pathSuggest
+
+	// offset is the first body line the scroll window shows. A sectioned
+	// form can outgrow a small terminal; view keeps the cursor's line
+	// inside the window and marks clipped rows with ⋮.
+	offset int
 }
 
 // withBody attaches the lines rendered above the fields.
@@ -309,6 +335,37 @@ func (f *formModal) move(delta int) {
 		return
 	}
 	f.cursor = (f.cursor + delta + n) % n
+	f.sugg.clear()
+	f.syncFocus()
+}
+
+// focusField puts the cursor on the named field, when it is visible — the
+// connection form opens file engines on the path, the one field they need.
+func (f *formModal) focusField(name string) {
+	for i, fl := range f.visibleFields() {
+		if fl.name == name {
+			f.cursor = i
+			f.syncFocus()
+			return
+		}
+	}
+}
+
+// scroll is the wheel: like the menu modal it walks the cursor, clamped
+// rather than wrapping — a wheel that jumps from the last field to the
+// first reads as a glitch, not as navigation.
+func (f *formModal) scroll(delta int) {
+	n := len(f.visibleFields())
+	if n == 0 {
+		return
+	}
+	f.cursor += delta
+	if f.cursor > n-1 {
+		f.cursor = n - 1
+	}
+	if f.cursor < 0 {
+		f.cursor = 0
+	}
 	f.sugg.clear()
 	f.syncFocus()
 }
@@ -425,7 +482,6 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	}
 	switch cur.kind {
 	case fieldSelect:
-		was := cur.choice
 		switch msg.String() {
 		case "left", "h":
 			cur.choice = (cur.choice - 1 + len(cur.choices)) % len(cur.choices)
@@ -435,17 +491,11 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// Visibility rules may now hide the field the cursor sits on.
 		f.sugg.clear()
 		f.syncFocus()
-		if cur.choice != was && cur.onChange != nil {
-			cur.onChange(f)
-		}
 		return false, nil
 	case fieldBool:
 		switch msg.String() {
 		case " ", "space", "left", "right", "h", "l", "y", "n":
 			cur.on = !cur.on
-			if cur.onChange != nil {
-				cur.onChange(f)
-			}
 		}
 		return false, nil
 	}
@@ -477,16 +527,44 @@ func (f *formModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 func (f *formModal) view(s styles, maxW, maxH int) string {
 	vis := f.visibleFields()
 	labelW := 0
+	sectioned := false
 	for _, fl := range vis {
 		if w := lipgloss.Width(fl.label); w > labelW {
 			labelW = w
 		}
+		if fl.section != "" {
+			sectioned = true
+		}
 	}
-	inputW := min(38, maxInt(maxW-labelW-12, 12))
+	// The 16 covers the modal chrome, the cursor marker, the label gap and
+	// the textinput's own prompt and cursor cell, which render outside its
+	// width.
+	inputW := min(38, maxInt(maxW-labelW-16, 12))
+	// Sectioned forms indent their fields two cells under the headers, so
+	// the grouping reads from the left edge alone.
+	indent := ""
+	if sectioned {
+		indent = "  "
+	}
 
 	var bodyLines []string
 	if f.body != nil {
 		bodyLines = f.body(f)
+	}
+
+	// Count the headers before rendering: the suggestion budget needs the
+	// field block's full height, and each header costs its own line plus
+	// the blank one above it.
+	headerRows := 0
+	prev := ""
+	for _, fl := range vis {
+		if fl.section != "" && fl.section != prev {
+			headerRows += 2
+			prev = fl.section
+		}
+	}
+	if headerRows > 0 {
+		headerRows-- // the first header has no blank line above it
 	}
 
 	// Path suggestions only get the rows the terminal has left over: the
@@ -494,7 +572,7 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	// the tiny-terminal guard. 4 covers the box border and padding.
 	sugRows := 0
 	if sf := f.suggestField(); sf != nil && f.sugg.active() {
-		used := 4 + 2 + len(vis) + 2 // chrome, title+blank, fields, blank+footer
+		used := 4 + 2 + len(vis) + headerRows + 2 // chrome, title+blank, block, blank+footer
 		if len(bodyLines) > 0 {
 			used += len(bodyLines) + 1
 		}
@@ -507,15 +585,26 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		sugRows = min(maxSuggestLines, maxH-used)
 	}
 
-	var b strings.Builder
-	b.WriteString(s.modalTitle.Render(f.title) + "\n\n")
-	for _, line := range bodyLines {
-		b.WriteString(truncate(line, maxInt(maxW-6, 8)) + "\n")
-	}
-	if len(bodyLines) > 0 {
-		b.WriteString("\n")
-	}
+	// A header underlines itself across the field block, so the group
+	// boundary is a rule, not just a word.
+	blockW := min(len(indent)+2+labelW+2+inputW, maxInt(maxW-8, 20))
+
+	// The field block: headers, field lines, suggestion lines. cursorLine
+	// remembers where the cursor's field landed so the scroll window can
+	// follow it.
+	var lines []string
+	cursorLine := 0
+	prev = ""
 	for i, fl := range vis {
+		if fl.section != "" && fl.section != prev {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			fill := maxInt(blockW-lipgloss.Width(fl.section)-1, 0)
+			lines = append(lines, s.formSection.Render(fl.section)+" "+
+				s.muted.Render(strings.Repeat("─", fill)))
+			prev = fl.section
+		}
 		if fl.kind == fieldText || fl.kind == fieldPassword {
 			fl.input.SetWidth(inputW)
 		}
@@ -527,7 +616,7 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		} else {
 			label = s.muted.Render(label)
 		}
-		line := marker + label + "  " + fl.display()
+		line := indent + marker + label + "  " + fl.display(s, i == f.cursor)
 		// An invalid field is marked in place; under the cursor the mark
 		// carries the message (displacing the help — the field needs
 		// fixing before it needs explaining), elsewhere it is just ✗ so
@@ -541,13 +630,74 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		} else if fl.help != "" && i == f.cursor {
 			line += "  " + s.muted.Render(fl.help)
 		}
-		b.WriteString(line + "\n")
+		if i == f.cursor {
+			cursorLine = len(lines)
+		}
+		lines = append(lines, line)
 		if fl.suggest && i == f.cursor {
-			indent := strings.Repeat(" ", labelW+4)
+			sindent := indent + strings.Repeat(" ", labelW+4)
 			for _, sl := range f.sugg.lines(sugRows) {
-				b.WriteString(indent + s.muted.Render(truncate(sl, maxInt(inputW, 8))) + "\n")
+				lines = append(lines, sindent+s.muted.Render(truncate(sl, maxInt(inputW, 8))))
 			}
 		}
+	}
+
+	// Scroll window: a sectioned form with SSH open outgrows a small
+	// terminal, so the block is clipped to what fits and the window
+	// follows the cursor. Clipped edges show ⋮ in place of their first or
+	// last row.
+	budget := maxH - 6 - len(bodyLines)
+	if len(bodyLines) > 0 {
+		budget--
+	}
+	if f.err != "" {
+		budget -= 2
+	}
+	if f.info != "" {
+		budget -= 2
+	}
+	if budget < 3 {
+		budget = 3
+	}
+	if total := len(lines); total > budget {
+		if f.offset > total-budget {
+			f.offset = total - budget
+		}
+		if f.offset < 0 {
+			f.offset = 0
+		}
+		if cursorLine <= f.offset {
+			f.offset = maxInt(cursorLine-1, 0)
+		}
+		if cursorLine >= f.offset+budget-1 {
+			f.offset = min(cursorLine-budget+2, total-budget)
+		}
+		win := append([]string(nil), lines[f.offset:f.offset+budget]...)
+		if f.offset > 0 {
+			win[0] = s.muted.Render(indent + "⋮")
+		}
+		if f.offset+budget < total {
+			win[len(win)-1] = s.muted.Render(indent + "⋮")
+		}
+		lines = win
+	} else {
+		f.offset = 0
+	}
+
+	// Every line is clipped to what the modal can spend horizontally
+	// (border and padding cost 6 cells), or a long help text or footer
+	// would widen the box past a narrow terminal.
+	lineW := maxInt(maxW-6, 16)
+	var b strings.Builder
+	b.WriteString(s.modalTitle.Render(truncate(f.title, lineW)) + "\n\n")
+	for _, line := range bodyLines {
+		b.WriteString(truncate(line, lineW) + "\n")
+	}
+	if len(bodyLines) > 0 {
+		b.WriteString("\n")
+	}
+	for _, line := range lines {
+		b.WriteString(truncate(line, lineW) + "\n")
 	}
 	if f.err != "" {
 		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
@@ -567,6 +717,6 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 			footer = "tab/shift+tab cycle path · ↑↓ field · enter/ctrl+enter save · esc cancel"
 		}
 	}
-	b.WriteString("\n" + s.muted.Render(footer))
+	b.WriteString("\n" + s.muted.Render(truncate(footer, lineW)))
 	return s.modal.Render(b.String())
 }

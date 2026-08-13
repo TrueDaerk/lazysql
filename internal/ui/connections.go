@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -529,90 +530,239 @@ func userHint(e db.Engine) string {
 	return ""
 }
 
-// retargetEngineHints follows the engine select: the port and user
-// placeholders always describe the engine currently chosen.
-func retargetEngineHints(f *formModal) {
-	e := db.Engine(f.rawValue("engine"))
-	if fl := f.field("port"); fl != nil {
-		fl.input.Placeholder = portHint(e)
-	}
-	if fl := f.field("user"); fl != nil {
-		fl.input.Placeholder = userHint(e)
-	}
+// connDraft is everything the user has typed into a connection form so
+// far: the profile plus the raw, possibly mid-edit texts that do not
+// round-trip through config.Connection (a half-typed port, an invalid
+// options string) and the secrets a rebuild must not lose. It is what the
+// engine picker and the form hand each other, so switching engines never
+// discards input.
+type connDraft struct {
+	conn      config.Connection
+	port      string
+	options   string
+	sshPort   string
+	password  string
+	sshSecret string
 }
 
-// newConnectionForm builds the create/edit popup. oldName is empty when
-// creating; otherwise it is the profile being replaced.
-func newConnectionForm(title string, c config.Connection, oldName string) *formModal {
-	var labels, values []string
-	for _, e := range db.Engines() {
-		d, err := db.DialectFor(e)
-		if err != nil {
-			continue
-		}
-		labels = append(labels, d.DisplayName())
-		values = append(values, string(e))
-	}
-	if c.Engine == "" && len(values) > 0 {
-		c.Engine = db.Engine(values[0])
-	}
-	port := ""
+// draftFrom seeds a draft from a stored profile — the edit path.
+func draftFrom(c config.Connection) connDraft {
+	d := connDraft{conn: c, options: formatOptions(c.Options)}
 	if c.Port > 0 {
-		port = strconv.Itoa(c.Port)
+		d.port = strconv.Itoa(c.Port)
+	}
+	if c.SSH != nil && c.SSH.Port > 0 {
+		d.sshPort = strconv.Itoa(c.SSH.Port)
+	}
+	return d
+}
+
+// snapshotDraft reads the form back into a draft, starting from base so
+// values this engine's form does not carry (a typed host while a file
+// engine is up) survive a round trip through the picker.
+func (f *formModal) snapshotDraft(base connDraft) connDraft {
+	d := base
+	c := &d.conn
+	c.Engine = db.Engine(f.rawValue("engine"))
+	if fl := f.field("name"); fl != nil {
+		c.Name = fl.value()
+	}
+	if fl := f.field("host"); fl != nil {
+		c.Host = fl.value()
+	}
+	if fl := f.field("user"); fl != nil {
+		c.User = fl.value()
+	}
+	if fl := f.field("database"); fl != nil {
+		c.Database = fl.value()
+	}
+	if fl := f.field("file"); fl != nil {
+		c.File = fl.value()
+	}
+	if fl := f.field("ask"); fl != nil {
+		c.AskPassword = fl.value() == "true"
+	}
+	if fl := f.field("read_only"); fl != nil {
+		c.ReadOnly = fl.value() == "true"
+	}
+	if fl := f.field("port"); fl != nil {
+		d.port = fl.value()
+	}
+	if fl := f.field("options"); fl != nil {
+		d.options = fl.value()
+	}
+	if fl := f.field("password"); fl != nil {
+		d.password = fl.value()
+	}
+	if fl := f.field("color"); fl != nil {
+		color := fl.value()
+		if color == "custom" {
+			color = strings.TrimSpace(f.rawValue("color_hex"))
+		}
+		c.Color = color
+	}
+	if fl := f.field("ssh"); fl != nil {
+		s := config.SSH{
+			Enabled: fl.value() == "true",
+			Host:    strings.TrimSpace(f.rawValue("ssh_host")),
+			User:    strings.TrimSpace(f.rawValue("ssh_user")),
+			Auth:    f.rawValue("ssh_auth"),
+			KeyFile: strings.TrimSpace(f.rawValue("ssh_key")),
+		}
+		d.sshPort = f.rawValue("ssh_port")
+		d.sshSecret = f.rawValue("ssh_secret")
+		if s.Enabled || s.Host != "" || s.User != "" || s.KeyFile != "" || d.sshPort != "" {
+			c.SSH = &s
+		} else {
+			c.SSH = nil
+		}
+	}
+	return d
+}
+
+// newConnectionWizard opens step one of the create flow: the engine
+// picker. Picking an engine builds that engine's form; esc here cancels
+// the flow.
+func newConnectionWizard() *enginePickerModal {
+	var d connDraft
+	return newEnginePicker("New connection", "", func(m *Model, e db.Engine) {
+		d.conn.Engine = e
+		m.modal = newConnectionFormDraft("New connection", d, "")
+	})
+}
+
+// changeEnginePicker is the picker reopened from inside a form (ctrl+e, or
+// esc while creating): it carries the draft, preselects the current engine
+// and rebuilds the form on pick. backToForm keeps esc an excursion — the
+// ctrl+e case returns to the form, while the create-flow esc case falls
+// through to cancelling.
+func changeEnginePicker(title string, d connDraft, oldName string, backToForm bool) *enginePickerModal {
+	p := newEnginePicker(title, d.conn.Engine, func(m *Model, e db.Engine) {
+		d.conn.Engine = e
+		m.modal = newConnectionFormDraft(title, d, oldName)
+	})
+	if backToForm {
+		p.onBack = func(m *Model) {
+			m.modal = newConnectionFormDraft(title, d, oldName)
+		}
+	}
+	return p
+}
+
+// newConnectionForm builds the create/edit popup for the profile's engine.
+// oldName is empty when creating; otherwise it is the profile being
+// replaced.
+func newConnectionForm(title string, c config.Connection, oldName string) *formModal {
+	return newConnectionFormDraft(title, draftFrom(c), oldName)
+}
+
+// newConnectionFormDraft is step two of the connection flow: the form for
+// exactly one engine. The engine is fixed (a hidden field carries it for
+// the predicates and toConnection); ctrl+e reopens the picker with the
+// draft, and while creating, esc backs out to the picker rather than
+// throwing typed values away.
+func newConnectionFormDraft(title string, d connDraft, oldName string) *formModal {
+	c := d.conn
+	engine := c.Engine
+	if engine == "" {
+		if ch := engineChoices(); len(ch) > 0 {
+			engine = ch[0].engine
+		}
+	}
+	create := oldName == ""
+	display := string(engine)
+	if dl, err := db.DialectFor(engine); err == nil {
+		display = dl.DisplayName()
+	}
+	fileEngine := db.FileBased(engine)
+
+	fields := []*formField{newHiddenField("engine", string(engine))}
+
+	nameField := newTextField("name", "Name", c.Name, "my-database")
+	if fileEngine {
+		// The file's own name is the obvious profile name, so it is the
+		// default: submit derives it (toConnection), and only a profile
+		// with neither a name nor a file has nothing to go by.
+		nameField.input.Placeholder = "empty = named after the file"
+		nameField.withValidate(func(f *formModal, v string) string {
+			if v == "" && f.rawValue("file") == "" {
+				return "name is required"
+			}
+			return ""
+		})
+	} else {
+		nameField.withValidate(requiredField("name"))
+	}
+	fields = append(fields, nameField.withSection("Profile"))
+	for _, fl := range colorFormFields(c) {
+		fields = append(fields, fl.withSection("Profile"))
 	}
 
-	// Engine leads: it decides which of the fields below exist at all, so
-	// choosing it first means the form only ever shrinks/reshapes before
-	// anything was typed into a field about to disappear. The server block
-	// runs host→port→user→password in dial order, with the credentials
-	// adjacent.
-	fields := []*formField{
-		newSelectField("engine", "Engine", labels, values, string(c.Engine)).
-			withChange(retargetEngineHints),
-		newTextField("name", "Name", c.Name, "my-database").
-			withValidate(requiredField("name")),
-		newTextField("host", "Host", c.Host, "localhost").
-			withHelp("or an absolute path for a unix socket").
-			withVisible(isServerEngine).
-			withValidate(requiredField("host")),
-		newTextField("port", "Port", port, portHint(c.Engine)).
-			withHelp("empty = the engine's default").
-			withVisible(isServerEngine).
-			withValidate(validPort),
-		newTextField("user", "User", c.User, userHint(c.Engine)).withVisible(isServerEngine),
-		newPasswordField("password", "Password", passwordPlaceholder(c, oldName)).
-			withHelp("stored in the OS keyring, never in config.toml").
-			withVisible(isServerEngine),
-		newBoolField("ask", "Ask on connect", c.AskPassword).
-			withHelp("prompt instead of using the keyring").
-			withVisible(isServerEngine),
-		newTextField("database", "Database", c.Database, "optional").withVisible(isServerEngine),
-		newTextField("file", "File", c.File, "path/to/db").
-			withHelp("empty = in-memory (DuckDB)").
-			withVisible(isFileEngine).
-			withSuggest().
-			withValidate(func(f *formModal, v string) string {
-				if v == "" && db.Engine(f.rawValue("engine")) == db.EngineSQLite {
-					return "file path is required for SQLite"
-				}
-				return ""
-			}),
-		newTextField("options", "Options", formatOptions(c.Options), "sslmode=disable, k=v").
+	if fileEngine {
+		file := newTextField("file", "File", c.File, "path/to/db").
+			withSection("Storage").
+			withSuggest()
+		if engine == db.EngineSQLite {
+			file.withValidate(requiredField("file path"))
+		} else {
+			file.withHelp("empty = in-memory")
+		}
+		fields = append(fields, file)
+	} else {
+		host := c.Host
+		if create && host == "" {
+			// The common case is the dev database on this machine, so
+			// localhost is filled in as a real value — host is required
+			// anyway, and a prefill the cursor never visits is the
+			// cheapest field there is. Anything else overtypes it.
+			host = "localhost"
+		}
+		fields = append(fields,
+			newTextField("host", "Host", host, "db.example.com").
+				withSection("Server").
+				withHelp("or an absolute path for a unix socket").
+				withValidate(requiredField("host")),
+			newTextField("port", "Port", d.port, portHint(engine)).
+				withSection("Server").
+				withHelp("empty = the engine's default").
+				withValidate(validPort),
+			newTextField("database", "Database", c.Database, "optional").
+				withSection("Server"),
+			newTextField("user", "User", c.User, userHint(engine)).
+				withSection("Credentials"),
+			newPasswordField("password", "Password", d.password, passwordPlaceholder(c, oldName)).
+				withSection("Credentials").
+				withHelp("stored in the OS keyring, never in config.toml"),
+			newBoolField("ask", "Ask on connect", c.AskPassword).
+				withSection("Credentials").
+				withHelp("prompt instead of using the keyring"),
+		)
+		for _, fl := range sshFields(d, oldName) {
+			fields = append(fields, fl.withSection("SSH tunnel"))
+		}
+	}
+
+	// A server engine's example option is the one people actually reach
+	// for; a file engine gets the neutral spelling.
+	optionsHint := "sslmode=disable, k=v"
+	if fileEngine {
+		optionsHint = "key=value, key=value"
+	}
+	fields = append(fields,
+		newTextField("options", "Options", d.options, optionsHint).
+			withSection("Advanced").
 			withValidate(func(_ *formModal, v string) string {
 				if _, err := parseOptions(v); err != nil {
 					return err.Error()
 				}
 				return ""
 			}),
-		// Read-only applies to every engine, so it sits outside the
-		// server-only block above.
 		newBoolField("read_only", "Read-only", c.ReadOnly).
+			withSection("Advanced").
 			withHelp("block all writes on this connection"),
-	}
-	fields = append(fields, colorFormFields(c)...)
-	fields = append(fields, sshFields(c, oldName)...)
+	)
 
-	fm := newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
+	fm := newFormModal(title+" · "+display, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
 		conn, sec, err := f.toConnection()
 		if err != nil {
 			f.err = err.Error()
@@ -629,39 +779,57 @@ func newConnectionForm(title string, c config.Connection, oldName string) *formM
 			logCmd("-- save connection %s (%s)", conn.Name, conn.Engine),
 		)
 	})
-	fm.footer = "tab/↑↓ field · ←→ change · ctrl+t test · enter save · esc cancel"
+	if create && fileEngine {
+		// The path is the one thing a file profile needs — the name can
+		// derive from it — so that is where the cursor opens.
+		fm.focusField("file")
+	}
+	fm.footer = "tab/↑↓ field · ctrl+t test · ctrl+e engine · enter save · esc cancel"
+	if create {
+		// While creating, esc retreats one step — back to the engine
+		// picker, draft intact — and esc there cancels the flow. An edit
+		// has no step one to go back to.
+		fm.footer = "tab/↑↓ field · ctrl+t test · ctrl+e engine · enter save · esc back"
+		fm.onCancel = func(m *Model) {
+			m.modal = changeEnginePicker(title, fm.snapshotDraft(d), oldName, false)
+		}
+	}
 	fm.bar = func(k keyMap) []key.Binding { return k.connFormKeys() }
 	fm.onKey = func(m *Model, f *formModal, key string) (bool, tea.Cmd) {
-		if key != "ctrl+t" {
-			return false, nil
-		}
-		f.err, f.info = "", ""
-		conn, sec, err := f.toConnection()
-		if err != nil {
-			f.err = err.Error()
+		switch key {
+		case "ctrl+e":
+			m.modal = changeEnginePicker(title, f.snapshotDraft(d), oldName, true)
 			return true, nil
-		}
-		// The test dials exactly what the form shows, without persisting
-		// anything. Untouched secret fields fall back to the keyring entries
-		// of the profile being edited — looked up under oldName, because the
-		// form may be renaming it.
-		req := dialRequest{conn: conn, form: f}
-		if sec.setPassword {
-			req.password, req.hasPassword = sec.password, true
-		} else if oldName != "" {
-			if pw, err := keyringSecret(oldName); err == nil && pw != "" {
-				req.password, req.hasPassword = pw, true
+		case "ctrl+t":
+			f.err, f.info = "", ""
+			conn, sec, err := f.toConnection()
+			if err != nil {
+				f.err = err.Error()
+				return true, nil
 			}
-		}
-		if sec.setSSH {
-			req.sshSecret, req.hasSSHSecret = sec.ssh, true
-		} else if oldName != "" {
-			if s, err := keyringSecret(secrets.SSHKey(oldName)); err == nil && s != "" {
-				req.sshSecret, req.hasSSHSecret = s, true
+			// The test dials exactly what the form shows, without persisting
+			// anything. Untouched secret fields fall back to the keyring entries
+			// of the profile being edited — looked up under oldName, because the
+			// form may be renaming it.
+			req := dialRequest{conn: conn, form: f}
+			if sec.setPassword {
+				req.password, req.hasPassword = sec.password, true
+			} else if oldName != "" {
+				if pw, err := keyringSecret(oldName); err == nil && pw != "" {
+					req.password, req.hasPassword = pw, true
+				}
 			}
+			if sec.setSSH {
+				req.sshSecret, req.hasSSHSecret = sec.ssh, true
+			} else if oldName != "" {
+				if s, err := keyringSecret(secrets.SSHKey(oldName)); err == nil && s != "" {
+					req.sshSecret, req.hasSSHSecret = s, true
+				}
+			}
+			f.info = "testing …"
+			return true, testConnCmd(req)
 		}
-		f.info = "testing …"
-		return true, testConnCmd(req)
+		return false, nil
 	}
 	return fm
 }
@@ -684,6 +852,12 @@ func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
 	}
 	if db.FileBased(engine) {
 		c.File = f.value("file")
+		// An unnamed file profile borrows the file's own name — the same
+		// default the Name field's placeholder promises.
+		if c.Name == "" && c.File != "" {
+			base := filepath.Base(c.File)
+			c.Name = strings.TrimSuffix(base, filepath.Ext(base))
+		}
 	} else {
 		c.Host = f.value("host")
 		c.User = f.value("user")
@@ -740,7 +914,7 @@ func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
 // stored.
 func newSecretPrompt(title string, then func(secret string) tea.Cmd) *formModal {
 	fields := []*formField{
-		newPasswordField("secret", "Password", ""),
+		newPasswordField("secret", "Password", "", ""),
 	}
 	f := newFormModal(title, fields, func(m *Model, f *formModal) (bool, tea.Cmd) {
 		return true, then(f.rawValue("secret"))

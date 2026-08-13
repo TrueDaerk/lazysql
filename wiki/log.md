@@ -1359,3 +1359,25 @@ Chronological history of wiki changes, newest last.
   one `panelActions` slice; documented the esc/enter precedence rules
   (popup → insert → panel; newline in insert, run in normal). Undo
   stays deliberately omitted — the v2 textarea keeps no edit history.
+
+## 2026-08-13 — Engine-first two-step connection flow (issue #144)
+
+- Rewrote [design/connection-form-ux](design/connection-form-ux.md) for
+  the ground-up redesign superseding #129: `n` now opens a digit-shortcut
+  engine picker, and picking an engine builds an engine-specific form —
+  grouped under styled section headers (Profile / Server / Credentials /
+  SSH tunnel / Storage / Advanced), host prefilled `localhost` on create,
+  file-engine names derived from the file path, `ctrl+e` back to the
+  picker and esc retreating one step, all typed values carried across
+  transitions by a `connDraft`. Documents the keystroke counts (local
+  PostgreSQL 19 → 6, SQLite 17 → 9) and the rejected alternatives (flat
+  list, full wizard, engine tabs, auto-connect after save).
+- Updated [design/connection-form-modal](design/connection-form-modal.md):
+  the generic `formModal` grew optional sections (`withSection`), a
+  cursor-following scroll window with `⋮` edge markers and horizontal
+  line clamping, `focusField`, wheel support, password initial values,
+  a `newHiddenField` carrier (how the fixed engine keeps feeding the
+  `rawValue("engine")` predicates), and the esc/`onKey` modal-handoff
+  rule the two-step flow rides on. The #129 rejection of section headers
+  is superseded — scrolling removed the tiny-terminal constraint that
+  motivated it.

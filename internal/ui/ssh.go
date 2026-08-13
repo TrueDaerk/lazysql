@@ -13,10 +13,11 @@ import (
 )
 
 // The SSH section of the connection form. It is appended to the same
-// formModal the rest of the profile lives in — one popup, not a wizard — and
-// every field below the `ssh` toggle is hidden while the toggle is off. The
-// whole section is hidden for SQLite and DuckDB: there is no socket to
-// forward to a local file.
+// formModal the rest of the profile lives in, under its own section
+// header, and every field below the `ssh` toggle is hidden while the
+// toggle is off. Only server-engine forms include the section at all:
+// there is no socket to forward to a local file, and an engine-specific
+// form simply never builds it for SQLite/DuckDB.
 
 // sshEnabled is the visibility predicate for the fields under the toggle.
 func sshEnabled(f *formModal) bool {
@@ -42,8 +43,9 @@ func sshNeedsSecret(f *formModal) bool {
 	return false
 }
 
-// sshFields builds the SSH section for a profile.
-func sshFields(c config.Connection, oldName string) []*formField {
+// sshFields builds the SSH section for a draft.
+func sshFields(d connDraft, oldName string) []*formField {
+	c := d.conn
 	s := config.SSH{Auth: string(sshtunnel.AuthAgent)}
 	if c.SSH != nil {
 		s = *c.SSH
@@ -51,8 +53,8 @@ func sshFields(c config.Connection, oldName string) []*formField {
 	if s.Auth == "" {
 		s.Auth = string(sshtunnel.AuthAgent)
 	}
-	port := ""
-	if s.Port > 0 {
+	port := d.sshPort
+	if port == "" && s.Port > 0 {
 		port = strconv.Itoa(s.Port)
 	}
 
@@ -63,7 +65,9 @@ func sshFields(c config.Connection, oldName string) []*formField {
 	}
 
 	return []*formField{
-		newBoolField("ssh", "SSH tunnel", s.Enabled).
+		// The label reads under the form's "SSH tunnel" section header, so
+		// it answers "enabled?" rather than repeating the section's name.
+		newBoolField("ssh", "Enabled", s.Enabled).
 			withHelp("dial the database through a jump host").
 			withVisible(isServerEngine),
 		newTextField("ssh_host", "SSH host", s.Host, "bastion.example.com").
@@ -80,7 +84,7 @@ func sshFields(c config.Connection, oldName string) []*formField {
 		newTextField("ssh_key", "Key file", s.KeyFile, "~/.ssh/id_ed25519").
 			withHelp("empty = IdentityFile from ssh config").
 			withVisible(sshAuthIs(sshtunnel.AuthKey)),
-		newPasswordField("ssh_secret", "SSH secret", passwordPlaceholder(c, oldName)).
+		newPasswordField("ssh_secret", "SSH secret", d.sshSecret, passwordPlaceholder(c, oldName)).
 			withHelp("SSH password, or the key passphrase — kept in the OS keyring").
 			withVisible(sshNeedsSecret),
 	}

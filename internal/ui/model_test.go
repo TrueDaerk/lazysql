@@ -226,7 +226,14 @@ func TestEscCancelsEveryModal(t *testing.T) {
 		{"menu", func(m Model) Model { m.modal = m.actionsMenu(); return m }},
 		{"confirm", func(m Model) Model { m.modal = &confirmModal{title: "t", body: "b"}; return m }},
 		{"prompt", func(m Model) Model { m.modal = newPromptModal("t", "", "", nil); return m }},
-		{"form", func(m Model) Model { m.modal = newConnectionForm("t", config.Connection{}, ""); return m }},
+		// The create-mode form's esc retreats to the engine picker rather
+		// than closing (see TestEscBacksOutStepByStep); the edit form and
+		// the picker itself cancel outright.
+		{"form", func(m Model) Model {
+			m.modal = newConnectionForm("t", config.Connection{Name: "x"}, "x")
+			return m
+		}},
+		{"engine picker", func(m Model) Model { m.modal = newConnectionWizard(); return m }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -269,18 +276,25 @@ func TestConfirmModalDeleteRemovesProfile(t *testing.T) {
 	}
 }
 
-// `n` opens the multi-field form; filling name + engine + file yields a
-// persisted SQLite profile with no password anywhere in the config.
+// `n` opens the engine picker; picking SQLite yields that engine's form,
+// and filling name + file persists a SQLite profile with no password
+// anywhere in the config.
 func TestNewConnectionFormAddsProfile(t *testing.T) {
 	m := sized(120, 40)
 	before := len(m.panels[panelConnections].items)
 	m = send(t, m, press('n'))
+	if _, ok := m.modal.(*enginePickerModal); !ok {
+		t.Fatalf("n opened %T, want the engine picker", m.modal)
+	}
+	m = send(t, m, pickEngineKey(t, m, db.EngineSQLite))
 	form, ok := m.modal.(*formModal)
 	if !ok {
-		t.Fatalf("n opened %T, want *formModal", m.modal)
+		t.Fatalf("picking an engine opened %T, want *formModal", m.modal)
+	}
+	if got := db.Engine(form.rawValue("engine")); got != db.EngineSQLite {
+		t.Fatalf("form engine = %q, want sqlite", got)
 	}
 	form.field("name").input.SetValue("scratch")
-	form.field("engine").choice = engineChoice(t, form, db.EngineSQLite)
 	form.field("file").input.SetValue(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "scratch.sqlite"))
 
 	m = send(t, m, special(tea.KeyEnter, 0))
@@ -294,6 +308,22 @@ func TestNewConnectionFormAddsProfile(t *testing.T) {
 	if !ok || c.Engine != db.EngineSQLite {
 		t.Fatalf("profile = %+v, want a SQLite entry", c)
 	}
+}
+
+// pickEngineKey is the digit that selects an engine in the open picker.
+func pickEngineKey(t *testing.T, m Model, e db.Engine) tea.KeyPressMsg {
+	t.Helper()
+	p, ok := m.modal.(*enginePickerModal)
+	if !ok {
+		t.Fatalf("modal is %T, want the engine picker", m.modal)
+	}
+	for i, c := range p.choices {
+		if c.engine == e {
+			return press(rune('1' + i))
+		}
+	}
+	t.Fatalf("engine %q is not offered by the picker", e)
+	return tea.KeyPressMsg{}
 }
 
 // `e` opens the form prefilled; renaming replaces the profile in place rather
@@ -330,10 +360,9 @@ func TestEditConnectionRenamesInPlace(t *testing.T) {
 func TestConnectionFormRejectsBadPort(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press('n'))
+	m = send(t, m, pickEngineKey(t, m, db.EnginePostgres))
 	form := m.modal.(*formModal)
 	form.field("name").input.SetValue("bad")
-	form.field("engine").choice = engineChoice(t, form, db.EnginePostgres)
-	form.field("host").input.SetValue("localhost")
 	form.field("port").input.SetValue("not-a-number")
 
 	m = send(t, m, special(tea.KeyEnter, 0))
@@ -345,22 +374,32 @@ func TestConnectionFormRejectsBadPort(t *testing.T) {
 	}
 }
 
-// The engine select drives which fields the form shows.
+// The engine choice happens first and decides which form is built: each
+// engine gets exactly its own fields, and ctrl+e trades the form for the
+// picker again without losing what was typed.
 func TestEngineChoiceSwitchesFormFields(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press('n'))
+	m = send(t, m, pickEngineKey(t, m, db.EnginePostgres))
 	form := m.modal.(*formModal)
-
-	form.field("engine").choice = engineChoice(t, form, db.EnginePostgres)
 	if !hasVisibleField(form, "host") || hasVisibleField(form, "file") {
 		t.Fatal("postgres form should show host and hide file")
 	}
-	form.field("engine").choice = engineChoice(t, form, db.EngineDuckDB)
+	form.field("name").input.SetValue("kept")
+
+	// ctrl+e reopens the picker; picking DuckDB rebuilds the form for the
+	// file family, keeping the typed name.
+	m = send(t, m, tea.KeyPressMsg{Code: 'e', Mod: tea.ModCtrl})
+	m = send(t, m, pickEngineKey(t, m, db.EngineDuckDB))
+	form = m.modal.(*formModal)
 	if hasVisibleField(form, "host") || !hasVisibleField(form, "file") {
 		t.Fatal("duckdb form should show file and hide host")
 	}
-	if hasVisibleField(form, "password") {
-		t.Fatal("file-based engines must not offer a password field")
+	if hasVisibleField(form, "password") || hasVisibleField(form, "ssh") {
+		t.Fatal("file-based engines must not offer password or SSH fields")
+	}
+	if got := form.field("name").value(); got != "kept" {
+		t.Fatalf("name = %q after the engine change, want the typed value kept", got)
 	}
 }
 
@@ -371,17 +410,6 @@ func hasVisibleField(f *formModal, name string) bool {
 		}
 	}
 	return false
-}
-
-func engineChoice(t *testing.T, f *formModal, e db.Engine) int {
-	t.Helper()
-	for i, v := range f.field("engine").values {
-		if v == string(e) {
-			return i
-		}
-	}
-	t.Fatalf("engine %q is not offered by the form", e)
-	return 0
 }
 
 // Connecting is asynchronous and reports through messages; a real SQLite file
@@ -790,10 +818,10 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 				}
 			}
 		}
-		// Same for the connection form's contract, dispatched inside
-		// formModal.update.
+		// Same for the connection form's contract and the engine picker's,
+		// dispatched inside formModal.update / enginePickerModal.update.
 		if id == panelConnections {
-			for _, b := range k.connFormKeys() {
+			for _, b := range append(k.connFormKeys(), k.enginePickerKeys()...) {
 				for _, ks := range b.Keys() {
 					actions[ks] = true
 				}

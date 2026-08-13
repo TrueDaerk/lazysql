@@ -237,10 +237,16 @@ type keyMap struct {
 	// The rest of a form's contract. These document keys formModal.update
 	// dispatches itself (an open modal swallows every key), so they carry
 	// no slots entries — overriding them in `[keys]` could not change what
-	// the form answers to, only what the bar claims it does.
-	FormChange key.Binding
-	FormTest   key.Binding
-	FormSave   key.Binding
+	// the form answers to, only what the bar claims it does. FormEngine
+	// reopens the engine picker from inside the connection form; EnginePick
+	// and EngineChoose document the picker modal itself, which dispatches
+	// its own keys the same way.
+	FormChange   key.Binding
+	FormTest     key.Binding
+	FormEngine   key.Binding
+	FormSave     key.Binding
+	EnginePick   key.Binding
+	EngineChoose key.Binding
 
 	// Backup opens the dump/restore menu on panels [1] and [2], and
 	// CancelBackup kills the tool it started. Like CancelExport the
@@ -329,16 +335,16 @@ func newKeyMap() keyMap {
 		HistSection: key.NewBinding(
 			key.WithKeys("tab", "shift+tab"), key.WithHelp("tab", "switch section")),
 
-		VimLeft:       key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
-		VimRight:      key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
-		VimWordFwd:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "next word")),
-		VimWordBack:   key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "prev word")),
-		VimWordEnd:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "word end")),
-		VimLineStart:  key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "line start")),
-		VimLineEnd:    key.NewBinding(key.WithKeys("$"), key.WithHelp("$", "line end")),
-		VimTop:        key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "buffer start")),
-		VimBottom:     key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "buffer end")),
-		VimAppend:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append (insert)")),
+		VimLeft:      key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "left")),
+		VimRight:     key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "right")),
+		VimWordFwd:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "next word")),
+		VimWordBack:  key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "prev word")),
+		VimWordEnd:   key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "word end")),
+		VimLineStart: key.NewBinding(key.WithKeys("0"), key.WithHelp("0", "line start")),
+		VimLineEnd:   key.NewBinding(key.WithKeys("$"), key.WithHelp("$", "line end")),
+		VimTop:       key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "buffer start")),
+		VimBottom:    key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "buffer end")),
+		VimAppend:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "append (insert)")),
 		VimInsertStart: key.NewBinding(
 			key.WithKeys("I"), key.WithHelp("I", "insert at line start")),
 		VimAppendEOL: key.NewBinding(
@@ -376,9 +382,16 @@ func newKeyMap() keyMap {
 			key.WithKeys("left", "right"), key.WithHelp("←/→", "change value")),
 		FormTest: key.NewBinding(
 			key.WithKeys("ctrl+t"), key.WithHelp("ctrl+t", "test without saving")),
+		FormEngine: key.NewBinding(
+			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "change engine")),
 		FormSave: key.NewBinding(
 			key.WithKeys(append([]string{"enter"}, acceptKeys...)...),
 			key.WithHelp("enter", "save")),
+		EnginePick: key.NewBinding(
+			key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"),
+			key.WithHelp("1-9", "pick engine")),
+		EngineChoose: key.NewBinding(
+			key.WithKeys("enter"), key.WithHelp("enter", "choose")),
 
 		ColLeft:    key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "prev column")),
 		ColRight:   key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "next column")),
@@ -588,9 +601,18 @@ func (k keyMap) formKeys() []key.Binding {
 	return []key.Binding{k.NextField, k.PrevField, k.FormChange, k.FormSave, k.Back}
 }
 
-// connFormKeys is formKeys plus the connection form's ctrl+t test hook.
+// connFormKeys is formKeys plus the connection form's own hooks: the
+// ctrl+t test and the ctrl+e trip back to the engine picker.
 func (k keyMap) connFormKeys() []key.Binding {
-	return []key.Binding{k.NextField, k.PrevField, k.FormChange, k.FormTest, k.FormSave, k.Back}
+	return []key.Binding{
+		k.NextField, k.PrevField, k.FormChange, k.FormTest, k.FormEngine, k.FormSave, k.Back}
+}
+
+// enginePickerKeys is the engine picker's contract: what the options bar
+// shows while it is open, and what `?` documents. The picker dispatches
+// these keys itself, like every modal.
+func (k keyMap) enginePickerKeys() []key.Binding {
+	return []key.Binding{k.EnginePick, k.Up, k.Down, k.EngineChoose, k.Back}
 }
 
 // datePicker are the keys the date/time picker owns while it is open, plus
@@ -874,11 +896,12 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 			helpGroup{"In the date picker:", k.datePicker()},
 		)
 	}
-	// The connection form is opened from the Connections panel, so its
-	// keys — the form contract plus the File field's path completion —
-	// are documented there.
+	// The connection flow is opened from the Connections panel, so its
+	// keys — the engine picker, the form contract, and the File field's
+	// path completion — are documented there.
 	if id == panelConnections {
 		groups = append(groups,
+			helpGroup{"In the engine picker:", k.enginePickerKeys()},
 			helpGroup{"In the connection form:", k.connFormKeys()},
 			helpGroup{"While path suggestions are up:", k.formPathComplete()},
 		)

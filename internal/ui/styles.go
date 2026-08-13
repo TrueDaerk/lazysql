@@ -48,6 +48,12 @@ type styles struct {
 	danger     lipgloss.Style
 	pending    lipgloss.Style
 
+	// Sectioned forms (the connection editor): the group header wears the
+	// accent so it cannot be mistaken for a field, and a switched-on
+	// toggle answers in green.
+	formSection lipgloss.Style
+	toggleOn    lipgloss.Style
+
 	// The schema diff report: added green, removed red, changed yellow
 	// — the staged-changes color language, applied to schema objects.
 	// plain is the unstyled fallback for context lines.
@@ -118,6 +124,9 @@ func newStyles() styles {
 		modalTitle: lipgloss.NewStyle().Bold(true).Foreground(colorGreen),
 		danger:     lipgloss.NewStyle().Foreground(colorError),
 		pending:    lipgloss.NewStyle().Foreground(colorYellow),
+
+		formSection: lipgloss.NewStyle().Bold(true).Foreground(colorCyan),
+		toggleOn:    lipgloss.NewStyle().Foreground(colorGreen),
 
 		plain:      lipgloss.NewStyle(),
 		diffAdd:    lipgloss.NewStyle().Foreground(colorGreen),

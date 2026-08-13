@@ -1413,7 +1413,9 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m.dialSelected(true)
 
 	case actNewConnection:
-		m.modal = newConnectionForm("New connection", config.Connection{}, "")
+		// Step one of the create flow: pick the engine, get that engine's
+		// form — see newConnectionWizard.
+		m.modal = newConnectionWizard()
 
 	case actEditConnection:
 		if c, ok := m.selectedConnection(); ok {

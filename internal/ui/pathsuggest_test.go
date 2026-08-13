@@ -8,28 +8,25 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazysql/internal/config"
 	"lazysql/internal/db"
 )
 
-// fileForm opens the new-connection form on a file engine with the cursor
-// parked on the File field, which is where path completion lives.
+// fileForm opens the new-connection form on a file engine. The create flow
+// itself parks the cursor on the File field, which is where path
+// completion lives.
 func fileForm(t *testing.T, m Model) (Model, *formModal) {
 	t.Helper()
 	m = send(t, m, press('n'))
+	m = send(t, m, pickEngineKey(t, m, db.EngineSQLite))
 	form, ok := m.modal.(*formModal)
 	if !ok {
-		t.Fatalf("n opened %T, want *formModal", m.modal)
+		t.Fatalf("picking SQLite opened %T, want *formModal", m.modal)
 	}
-	form.field("engine").choice = engineChoice(t, form, db.EngineSQLite)
-	for i, fl := range form.visibleFields() {
-		if fl.name == "file" {
-			form.cursor = i
-			form.syncFocus()
-			return m, form
-		}
+	if cur := form.current(); cur == nil || cur.name != "file" {
+		t.Fatalf("a fresh SQLite form opens on %v, want the file field", cur)
 	}
-	t.Fatal("no visible file field on a file engine")
-	return m, nil
+	return m, form
 }
 
 // Typing into the File field must produce live candidates, and tab must
@@ -167,9 +164,14 @@ func TestSuggestionsClearOnBlur(t *testing.T) {
 		t.Errorf("footer still advertises completion off the file field:\n%s", got)
 	}
 
-	form.field("engine").choice = engineChoice(t, form, db.EnginePostgres)
-	if form.suggestField() != nil {
-		t.Error("a server engine offers path completion")
+	// A server engine has no file field at all, so no field on its form
+	// offers path completion.
+	pg := newConnectionForm("New", config.Connection{Engine: db.EnginePostgres}, "")
+	for range pg.visibleFields() {
+		if pg.suggestField() != nil {
+			t.Error("a server engine offers path completion")
+		}
+		pg.move(1)
 	}
 }
 

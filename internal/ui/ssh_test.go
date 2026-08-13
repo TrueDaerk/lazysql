@@ -51,15 +51,16 @@ func TestSSHSectionHiddenForFileEngines(t *testing.T) {
 	if !hasField(f, "ssh") {
 		t.Fatalf("MySQL form has no SSH toggle: %v", fieldNames(f))
 	}
+	// A file engine's form is built without the section entirely.
 	for _, engine := range []db.Engine{db.EngineSQLite, db.EngineDuckDB} {
-		setSelect(t, f, "engine", string(engine))
+		f := newConnectionForm("New", config.Connection{Engine: engine}, "")
 		if hasField(f, "ssh") {
 			t.Errorf("%s form shows the SSH toggle: %v", engine, fieldNames(f))
 		}
 	}
-	setSelect(t, f, "engine", string(db.EnginePostgres))
+	f = newConnectionForm("New", config.Connection{Engine: db.EnginePostgres}, "")
 	if !hasField(f, "ssh") {
-		t.Errorf("PostgreSQL form lost the SSH toggle: %v", fieldNames(f))
+		t.Errorf("PostgreSQL form has no SSH toggle: %v", fieldNames(f))
 	}
 }
 

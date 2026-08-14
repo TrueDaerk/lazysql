@@ -9,8 +9,9 @@
 #   make test
 #   make vet
 #   make version    # print the version the next build will carry
-#   make docs-serve # live-preview the user documentation site
-#   make docs-build # build it once, the way CI does
+#   make docs-serve  # live-preview the user documentation site
+#   make docs-build  # build it once, the way CI does
+#   make docs-deploy # publish to GitHub Pages (gh-pages branch)
 
 BINARY  := lazysql
 PACKAGE := .
@@ -66,7 +67,8 @@ docs-serve:
 docs-build:
 	$(MKDOCS) build --strict
 
-# Publishing normally happens in CI on a push to main; this is the manual
-# escape hatch. --force matches the workflow: gh-pages is generated output.
+# Publishing is a local, manual step — there is no deploy job in CI (#148).
+# --force is needed because gh-pages is generated output: a local shallow or
+# diverged copy of it must not block the push with a non-fast-forward error.
 docs-deploy:
 	$(MKDOCS) gh-deploy --strict --force

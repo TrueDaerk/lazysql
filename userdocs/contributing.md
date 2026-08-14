@@ -101,11 +101,23 @@ built from `userdocs/` at the repository root.
 pip install -r userdocs/requirements.txt
 make docs-serve     # live preview on http://127.0.0.1:8000
 make docs-build     # what CI runs: mkdocs build --strict
+make docs-deploy    # publish to GitHub Pages
 ```
 
 The build is `--strict`, so a broken internal link fails it. CI builds the
-site on every pull request that touches `userdocs/` or `mkdocs.yml`, and
-publishes it on a push to `main`.
+site as a check on every pull request that touches `userdocs/` or
+`mkdocs.yml`, but **does not deploy it** — there is no Actions workflow with
+push access to `gh-pages`. Publishing to
+[truedaerk.github.io/lazysql](https://truedaerk.github.io/lazysql/) is a
+local, manual step: whoever wants the live site updated runs
+`make docs-deploy` (`mkdocs gh-deploy --strict --force`), which builds the
+site and force-pushes it to the `gh-pages` branch. `--force` matters because
+`gh-pages` is generated output — a local shallow or diverged copy of it would
+otherwise reject the push as a non-fast-forward.
+
+The repository's Pages settings are a one-time manual setup, not something a
+workflow configures: **Settings → Pages → Build and deployment → Source:
+"Deploy from a branch"**, branch `gh-pages`, folder `/root`.
 
 Keybinding documentation is checked against the code: a Go test asserts that
 every action name in `internal/ui/keys.go` appears in

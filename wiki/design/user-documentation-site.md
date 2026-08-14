@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: User documentation site — MkDocs Material in userdocs/, separate from the wiki
-description: Why issue #146 put the user-facing docs in their own MkDocs Material site under userdocs/ instead of growing the README or the OKF wiki, the strict-build CI contract, and the test that keeps the keybinding reference from drifting.
+description: Why issue #146 put the user-facing docs in their own MkDocs Material site under userdocs/ instead of growing the README or the OKF wiki, the strict-build PR check, why issue #148 pulled the gh-pages deploy out of CI in favor of local `make docs-deploy`, and the test that keeps the keybinding reference from drifting.
 tags: [docs, tooling, ci, github-pages, mkdocs, keybindings]
 generated:
   by: claude-code/opus-5
@@ -64,32 +64,41 @@ GitHub visitor sees, and it should keep working without the site.
   for unambiguous chords (`ctrl+r`, `esc`, `tab`). Keeping the extension
   on costs nothing and leaves the option open.
 
-## CI: build on PRs, `gh-deploy --force` on main
+## CI builds a PR check only; publishing is local (#148)
 
-`.github/workflows/docs.yml` — the repository's first workflow file.
+`.github/workflows/docs.yml` runs `mkdocs build --strict` on pull requests
+that touch `userdocs/`, `mkdocs.yml` or the workflow itself, and stops
+there. It has no push-to-`main` trigger, no `contents: write` permission and
+no deploy step — the workflow cannot publish anything.
 
-Pull requests that touch `userdocs/`, `mkdocs.yml` or the workflow build
-the site with `--strict` and stop there. A push to `main` additionally
-runs `mkdocs gh-deploy --strict --force`, publishing to the `gh-pages`
-branch, which the repository's Pages settings serve from ("Deploy from a
-branch" → `gh-pages` → `/root`, a one-time manual setting).
+Publishing to `gh-pages` happens only via `make docs-deploy`
+(`mkdocs gh-deploy --strict --force`), run by hand from whoever's machine has
+the change ready to go live. The repository's Pages settings are the other,
+one-time half of this: "Deploy from a branch" → `gh-pages` → `/root`, set
+once in the GitHub UI, not by any workflow.
 
-Three details that are not obvious:
+This was a deliberate correction (issue #148) of the initial #146
+implementation, which had CI push to `gh-pages` on every merge to `main`.
+Reasons for pulling that out again:
 
-- **`fetch-depth: 0`.** `gh-deploy` commits onto `gh-pages`, so it needs
-  that branch's history; the default shallow checkout does not have it.
-- **`--force`.** `gh-pages` is generated output with a disposable
-  history. Without it a diverged or rewritten branch fails the push, and
-  waiting for a fast-forward on a branch nobody merges into is pure
-  cost.
-- **A committer identity.** `ghp-import` writes a real commit, and a
-  bare Actions runner has no `user.name`/`user.email`, so the deploy
-  step sets the `github-actions[bot]` identity before it runs.
+- **No standing write credential in CI.** A workflow with `contents: write`
+  that runs on every push to `main` is a broader blast radius than the docs
+  site needs — a bad merge or a compromised action could silently rewrite
+  the published site with no human in the loop.
+- **`gh-deploy` already works identically from a laptop.** `--force` exists
+  precisely because `gh-pages` is disposable generated output with no
+  history worth preserving; that same property makes "run it locally when
+  you mean to publish" strictly simpler than "gate publishing on CI green
+  plus a merge."
+- **Publishing and merging are different decisions.** A docs PR landing on
+  `main` does not have to mean the public site updates in the same instant;
+  making the deploy an explicit local command keeps those two events
+  separable.
 
 The alternative — `upload-pages-artifact` + `deploy-pages`, which needs
-Pages set to "GitHub Actions" — was not chosen: `gh-deploy` keeps the
-published site inspectable as an ordinary branch, and the deploy works
-identically from a laptop (`make docs-deploy`) when CI is not an option.
+Pages set to "GitHub Actions" — was not chosen either: `gh-deploy` keeps the
+published site inspectable as an ordinary branch, and running it from a
+laptop needs no Actions permissions at all.
 
 ## Content rule: verified against the code, not the README
 

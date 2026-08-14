@@ -1420,3 +1420,16 @@ Chronological history of wiki changes, newest last.
   its key database renders `++j++` and `++J++` identically, which is
   wrong for a keymap where `d` and `D` are different actions, so bare
   keys are inline code and keycaps are reserved for unambiguous chords.
+
+## 2026-08-14
+
+- Amended [design/user-documentation-site](design/user-documentation-site.md)
+  for issue #148: removed the `gh-pages` deploy job from
+  `.github/workflows/docs.yml` (it now only runs `mkdocs build --strict` as a
+  PR check, with no push trigger and no `contents: write` permission).
+  Publishing to GitHub Pages is now exclusively the local `make docs-deploy`
+  (`mkdocs gh-deploy --strict --force`) — no standing write credential in CI,
+  and merging a docs PR no longer implies the public site updates in the same
+  instant. Documented the flow and the one-time repository Pages setting
+  ("Deploy from a branch" → `gh-pages` → `/root`) in
+  `userdocs/contributing.md`.

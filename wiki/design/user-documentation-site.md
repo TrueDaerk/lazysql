@@ -1,0 +1,126 @@
+---
+type: Design Decision
+title: User documentation site — MkDocs Material in userdocs/, separate from the wiki
+description: Why issue #146 put the user-facing docs in their own MkDocs Material site under userdocs/ instead of growing the README or the OKF wiki, the strict-build CI contract, and the test that keeps the keybinding reference from drifting.
+tags: [docs, tooling, ci, github-pages, mkdocs, keybindings]
+generated:
+  by: claude-code/opus-5
+  at: 2026-08-14T00:00:00Z
+sources:
+  - resource: https://squidfunk.github.io/mkdocs-material/
+  - resource: https://www.mkdocs.org/user-guide/deploying-your-docs/
+---
+
+# User documentation site — MkDocs Material in `userdocs/`
+
+Issue #146. Before it, everything a *user* could read was `README.md`
+(533 lines, and growing with every feature) and this wiki, which is
+written for contributors. There was no browsable site and no page
+boundary: the README had become a linear transcript of every feature in
+implementation order, which is the worst possible shape for "how do I
+filter rows".
+
+The sibling project **ike** already had the setup worth copying, so the
+decision here was mostly "adopt it, adapted", and the parts that are
+genuinely lazysql's own are recorded below.
+
+## Three audiences, three artifacts
+
+| Artifact | Audience | Question it answers |
+| --- | --- | --- |
+| `README.md` | someone on the repo page | what is this, should I try it |
+| `userdocs/` (this site) | someone using it | how do I do X |
+| `wiki/` | someone changing it | why is it like this |
+
+The wiki is **deliberately not built into the site**. It is an OKF
+bundle whose concepts assume the code is open next to them; publishing
+it would mean either rewriting every concept for an audience that does
+not have that, or shipping pages that answer a question nobody browsing
+a user manual asked. The About page links to it instead, which is the
+whole of the integration.
+
+The README stays, shortened only by a documentation link — it is what a
+GitHub visitor sees, and it should keep working without the site.
+
+## Tooling: MkDocs Material, `strict: true`
+
+- **MkDocs Material `>=9.5,<10`**, pinned in `userdocs/requirements.txt`.
+  9.5 is the floor for the grid cards, the palette toggle and
+  `content.action.edit` the site uses. The `<10` cap is not cosmetic:
+  the Material maintainers have announced that MkDocs 2.0 removes the
+  plugin system and the theming API with no migration path, so an
+  unbounded range would break the build on a patch release.
+- **`docs_dir: userdocs`**, not `docs/`. `docs/` reads like "the
+  documentation" and would invite the wiki, screenshots and design
+  notes to migrate into it; `userdocs/` says what it holds.
+- **`strict: true`** everywhere — locally, in `make docs-build`, and in
+  CI. A broken cross-reference is a build failure rather than a 404
+  discovered by a reader. That is affordable because every link in the
+  site is internal.
+- **`pymdownx.keys` is enabled but used sparingly.** Its key database
+  renders `++j++` and `++J++` identically (both "J"), which is wrong for
+  an application where `d` and `D` are different bindings. Bare keys are
+  therefore written as inline code, and the keycap rendering is reserved
+  for unambiguous chords (`ctrl+r`, `esc`, `tab`). Keeping the extension
+  on costs nothing and leaves the option open.
+
+## CI: build on PRs, `gh-deploy --force` on main
+
+`.github/workflows/docs.yml` — the repository's first workflow file.
+
+Pull requests that touch `userdocs/`, `mkdocs.yml` or the workflow build
+the site with `--strict` and stop there. A push to `main` additionally
+runs `mkdocs gh-deploy --strict --force`, publishing to the `gh-pages`
+branch, which the repository's Pages settings serve from ("Deploy from a
+branch" → `gh-pages` → `/root`, a one-time manual setting).
+
+Three details that are not obvious:
+
+- **`fetch-depth: 0`.** `gh-deploy` commits onto `gh-pages`, so it needs
+  that branch's history; the default shallow checkout does not have it.
+- **`--force`.** `gh-pages` is generated output with a disposable
+  history. Without it a diverged or rewritten branch fails the push, and
+  waiting for a fast-forward on a branch nobody merges into is pure
+  cost.
+- **A committer identity.** `ghp-import` writes a real commit, and a
+  bare Actions runner has no `user.name`/`user.email`, so the deploy
+  step sets the `github-actions[bot]` identity before it runs.
+
+The alternative — `upload-pages-artifact` + `deploy-pages`, which needs
+Pages set to "GitHub Actions" — was not chosen: `gh-deploy` keeps the
+published site inspectable as an ordinary branch, and the deploy works
+identically from a laptop (`make docs-deploy`) when CI is not an option.
+
+## Content rule: verified against the code, not the README
+
+The README had drifted — it documented `backspace` as the only opener of
+the history pane (`H` had been added), omitted `x` (row detail) and the
+`+`/`_` screen modes, and advertised
+`go install github.com/TrueDaerk/lazysql@latest`, which cannot work
+because the Go module is named `lazysql`. Every page of the site was
+therefore written against `internal/`, and the keybinding reference in
+particular against `keyMap.slots()` rather than against any prose.
+
+To keep that true, `internal/ui/keys_docs_test.go` asserts that **every**
+`slots()` action name appears in `userdocs/reference/keybindings.md`. It
+is the cheapest possible guard — a new binding cannot land undocumented
+— and it deliberately does not check the *keys*, only that the action
+has a home: key strings change for good reasons, and a test that fails
+on every rebind would be turned off.
+
+The bindings that are not in `slots()` (the form, engine-picker and
+path-completion keys, dispatched inside a modal that claims every key)
+are documented with a dash in the "Action name" column, which is also
+where the site explains why they cannot be overridden.
+
+## Structure
+
+Home → Getting started → Concepts → Guides → Reference → Troubleshooting
+→ About & contributing, mirroring ike's nav. The lazysql-specific shape
+is in **Concepts**: the panel model, focus, the *staged changeset* and
+the command log — the four ideas that make the rest of the app stop
+needing explanations, and the two (staging, the log) a user coming from
+a GUI client will not expect.
+
+The personal-project / heavy-AI-assistance notice appears on the landing
+page as a `!!! note` and in full on the About page, per the issue.

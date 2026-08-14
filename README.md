@@ -4,11 +4,21 @@ A lazygit-style terminal UI for managing SQL databases. Browse connections, insp
 
 Supported databases: **MySQL**, **MariaDB**, **PostgreSQL**, **SQLite**, **DuckDB**.
 
+📖 **[Documentation](https://truedaerk.github.io/lazysql/)** — installation,
+guides for every feature area, and the full keybinding and settings reference.
+
+> **Note**
+> lazysql is a personal project: built by one person, to that person's taste,
+> with heavy AI assistance. The defaults follow a specific set of lazygit and
+> vim habits, on a German keyboard, in a specific terminal, and there is no
+> support promise. It is public on purpose, though — use it if it suits you,
+> and pull requests that improve it are genuinely welcome.
+
 ## Why
 
 GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but clumsy for browsing and editing. lazysql brings the lazygit workflow to databases: numbered side panels, a large detail view, mnemonic keys, and modal popups for anything interactive.
 
-## Features (planned)
+## Features
 
 - **Connection manager** — add/edit/delete/test connections; passwords stored in the OS keyring, never in plain text.
 - **Browse** — databases/schemas, tables and views, with fuzzy filtering.
@@ -504,19 +514,22 @@ the editor's own `x`/`dd`/`yy` register.
 ## Install
 
 Download a prebuilt binary (darwin/linux, amd64/arm64) from the
-[releases page](https://github.com/TrueDaerk/lazysql/releases), or:
-
-```sh
-go install github.com/TrueDaerk/lazysql@latest
-```
-
-Or build from source:
+[releases page](https://github.com/TrueDaerk/lazysql/releases), or build from
+source:
 
 ```sh
 git clone git@github.com:TrueDaerk/lazysql.git
 cd lazysql
-go build .
+make install                        # installs to ~/.local/bin/lazysql
+make install BINDIR=/usr/local/bin  # or pick another directory
 ```
+
+(`make` on its own produces `./lazysql`; a plain `go build .` works too, but
+skips the version stamp.)
+
+`go install github.com/TrueDaerk/lazysql@latest` does **not** work: the Go
+module is named `lazysql`, not the GitHub path, so the proxy cannot resolve
+it.
 
 ### Build requirements
 

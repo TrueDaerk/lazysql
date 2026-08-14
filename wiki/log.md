@@ -1381,3 +1381,42 @@ Chronological history of wiki changes, newest last.
   rule the two-step flow rides on. The #129 rejection of section headers
   is superseded — scrolling removed the tiny-terminal constraint that
   motivated it.
+
+## 2026-08-14 — User documentation site (issue #146)
+
+- Added [design/user-documentation-site](design/user-documentation-site.md):
+  the user-facing docs became an MkDocs Material site under `userdocs/`
+  (`mkdocs.yml` at the repo root, `strict: true`, Material pinned
+  `>=9.5,<10` because MkDocs 2.0 drops the plugin and theming APIs with
+  no migration path), modelled on the sibling project ike. Records the
+  three-artifact split — README for the repo visitor, `userdocs/` for
+  the user, `wiki/` for the contributor — and why the OKF bundle is
+  deliberately *not* built into the site: its concepts assume the code
+  is open next to them. The About page links to it, which is the whole
+  integration.
+- Added `.github/workflows/docs.yml`, the repository's first workflow
+  file: pull requests touching `userdocs/`/`mkdocs.yml` build with
+  `--strict`; a push to `main` runs `mkdocs gh-deploy --strict --force`
+  onto `gh-pages`. Documented the three non-obvious parts — `fetch-depth:
+  0` (gh-deploy commits onto a branch a shallow clone does not have),
+  `--force` (generated output, disposable history), and the explicit
+  `github-actions[bot]` committer identity `ghp-import` needs. `make
+  docs-serve` / `docs-build` / `docs-deploy` are the local equivalents.
+- Wrote the site against `internal/` rather than the README, which had
+  drifted: it named `backspace` as the only history-pane opener (`H` was
+  added in #88), omitted `x` (row detail) and the `+`/`_` screen modes,
+  and advertised `go install github.com/TrueDaerk/lazysql@latest`, which
+  cannot resolve because the Go module is named `lazysql`. The README
+  now links to the site.
+- Added `internal/ui/keys_docs_test.go`: every `keyMap.slots()` action
+  name must appear in `userdocs/reference/keybindings.md`, so a new
+  binding cannot land undocumented. It checks only that the action has a
+  home, not its keys — a test that failed on every rebind would be
+  turned off. The bindings that are *not* in `slots()` (form, engine
+  picker, path completion — dispatched inside a modal that claims every
+  key) are documented with a dash in the reference's "Action name"
+  column.
+- Noted in the concept why `pymdownx.keys` is enabled but used sparingly:
+  its key database renders `++j++` and `++J++` identically, which is
+  wrong for a keymap where `d` and `D` are different actions, so bare
+  keys are inline code and keycaps are reserved for unambiguous chords.

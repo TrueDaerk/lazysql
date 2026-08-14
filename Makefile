@@ -9,6 +9,8 @@
 #   make test
 #   make vet
 #   make version    # print the version the next build will carry
+#   make docs-serve # live-preview the user documentation site
+#   make docs-build # build it once, the way CI does
 
 BINARY  := lazysql
 PACKAGE := .
@@ -23,7 +25,9 @@ DIRTY   := $(shell git diff --quiet 2>/dev/null || echo -dirty)
 VERPKG  := lazysql/internal/version
 LDFLAGS := -X $(VERPKG).Version=$(VERSION)$(DIRTY)
 
-.PHONY: all build install uninstall clean test vet version
+MKDOCS ?= mkdocs
+
+.PHONY: all build install uninstall clean test vet version docs-serve docs-build docs-deploy
 
 all: build
 
@@ -49,3 +53,20 @@ vet:
 # Print what `lazysql --version` will report for a build from this tree.
 version: build
 	./$(BINARY) --version
+
+# ---------- user documentation (userdocs/, MkDocs Material) ----------
+#
+# Install the toolchain once with:
+#   pip install -r userdocs/requirements.txt
+
+docs-serve:
+	$(MKDOCS) serve
+
+# What CI runs on a pull request: --strict turns a broken link into a failure.
+docs-build:
+	$(MKDOCS) build --strict
+
+# Publishing normally happens in CI on a push to main; this is the manual
+# escape hatch. --force matches the workflow: gh-pages is generated output.
+docs-deploy:
+	$(MKDOCS) gh-deploy --strict --force

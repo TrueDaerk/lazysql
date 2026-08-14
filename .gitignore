@@ -4,3 +4,4 @@ lazysql
 .DS_Store
 .issue-work/
 dist/
+site/

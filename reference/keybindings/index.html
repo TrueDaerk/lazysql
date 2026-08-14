@@ -1,0 +1,2898 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A lazygit-style terminal UI for MySQL, MariaDB, PostgreSQL, SQLite and DuckDB.">
+      
+      
+      
+        <link rel="canonical" href="https://truedaerk.github.io/lazysql/reference/keybindings/">
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../settings/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Keybindings - lazysql</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#keybindings" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="lazysql" class="md-header__button md-logo" aria-label="lazysql" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            lazysql
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Keybindings
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TrueDaerk/lazysql" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrueDaerk/lazysql
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="lazysql" class="md-nav__button md-logo" aria-label="lazysql" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4M4 9v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9c0 2.21-3.58 4-8 4s-8-1.79-8-4m0 5v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3c0 2.21-3.58 4-8 4s-8-1.79-8-4"/></svg>
+
+    </a>
+    lazysql
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TrueDaerk/lazysql" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TrueDaerk/lazysql
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/terminal-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terminal setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-connection/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Your first connection
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/panels-and-layout/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Panels and layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/focus-and-navigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Focus and navigation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/staged-mutations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Staged mutations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/command-log/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The command log
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/browsing-objects/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browsing objects
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/data-view/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The data view
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/structure-and-ddl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structure, indexes and DDL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/editing-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editing data
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/query-editor/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The query editor
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/copy-and-export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Copy and export
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/schema-diff/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Schema diff
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/dump-and-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dump and restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/ssh-tunnels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSH tunnels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Keybindings
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Keybindings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navigation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1] Connections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1] Connections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-the-engine-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the engine picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-connection-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the connection form
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#while-path-suggestions-are-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        While path suggestions are up
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2] Objects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [3] Query
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[3] Query">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-vim-normal-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In vim normal mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-insert-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In insert mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-completion-popup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the completion popup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-history-snippets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In history &amp; snippets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result-grid-under-the-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result grid, under the editor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-main-view-data-grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The main view (data grid)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The main view (data grid)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-the-filter-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the filter input (/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-cell-detail-popup-v" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the cell detail popup (v)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-date-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the date picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-edit-and-insert-modals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the edit and insert modals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generic-form-popups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generic form popups
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../settings/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Settings
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../engines/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Engines
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    About & contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navigation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-connections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [1] Connections
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[1] Connections">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-the-engine-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the engine picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-connection-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the connection form
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#while-path-suggestions-are-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        While path suggestions are up
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-objects" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [2] Objects
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-query" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        [3] Query
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="[3] Query">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-vim-normal-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In vim normal mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-insert-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In insert mode
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-completion-popup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the completion popup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-history-snippets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In history &amp; snippets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#result-grid-under-the-editor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Result grid, under the editor
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-main-view-data-grid" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The main view (data grid)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The main view (data grid)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#in-the-filter-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the filter input (/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-cell-detail-popup-v" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the cell detail popup (v)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-date-picker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the date picker
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-the-edit-and-insert-modals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In the edit and insert modals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generic-form-popups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generic form popups
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TrueDaerk/lazysql/edit/main/userdocs/reference/keybindings.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="keybindings">Keybindings<a class="headerlink" href="#keybindings" title="Permanent link">&para;</a></h1>
+<p>Every binding lazysql knows about, grouped by the context it acts in — the
+same grouping <code>?</code> uses inside the app.</p>
+<p>Three things worth knowing before reading the tables:</p>
+<ul>
+<li><strong>Keys are case-sensitive.</strong> <code>d</code> stages a row delete; <code>D</code> duplicates the row.</li>
+<li><strong>A binding can have several spellings</strong>, and all of them stay live. The
+  extras exist for keyboards where the primary key needs AltGr, or for
+  terminals that cannot report a chord — see
+  <a href="../../getting-started/terminal-setup/">Terminal setup</a>.</li>
+<li><strong>The <em>action name</em> column is what <code>[keys]</code> overrides.</strong> A dash means the
+  binding is dispatched inside a modal that claims every key, so overriding it
+  could not change what the modal answers to — only what the options bar
+  claims. Those few are fixed.</li>
+</ul>
+<p>Key names in <code>[keys]</code> are the terminal's own spellings: <code>up</code>, <code>down</code>, <code>left</code>,
+<code>right</code>, <code>enter</code>, <code>esc</code>, <code>tab</code>, <code>shift+tab</code>, <code>space</code>, <code>backspace</code>, <code>pgup</code>,
+<code>pgdown</code>, <code>ctrl+f</code>, <code>ctrl+space</code>, and so on.</p>
+<h2 id="global">Global<a class="headerlink" href="#global" title="Permanent link">&para;</a></h2>
+<p>Handled by the root model, so they act from any panel.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code> <code>2</code> <code>3</code></td>
+<td>Jump to panel</td>
+<td><code>jump</code></td>
+</tr>
+<tr>
+<td><code>tab</code></td>
+<td>Next panel</td>
+<td><code>next-panel</code></td>
+</tr>
+<tr>
+<td><code>shift+tab</code></td>
+<td>Previous panel</td>
+<td><code>prev-panel</code></td>
+</tr>
+<tr>
+<td><code>+</code></td>
+<td>Next screen mode</td>
+<td><code>screen-next</code></td>
+</tr>
+<tr>
+<td><code>_</code></td>
+<td>Previous screen mode</td>
+<td><code>screen-prev</code></td>
+</tr>
+<tr>
+<td><code>:</code></td>
+<td>Focus the query editor</td>
+<td><code>open-editor</code></td>
+</tr>
+<tr>
+<td><code>ctrl+c</code></td>
+<td>Cancel the running query (only while one runs)</td>
+<td><code>cancel-query</code></td>
+</tr>
+<tr>
+<td><code>@</code> · <code>L</code></td>
+<td>Expand the command log</td>
+<td><code>command-log</code></td>
+</tr>
+<tr>
+<td><code>?</code></td>
+<td>Help</td>
+<td><code>help</code></td>
+</tr>
+<tr>
+<td><code>q</code> · <code>ctrl+c</code></td>
+<td>Quit</td>
+<td><code>quit</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="navigation">Navigation<a class="headerlink" href="#navigation" title="Permanent link">&para;</a></h2>
+<p>Valid in every panel.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>k</code> · <code>↑</code></td>
+<td>Up</td>
+<td><code>up</code></td>
+</tr>
+<tr>
+<td><code>j</code> · <code>↓</code></td>
+<td>Down</td>
+<td><code>down</code></td>
+</tr>
+<tr>
+<td><code>enter</code></td>
+<td>Drill in</td>
+<td><code>enter</code></td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Back</td>
+<td><code>back</code></td>
+</tr>
+<tr>
+<td><code>ctrl+enter</code> · <code>cmd+enter</code></td>
+<td>Accept — an alias for <code>enter</code> wherever it submits, confirms or commits. Needs terminal support</td>
+<td><code>accept-changes</code></td>
+</tr>
+</tbody>
+</table>
+<p>The query editor is the one panel where <code>enter</code> is not "drill in": in normal
+mode it runs the statement the caret is in.</p>
+<h2 id="1-connections"><code>[1] Connections</code><a class="headerlink" href="#1-connections" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enter</code> · <code>space</code></td>
+<td>Connect</td>
+<td><code>connect</code></td>
+</tr>
+<tr>
+<td><code>n</code></td>
+<td>New connection</td>
+<td><code>new-connection</code></td>
+</tr>
+<tr>
+<td><code>e</code></td>
+<td>Edit connection</td>
+<td><code>edit-connection</code></td>
+</tr>
+<tr>
+<td><code>d</code></td>
+<td>Remove connection</td>
+<td><code>drop-connection</code></td>
+</tr>
+<tr>
+<td><code>t</code></td>
+<td>Test connection</td>
+<td><code>test-connection</code></td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>Schema diff vs…</td>
+<td><code>schema-diff</code></td>
+</tr>
+<tr>
+<td><code>B</code></td>
+<td>Dump / restore…</td>
+<td><code>backup</code></td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>Cancel dump/restore (only while one runs)</td>
+<td><code>cancel-backup</code></td>
+</tr>
+<tr>
+<td><code>a</code></td>
+<td>Actions menu</td>
+<td><code>actions</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-engine-picker">In the engine picker<a class="headerlink" href="#in-the-engine-picker" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>1</code>–<code>9</code></td>
+<td>Pick engine</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>k</code> · <code>↑</code> / <code>j</code> · <code>↓</code></td>
+<td>Move</td>
+<td><code>up</code> / <code>down</code></td>
+</tr>
+<tr>
+<td><code>enter</code></td>
+<td>Choose</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Back</td>
+<td><code>back</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-connection-form">In the connection form<a class="headerlink" href="#in-the-connection-form" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>↓</code> · <code>tab</code></td>
+<td>Next field</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>↑</code> · <code>shift+tab</code></td>
+<td>Previous field</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>←</code> / <code>→</code></td>
+<td>Change value (select and checkbox fields)</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>ctrl+t</code></td>
+<td>Test without saving</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>ctrl+e</code></td>
+<td>Change engine</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>enter</code> · <code>ctrl+enter</code></td>
+<td>Save</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Back</td>
+<td><code>back</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="while-path-suggestions-are-up">While path suggestions are up<a class="headerlink" href="#while-path-suggestions-are-up" title="Permanent link">&para;</a></h3>
+<p>On the <code>File</code> field of a SQLite or DuckDB profile.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tab</code> · <code>shift+tab</code></td>
+<td>Complete the path, then cycle candidates</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>↓</code> · <code>tab</code> / <code>↑</code> · <code>shift+tab</code></td>
+<td>Next / previous field</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-objects"><code>[2] Objects</code><a class="headerlink" href="#2-objects" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>l</code> · <code>→</code></td>
+<td>Expand</td>
+<td><code>expand-node</code></td>
+</tr>
+<tr>
+<td><code>h</code> · <code>←</code></td>
+<td>Collapse</td>
+<td><code>collapse-node</code></td>
+</tr>
+<tr>
+<td><code>R</code> · <code>r</code></td>
+<td>Reload from server</td>
+<td><code>refresh</code></td>
+</tr>
+<tr>
+<td><code>/</code></td>
+<td>Fuzzy filter</td>
+<td><code>filter</code></td>
+</tr>
+<tr>
+<td><code>E</code></td>
+<td>Export the database's DDL</td>
+<td><code>export-database-ddl</code></td>
+</tr>
+<tr>
+<td><code>B</code></td>
+<td>Dump / restore…</td>
+<td><code>backup</code></td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>Cancel dump/restore (only while one runs)</td>
+<td><code>cancel-backup</code></td>
+</tr>
+<tr>
+<td><code>a</code></td>
+<td>Actions menu</td>
+<td><code>actions</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-query"><code>[3] Query</code><a class="headerlink" href="#3-query" title="Permanent link">&para;</a></h2>
+<p>The panel's own actions, live in vim <strong>normal</strong> mode.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>i</code></td>
+<td>Edit — enter insert mode</td>
+<td><code>edit-query</code></td>
+</tr>
+<tr>
+<td><code>enter</code></td>
+<td>Run the statement at the cursor</td>
+<td><code>run-statement</code></td>
+</tr>
+<tr>
+<td><code>ctrl+r</code> · <code>ctrl+enter</code></td>
+<td>Run the whole script</td>
+<td><code>run-editor</code></td>
+</tr>
+<tr>
+<td><code>ctrl+e</code></td>
+<td>Explain</td>
+<td><code>explain-query</code></td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>Clear the buffer</td>
+<td><code>clear-query</code></td>
+</tr>
+<tr>
+<td><code>H</code> · <code>backspace</code></td>
+<td>History &amp; snippets</td>
+<td><code>history</code></td>
+</tr>
+<tr>
+<td><code>ctrl+s</code></td>
+<td>Save snippet</td>
+<td><code>save-snippet</code></td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title"><code>a</code> is not the actions menu here</p>
+<p>In the query editor <code>a</code> is vim's <em>append</em>, which the editor claims before
+the panel's actions are consulted. The actions menu is reachable from
+panels <code>[1]</code>, <code>[2]</code> and the main view.</p>
+</div>
+<h3 id="in-vim-normal-mode">In vim normal mode<a class="headerlink" href="#in-vim-normal-mode" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>h</code> · <code>←</code></td>
+<td>Left</td>
+<td><code>vim-left</code></td>
+</tr>
+<tr>
+<td><code>l</code> · <code>→</code></td>
+<td>Right</td>
+<td><code>vim-right</code></td>
+</tr>
+<tr>
+<td><code>w</code></td>
+<td>Next word</td>
+<td><code>vim-word-fwd</code></td>
+</tr>
+<tr>
+<td><code>b</code></td>
+<td>Previous word</td>
+<td><code>vim-word-back</code></td>
+</tr>
+<tr>
+<td><code>e</code></td>
+<td>Word end</td>
+<td><code>vim-word-end</code></td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td>Line start</td>
+<td><code>vim-line-start</code></td>
+</tr>
+<tr>
+<td><code>$</code></td>
+<td>Line end</td>
+<td><code>vim-line-end</code></td>
+</tr>
+<tr>
+<td><code>gg</code></td>
+<td>Buffer start</td>
+<td><code>vim-top</code></td>
+</tr>
+<tr>
+<td><code>G</code></td>
+<td>Buffer end</td>
+<td><code>vim-bottom</code></td>
+</tr>
+<tr>
+<td><code>a</code></td>
+<td>Append (insert)</td>
+<td><code>vim-append</code></td>
+</tr>
+<tr>
+<td><code>I</code></td>
+<td>Insert at line start</td>
+<td><code>vim-insert-start</code></td>
+</tr>
+<tr>
+<td><code>A</code></td>
+<td>Append at line end</td>
+<td><code>vim-append-eol</code></td>
+</tr>
+<tr>
+<td><code>o</code></td>
+<td>Open line below</td>
+<td><code>vim-open-below</code></td>
+</tr>
+<tr>
+<td><code>O</code></td>
+<td>Open line above</td>
+<td><code>vim-open-above</code></td>
+</tr>
+<tr>
+<td><code>x</code></td>
+<td>Delete character</td>
+<td><code>vim-delete-char</code></td>
+</tr>
+<tr>
+<td><code>dd</code></td>
+<td>Delete line</td>
+<td><code>vim-delete-line</code></td>
+</tr>
+<tr>
+<td><code>yy</code></td>
+<td>Yank line</td>
+<td><code>vim-yank-line</code></td>
+</tr>
+<tr>
+<td><code>p</code></td>
+<td>Paste</td>
+<td><code>vim-paste</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>gg</code>, <code>dd</code> and <code>yy</code> are two-key chords: the binding names the first key, and
+the editor completes it. Leaving the panel resets a half-typed chord.</p>
+<h3 id="in-insert-mode">In insert mode<a class="headerlink" href="#in-insert-mode" title="Permanent link">&para;</a></h3>
+<p>Every other key types into the buffer.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctrl+space</code> · <code>tab</code></td>
+<td>Complete</td>
+<td><code>complete</code></td>
+</tr>
+<tr>
+<td><code>ctrl+r</code> · <code>ctrl+enter</code></td>
+<td>Run the script</td>
+<td><code>run-editor</code></td>
+</tr>
+<tr>
+<td><code>ctrl+e</code></td>
+<td>Explain</td>
+<td><code>explain-query</code></td>
+</tr>
+<tr>
+<td><code>ctrl+s</code></td>
+<td>Save snippet</td>
+<td><code>save-snippet</code></td>
+</tr>
+<tr>
+<td><code>ctrl+c</code></td>
+<td>Cancel the running query</td>
+<td><code>cancel-query</code></td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Back to normal mode</td>
+<td><code>leave-insert</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-completion-popup">In the completion popup<a class="headerlink" href="#in-the-completion-popup" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>↓</code> · <code>ctrl+n</code></td>
+<td>Next suggestion</td>
+<td><code>complete-next</code></td>
+</tr>
+<tr>
+<td><code>↑</code> · <code>ctrl+p</code></td>
+<td>Previous suggestion</td>
+<td><code>complete-prev</code></td>
+</tr>
+<tr>
+<td><code>enter</code> · <code>tab</code></td>
+<td>Accept the suggestion</td>
+<td><code>accept-completion</code></td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Close the popup only</td>
+<td><code>close-completion</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-history-snippets">In history &amp; snippets<a class="headerlink" href="#in-history-snippets" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enter</code></td>
+<td>Load into the editor</td>
+<td><code>hist-load</code></td>
+</tr>
+<tr>
+<td><code>r</code></td>
+<td>Run now</td>
+<td><code>hist-run</code></td>
+</tr>
+<tr>
+<td><code>s</code></td>
+<td>Save as a snippet</td>
+<td><code>hist-snippet</code></td>
+</tr>
+<tr>
+<td><code>d</code></td>
+<td>Delete the entry</td>
+<td><code>hist-delete</code></td>
+</tr>
+<tr>
+<td><code>tab</code> · <code>shift+tab</code></td>
+<td>Switch section</td>
+<td><code>hist-section</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="result-grid-under-the-editor">Result grid, under the editor<a class="headerlink" href="#result-grid-under-the-editor" title="Permanent link">&para;</a></h3>
+<p>The grid keys that survive the vim layer while a result sits under the buffer.
+Everything else the grid binds is claimed by a motion first — <span class="keys"><kbd class="key-tab">Tab</kbd></span> into the
+main view for the full set.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctrl+f</code> · <code>pgdn</code></td>
+<td>Next page</td>
+<td><code>next-page</code></td>
+</tr>
+<tr>
+<td><code>ctrl+b</code> · <code>pgup</code></td>
+<td>Previous page</td>
+<td><code>prev-page</code></td>
+</tr>
+<tr>
+<td><code>v</code></td>
+<td>View cell</td>
+<td><code>view-cell</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-main-view-data-grid">The main view (data grid)<a class="headerlink" href="#the-main-view-data-grid" title="Permanent link">&para;</a></h2>
+<p>Live while the main view has the focus.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>&lt;</code> · <code>[</code> · <code>,</code></td>
+<td>Previous tab</td>
+<td><code>prev-main-tab</code></td>
+</tr>
+<tr>
+<td><code>&gt;</code> · <code>]</code> · <code>.</code></td>
+<td>Next tab</td>
+<td><code>next-main-tab</code></td>
+</tr>
+<tr>
+<td><code>h</code> · <code>←</code></td>
+<td>Previous column</td>
+<td><code>col-left</code></td>
+</tr>
+<tr>
+<td><code>l</code> · <code>→</code></td>
+<td>Next column</td>
+<td><code>col-right</code></td>
+</tr>
+<tr>
+<td><code>ctrl+f</code> · <code>pgdn</code></td>
+<td>Next page</td>
+<td><code>next-page</code></td>
+</tr>
+<tr>
+<td><code>ctrl+b</code> · <code>pgup</code></td>
+<td>Previous page</td>
+<td><code>prev-page</code></td>
+</tr>
+<tr>
+<td><code>s</code></td>
+<td>Sort the cursor column</td>
+<td><code>sort-column</code></td>
+</tr>
+<tr>
+<td><code>ctrl+v</code> · <code>V</code></td>
+<td>Select rows</td>
+<td><code>select-rows</code></td>
+</tr>
+<tr>
+<td><code>C</code></td>
+<td>Select columns (<code>h</code>/<code>l</code> extend)</td>
+<td><code>select-columns</code></td>
+</tr>
+<tr>
+<td><code>shift+↑</code> · <code>K</code></td>
+<td>Extend the selection up</td>
+<td><code>shift-up</code></td>
+</tr>
+<tr>
+<td><code>shift+↓</code> · <code>J</code></td>
+<td>Extend the selection down</td>
+<td><code>shift-down</code></td>
+</tr>
+<tr>
+<td><code>shift+←</code></td>
+<td>Extend the selection a column left</td>
+<td><code>shift-left</code></td>
+</tr>
+<tr>
+<td><code>shift+→</code></td>
+<td>Extend the selection a column right</td>
+<td><code>shift-right</code></td>
+</tr>
+<tr>
+<td><code>ctrl+c</code></td>
+<td>Copy the selection… (only while one is up)</td>
+<td><code>copy-selection</code></td>
+</tr>
+<tr>
+<td><code>/</code> · <code>f</code></td>
+<td>Filter rows</td>
+<td><code>where-filter</code></td>
+</tr>
+<tr>
+<td><code>F</code></td>
+<td>Clear the filter</td>
+<td><code>clear-filter</code></td>
+</tr>
+<tr>
+<td><code>v</code></td>
+<td>View cell</td>
+<td><code>view-cell</code></td>
+</tr>
+<tr>
+<td><code>x</code></td>
+<td>Row detail</td>
+<td><code>row-detail</code></td>
+</tr>
+<tr>
+<td><code>g</code></td>
+<td>Follow the foreign key</td>
+<td><code>follow-fk</code></td>
+</tr>
+<tr>
+<td><code>G</code></td>
+<td>Rows referencing this one</td>
+<td><code>incoming-refs</code></td>
+</tr>
+<tr>
+<td><code>ctrl+o</code></td>
+<td>Back to the previous table</td>
+<td><code>browse-back</code></td>
+</tr>
+<tr>
+<td><code>e</code></td>
+<td>Edit cell</td>
+<td><code>edit-cell</code></td>
+</tr>
+<tr>
+<td><code>d</code></td>
+<td>Stage a row delete</td>
+<td><code>delete-row</code></td>
+</tr>
+<tr>
+<td><code>n</code></td>
+<td>Insert a row</td>
+<td><code>insert-row</code></td>
+</tr>
+<tr>
+<td><code>D</code></td>
+<td>Duplicate the row</td>
+<td><code>duplicate-row</code></td>
+</tr>
+<tr>
+<td><code>c</code> · <code>ctrl+enter</code></td>
+<td>Commit the staged changes</td>
+<td><code>commit-changes</code></td>
+</tr>
+<tr>
+<td><code>u</code></td>
+<td>Unstage</td>
+<td><code>unstage-cell</code></td>
+</tr>
+<tr>
+<td><code>U</code></td>
+<td>Discard the staged changes</td>
+<td><code>discard-changes</code></td>
+</tr>
+<tr>
+<td><code>y</code></td>
+<td>Copy…</td>
+<td><code>copy-menu</code></td>
+</tr>
+<tr>
+<td><code>E</code></td>
+<td>Export to a file</td>
+<td><code>export-table</code></td>
+</tr>
+<tr>
+<td><code>X</code></td>
+<td>Cancel the export (only while one runs)</td>
+<td><code>cancel-export</code></td>
+</tr>
+<tr>
+<td><code>R</code> · <code>r</code></td>
+<td>Reload from server</td>
+<td><code>refresh</code></td>
+</tr>
+<tr>
+<td><code>a</code></td>
+<td>Actions menu</td>
+<td><code>actions</code></td>
+</tr>
+</tbody>
+</table>
+<p>On a <a href="../../guides/configuration/#read-only-connections">read-only connection</a>
+the five write keys — <code>e</code>, <code>d</code>, <code>n</code>, <code>D</code>, <code>c</code> — drop out of the options bar.
+They are still listed by <code>?</code>, so every binding stays documented in exactly one
+place.</p>
+<h3 id="in-the-filter-input">In the filter input (<code>/</code>)<a class="headerlink" href="#in-the-filter-input" title="Permanent link">&para;</a></h3>
+<p>Every other key types into the clause.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>↑</code> · <code>ctrl+p</code></td>
+<td>Previous filter for this table</td>
+<td><code>filter-hist-prev</code></td>
+</tr>
+<tr>
+<td><code>↓</code> · <code>ctrl+n</code></td>
+<td>Next filter</td>
+<td><code>filter-hist-next</code></td>
+</tr>
+<tr>
+<td><code>enter</code> · <code>ctrl+enter</code></td>
+<td>Apply the filter</td>
+<td><code>apply-filter</code></td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Cancel the filter</td>
+<td><code>cancel-filter</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-cell-detail-popup-v">In the cell detail popup (<code>v</code>)<a class="headerlink" href="#in-the-cell-detail-popup-v" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>j</code> · <code>↓</code> / <code>k</code> · <code>↑</code></td>
+<td>Scroll a line</td>
+</tr>
+<tr>
+<td><code>ctrl+d</code> · <code>pgdn</code> · <code>ctrl+f</code> / <code>ctrl+u</code> · <code>pgup</code> · <code>ctrl+b</code></td>
+<td>Scroll ten lines</td>
+</tr>
+<tr>
+<td><code>g</code> · <code>home</code> / <code>G</code> · <code>end</code></td>
+<td>Top / bottom</td>
+</tr>
+<tr>
+<td><code>y</code></td>
+<td>Copy the raw value — never the rendering</td>
+</tr>
+<tr>
+<td><code>esc</code> · <code>q</code> · <code>enter</code> · <code>v</code></td>
+<td>Close</td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-date-picker">In the date picker<a class="headerlink" href="#in-the-date-picker" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+<th>Action name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ctrl+t</code></td>
+<td>Open the picker from a text field</td>
+<td><code>open-picker</code></td>
+</tr>
+<tr>
+<td><code>h</code> · <code>←</code></td>
+<td>Previous day / time field</td>
+<td><code>pick-prev</code></td>
+</tr>
+<tr>
+<td><code>l</code> · <code>→</code></td>
+<td>Next day / time field</td>
+<td><code>pick-next</code></td>
+</tr>
+<tr>
+<td><code>k</code> · <code>↑</code></td>
+<td>Previous week / +1 unit</td>
+<td><code>pick-up</code></td>
+</tr>
+<tr>
+<td><code>j</code> · <code>↓</code></td>
+<td>Next week / −1 unit</td>
+<td><code>pick-down</code></td>
+</tr>
+<tr>
+<td><code>[</code> · <code>H</code> · <code>,</code></td>
+<td>Previous month</td>
+<td><code>pick-month-prev</code></td>
+</tr>
+<tr>
+<td><code>]</code> · <code>L</code> · <code>.</code></td>
+<td>Next month</td>
+<td><code>pick-month-next</code></td>
+</tr>
+<tr>
+<td><code>t</code></td>
+<td>Jump to now</td>
+<td><code>pick-today</code></td>
+</tr>
+<tr>
+<td><code>tab</code> · <code>shift+tab</code></td>
+<td>Date / time half</td>
+<td><code>pick-section</code></td>
+</tr>
+<tr>
+<td><code>e</code></td>
+<td>Raw text (<code>NULL</code>, <code>now()</code>)</td>
+<td><code>pick-raw</code></td>
+</tr>
+<tr>
+<td><code>enter</code></td>
+<td>Stage the value</td>
+<td><code>enter</code></td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Cancel</td>
+<td><code>back</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="in-the-edit-and-insert-modals">In the edit and insert modals<a class="headerlink" href="#in-the-edit-and-insert-modals" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enter</code> · <code>ctrl+enter</code></td>
+<td>Stage the value</td>
+</tr>
+<tr>
+<td><code>ctrl+n</code></td>
+<td>Toggle SQL <code>NULL</code></td>
+</tr>
+<tr>
+<td><code>ctrl+d</code></td>
+<td>Toggle <code>DEFAULT</code> (insert form only)</td>
+</tr>
+<tr>
+<td><code>ctrl+t</code></td>
+<td>Open the date picker (temporal columns)</td>
+</tr>
+<tr>
+<td><code>tab</code> · <code>↓</code> / <code>shift+tab</code> · <code>↑</code></td>
+<td>Next / previous field (insert form)</td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Cancel</td>
+</tr>
+</tbody>
+</table>
+<h2 id="generic-form-popups">Generic form popups<a class="headerlink" href="#generic-form-popups" title="Permanent link">&para;</a></h2>
+<p>Any form without a bar of its own — the schema-diff picker, the dump/restore
+form, a password prompt.</p>
+<table>
+<thead>
+<tr>
+<th>Keys</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>↓</code> · <code>tab</code></td>
+<td>Next field</td>
+</tr>
+<tr>
+<td><code>↑</code> · <code>shift+tab</code></td>
+<td>Previous field</td>
+</tr>
+<tr>
+<td><code>←</code> / <code>→</code></td>
+<td>Change the value</td>
+</tr>
+<tr>
+<td><code>enter</code> · <code>ctrl+enter</code></td>
+<td>Save</td>
+</tr>
+<tr>
+<td><code>esc</code></td>
+<td>Back</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Documentation for lazysql — a terminal UI for SQL databases.
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/TrueDaerk/lazysql" target="_blank" rel="noopener" title="lazysql on GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "content.code.copy", "content.action.edit", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

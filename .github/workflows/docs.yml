@@ -1,16 +1,12 @@
-# Builds the user documentation site (issue #146) and publishes it to GitHub
-# Pages. Pull requests build only; pushes to main deploy to the gh-pages
-# branch, which the repository's Pages settings serve from ("Deploy from a
-# branch" → gh-pages → /root).
+# Builds the user documentation site (issue #146) as a pull-request check.
+# Deployment is NOT done in CI (issue #148): publishing to GitHub Pages is a
+# local, manual step (`make docs-deploy`) that force-pushes the built site to
+# the `gh-pages` branch, which the repository's Pages settings serve from
+# ("Deploy from a branch" → gh-pages → /root).
+
 name: Documentation
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "userdocs/**"
-      - "mkdocs.yml"
-      - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "userdocs/**"
@@ -18,23 +14,11 @@ on:
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
-permissions:
-  contents: write
-
-# Let a running deployment finish; queue at most one more.
-concurrency:
-  group: docs-pages
-  cancel-in-progress: false
-
 jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # gh-deploy needs the gh-pages branch's history to commit onto it;
-          # the default shallow clone does not have it.
-          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -48,16 +32,3 @@ jobs:
       # --strict turns broken links and warnings into build failures.
       - name: Build site
         run: mkdocs build --strict
-
-      # --force is what keeps a shallow or diverged gh-pages from failing the
-      # push: the branch is generated output, so its history is disposable and
-      # a fast-forward is never worth waiting for. ghp-import commits the
-      # built site, so the runner needs a committer identity of its own.
-      - name: Deploy to gh-pages
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdocs gh-deploy --strict --force
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

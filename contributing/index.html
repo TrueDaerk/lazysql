@@ -1587,10 +1587,21 @@ built from <code>userdocs/</code> at the repository root.</p>
 <div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>userdocs/requirements.txt
 make<span class="w"> </span>docs-serve<span class="w">     </span><span class="c1"># live preview on http://127.0.0.1:8000</span>
 make<span class="w"> </span>docs-build<span class="w">     </span><span class="c1"># what CI runs: mkdocs build --strict</span>
+make<span class="w"> </span>docs-deploy<span class="w">    </span><span class="c1"># publish to GitHub Pages</span>
 </code></pre></div>
 <p>The build is <code>--strict</code>, so a broken internal link fails it. CI builds the
-site on every pull request that touches <code>userdocs/</code> or <code>mkdocs.yml</code>, and
-publishes it on a push to <code>main</code>.</p>
+site as a check on every pull request that touches <code>userdocs/</code> or
+<code>mkdocs.yml</code>, but <strong>does not deploy it</strong> — there is no Actions workflow with
+push access to <code>gh-pages</code>. Publishing to
+<a href="https://truedaerk.github.io/lazysql/">truedaerk.github.io/lazysql</a> is a
+local, manual step: whoever wants the live site updated runs
+<code>make docs-deploy</code> (<code>mkdocs gh-deploy --strict --force</code>), which builds the
+site and force-pushes it to the <code>gh-pages</code> branch. <code>--force</code> matters because
+<code>gh-pages</code> is generated output — a local shallow or diverged copy of it would
+otherwise reject the push as a non-fast-forward.</p>
+<p>The repository's Pages settings are a one-time manual setup, not something a
+workflow configures: <strong>Settings → Pages → Build and deployment → Source:
+"Deploy from a branch"</strong>, branch <code>gh-pages</code>, folder <code>/root</code>.</p>
 <p>Keybinding documentation is checked against the code: a Go test asserts that
 every action name in <code>internal/ui/keys.go</code> appears in
 <a href="../reference/keybindings/">Keybindings</a>, so a new binding cannot land

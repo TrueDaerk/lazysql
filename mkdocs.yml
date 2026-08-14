@@ -1,0 +1,107 @@
+# MkDocs configuration for the lazysql user documentation site (issue #146).
+#
+# The site documents *using* lazysql. The architecture knowledge base in
+# `wiki/` is a separate, contributor-facing OKF bundle and is deliberately
+# not built into this site.
+site_name: lazysql
+site_description: A lazygit-style terminal UI for MySQL, MariaDB, PostgreSQL, SQLite and DuckDB.
+site_url: https://truedaerk.github.io/lazysql/
+repo_url: https://github.com/TrueDaerk/lazysql
+repo_name: TrueDaerk/lazysql
+edit_uri: edit/main/userdocs/
+copyright: Documentation for lazysql — a terminal UI for SQL databases.
+
+docs_dir: userdocs
+
+# Fail the build on broken links and other warnings; CI relies on it.
+strict: true
+
+theme:
+  name: material
+  icon:
+    logo: material/database
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.keys
+  - pymdownx.tabbed:
+      alternate_style: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Overview: getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Terminal setup: getting-started/terminal-setup.md
+      - Your first connection: getting-started/first-connection.md
+  - Concepts:
+      - Overview: concepts/index.md
+      - Panels and layout: concepts/panels-and-layout.md
+      - Focus and navigation: concepts/focus-and-navigation.md
+      - Staged mutations: concepts/staged-mutations.md
+      - The command log: concepts/command-log.md
+  - Guides:
+      - Overview: guides/index.md
+      - Browsing objects: guides/browsing-objects.md
+      - The data view: guides/data-view.md
+      - Structure, indexes and DDL: guides/structure-and-ddl.md
+      - Editing data: guides/editing-data.md
+      - The query editor: guides/query-editor.md
+      - Copy and export: guides/copy-and-export.md
+      - Schema diff: guides/schema-diff.md
+      - Dump and restore: guides/dump-and-restore.md
+      - SSH tunnels: guides/ssh-tunnels.md
+      - Configuration: guides/configuration.md
+  - Reference:
+      - Overview: reference/index.md
+      - Keybindings: reference/keybindings.md
+      - Settings: reference/settings.md
+      - Engines: reference/engines.md
+  - Troubleshooting: troubleshooting.md
+  - About & contributing: contributing.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/TrueDaerk/lazysql
+      name: lazysql on GitHub

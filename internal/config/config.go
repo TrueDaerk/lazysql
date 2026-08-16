@@ -165,6 +165,31 @@ func (c Connection) Params(password string) db.ConnParams {
 // all. File-based engines never do.
 func (c Connection) NeedsPassword() bool { return !db.FileBased(c.Engine) }
 
+// ResolveFilePath expands a leading "~" and resolves a relative path
+// against the current working directory, returning an absolute path. It is
+// used at connection-form submit time so a saved SQLite/DuckDB path keeps
+// resolving to the same file no matter what directory lazysql is later
+// started from — a relative path only worked by accident of cwd. An empty
+// path is returned unchanged: for DuckDB that means in-memory, and callers
+// should not turn that into the process's cwd.
+func ResolveFilePath(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("config: resolve ~: %w", err)
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("config: resolve %s: %w", path, err)
+	}
+	return abs, nil
+}
+
 // Validate checks required fields before a profile is written to disk.
 func (c Connection) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {

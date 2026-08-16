@@ -853,10 +853,22 @@ func (f *formModal) toConnection() (config.Connection, formSecrets, error) {
 	if db.FileBased(engine) {
 		c.File = f.value("file")
 		// An unnamed file profile borrows the file's own name — the same
-		// default the Name field's placeholder promises.
+		// default the Name field's placeholder promises. Derive it before
+		// resolving to an absolute path: the basename is the same either
+		// way, and the placeholder promise is about what was typed.
 		if c.Name == "" && c.File != "" {
 			base := filepath.Base(c.File)
 			c.Name = strings.TrimSuffix(base, filepath.Ext(base))
+		}
+		// Persist an absolute path so the connection keeps resolving to the
+		// same file regardless of lazysql's working directory at a later
+		// start — a relative path only worked by accident of cwd.
+		if c.File != "" {
+			abs, err := config.ResolveFilePath(c.File)
+			if err != nil {
+				return c, sec, err
+			}
+			c.File = abs
 		}
 	} else {
 		c.Host = f.value("host")

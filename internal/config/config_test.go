@@ -508,3 +508,94 @@ func TestStateSaveNeverModifiesConfigFile(t *testing.T) {
 		t.Fatal("saving state modified the config file")
 	}
 }
+
+func TestResolveFilePathEmptyStaysEmpty(t *testing.T) {
+	got, err := ResolveFilePath("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("ResolveFilePath(\"\") = %q, want empty (DuckDB in-memory)", got)
+	}
+}
+
+func TestResolveFilePathExpandsHome(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []string{"~", "~/x.db", "~/a/b.duckdb"} {
+		got, err := ResolveFilePath(in)
+		if err != nil {
+			t.Fatalf("ResolveFilePath(%q): %v", in, err)
+		}
+		want := filepath.Join(home, strings.TrimPrefix(in, "~"))
+		if got != want {
+			t.Fatalf("ResolveFilePath(%q) = %q, want %q", in, got, want)
+		}
+		if !filepath.IsAbs(got) {
+			t.Fatalf("ResolveFilePath(%q) = %q, want absolute", in, got)
+		}
+	}
+}
+
+func TestResolveFilePathResolvesRelativeAgainstCWD(t *testing.T) {
+	restore := chdir(t, t.TempDir())
+	defer restore()
+	// Re-read the cwd rather than trusting the TempDir path string: on
+	// macOS /tmp is a symlink into /private, and os.Getwd (which
+	// filepath.Abs calls internally) returns the resolved form.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveFilePath("./out/db.duckdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(cwd, "out", "db.duckdb")
+	if got != want {
+		t.Fatalf("ResolveFilePath(./out/db.duckdb) = %q, want %q", got, want)
+	}
+
+	got, err = ResolveFilePath("plain.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = filepath.Join(cwd, "plain.db")
+	if got != want {
+		t.Fatalf("ResolveFilePath(plain.db) = %q, want %q", got, want)
+	}
+}
+
+func TestResolveFilePathLeavesAbsoluteUnchanged(t *testing.T) {
+	got, err := ResolveFilePath("/var/data/app.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/var/data/app.db" {
+		t.Fatalf("ResolveFilePath(/var/data/app.db) = %q, want unchanged", got)
+	}
+}
+
+// chdir switches the process working directory for the duration of a test
+// and returns a func that restores it. t.Chdir would do this directly, but
+// it forbids t.Parallel siblings in the same package touching cwd, and other
+// tests here don't opt out — a manual save/restore keeps this test isolated
+// without constraining the rest of the file.
+func chdir(t *testing.T, dir string) func() {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Chdir(prev); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

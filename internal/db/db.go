@@ -220,6 +220,13 @@ type Driver interface {
 	// stores it where it stores one and synthesized from the catalog where
 	// it does not.
 	TriggerDDL(ctx context.Context, database, trigger string) (string, error)
+	// TableStats returns one namespace's approximate table sizes in a
+	// single query, read from the engine's own statistics — never a
+	// COUNT(*) per table. Tables the engine has no figures for are
+	// reported with StatUnknown rather than left out. Callers treat a
+	// failure as "no annotation": the sizes are decoration, so an engine
+	// or a permission that withholds them must not break browsing.
+	TableStats(ctx context.Context, database string) ([]TableStat, error)
 	TableColumns(ctx context.Context, database, table string) ([]Column, error)
 	TableIndexes(ctx context.Context, database, table string) ([]Index, error)
 	TableForeignKeys(ctx context.Context, database, table string) ([]ForeignKey, error)
@@ -303,6 +310,9 @@ type Dialect interface {
 	listTriggers(ctx context.Context, q querier, database string) ([]Trigger, error)
 	// triggerDDL returns one trigger's CREATE statement.
 	triggerDDL(ctx context.Context, q querier, database, trigger string) (string, error)
+	// tableStats returns the namespace's per-table row and size
+	// estimates from the engine's statistics catalog.
+	tableStats(ctx context.Context, q querier, database string) ([]TableStat, error)
 	tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error)
 	tableIndexes(ctx context.Context, q querier, database, table string) ([]Index, error)
 	tableForeignKeys(ctx context.Context, q querier, database, table string) ([]ForeignKey, error)

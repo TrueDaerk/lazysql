@@ -103,6 +103,78 @@ func (d sqliteDialect) triggerDDL(ctx context.Context, q querier, database, trig
 	return ddls[0], nil
 }
 
+// tableStats reads the two optional statistics sources SQLite has, both
+// of which may be absent:
+//
+//   - sqlite_stat1 exists only after an ANALYZE. Its stat column starts
+//     with the table's row count, which CAST(... AS INTEGER) picks off
+//     the front of "1234 5 2"; every index of a table repeats the same
+//     count, so MAX collapses them.
+//   - dbstat is a virtual table the build may not include
+//     (SQLITE_ENABLE_DBSTAT_VTAB). Its rows are per b-tree, so index
+//     pages are folded onto their table through sqlite_master.tbl_name,
+//     matching the table+indexes footprint the other engines report.
+//
+// Naming an absent source is a query-time error, so the sources are
+// asked about first and only the ones that exist are read. The probe is
+// a query of its own rather than a failed attempt at the real one
+// because every statement lands in the command log: browsing a database
+// nobody has ever ANALYZEd must not paint a red "no such table:
+// sqlite_stat1" line there on every expand. With neither source present
+// the second query is skipped entirely and the tables render
+// unannotated.
+func (d sqliteDialect) tableStats(ctx context.Context, q querier, database string) ([]TableStat, error) {
+	schema := sqliteSchema(d, database)
+	stat1, dbstat, err := sqliteStatSources(ctx, q, schema)
+	if err != nil || (!stat1 && !dbstat) {
+		return nil, err
+	}
+	return scanTableStats(ctx, q, sqliteStatsSQL(schema, stat1, dbstat))
+}
+
+// sqliteStatSources reports which statistics sources this database and
+// this build have: sqlite_stat1 is an ordinary table and shows up in the
+// schema, dbstat is a virtual table module and shows up in the module
+// list.
+func sqliteStatSources(ctx context.Context, q querier, schema string) (stat1, dbstat bool, err error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT (SELECT COUNT(*) FROM `+schema+`.sqlite_master WHERE name = 'sqlite_stat1'),
+		        (SELECT COUNT(*) FROM pragma_module_list WHERE name = 'dbstat')`)
+	if err != nil {
+		return false, false, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return false, false, rows.Err()
+	}
+	var haveStat1, haveDBStat int64
+	if err := rows.Scan(&haveStat1, &haveDBStat); err != nil {
+		return false, false, err
+	}
+	return haveStat1 > 0, haveDBStat > 0, rows.Err()
+}
+
+// sqliteStatsSQL builds the stats query over whichever sources are being
+// tried. sqlite_master drives it so a table with no statistics at all
+// still gets a row.
+func sqliteStatsSQL(schema string, stat1, dbstat bool) string {
+	rows := "NULL"
+	if stat1 {
+		rows = "(SELECT MAX(CAST(s.stat AS INTEGER))" +
+			" FROM " + schema + ".sqlite_stat1 s WHERE s.tbl = m.name)"
+	}
+	size := "NULL"
+	if dbstat {
+		size = "(SELECT SUM(d.pgsize) FROM " + schema + ".dbstat d" +
+			" JOIN " + schema + ".sqlite_master x ON x.name = d.name" +
+			" WHERE x.tbl_name = m.name)"
+	}
+	return "SELECT m.name, " + rows + ", " + size +
+		"\n FROM " + schema + ".sqlite_master m" +
+		"\n WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'" +
+		"\n ORDER BY m.name"
+}
+
 func (d sqliteDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	// PRAGMA accepts no placeholders; identifiers are dialect-quoted.
 	rows, err := q.QueryContext(ctx,

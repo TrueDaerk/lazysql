@@ -1549,6 +1549,23 @@ Chronological history of wiki changes, newest last.
   not prompt, what the command log shows) in
   `userdocs/guides/query-editor.md`.
 
+## 2026-08-16 — Table size annotations in the objects tree (issue #153)
+
+- Added [reference/table-size-estimates](reference/table-size-estimates.md) and
+  updated [design/object-tree-panel](design/object-tree-panel.md) for issue
+  #153: table nodes in `[2] Objects` now carry a dim, right-aligned
+  `~1.2M rows · 340 MB` annotation. `Driver.TableStats` reads one catalog query
+  per namespace — `pg_class.reltuples` + `pg_total_relation_size`,
+  `information_schema.tables`, `duckdb_tables().estimated_size`, SQLite's
+  `sqlite_stat1`/`dbstat` — never a `COUNT(*)` per table, and every row figure
+  is marked an estimate with `~`. The query rides in a `tea.Cmd` batched beside
+  the relation listing, so the names never wait on it; a failure or a stale
+  reply degrades silently to the unannotated rendering. SQLite probes
+  `sqlite_master`/`pragma_module_list` for its two optional sources first so an
+  un-`ANALYZE`d database does not log a red `no such table` on every expand. In
+  the renderer the annotation is a `noteStats` note, the one note the row gives
+  up — halves first, then entirely (`fitStatNote`) — before the table name
+  loses a cell.
 
 ## 2026-08-16 — The server activity view (issue #151)
 

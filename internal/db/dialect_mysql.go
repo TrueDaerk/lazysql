@@ -62,6 +62,22 @@ func (mysqlDialect) listRelations(ctx context.Context, q querier, database strin
 		args...)
 }
 
+// tableStats reads information_schema.tables, which for InnoDB is filled
+// from the same sampled index statistics the optimizer uses: table_rows
+// can be off by a large factor on a busy table and is only refreshed by
+// ANALYZE TABLE or by InnoDB's own recalculation. data_length +
+// index_length is the on-disk footprint of the table and its indexes.
+// Views have no storage at all, so only base tables are asked about.
+func (mysqlDialect) tableStats(ctx context.Context, q querier, database string) ([]TableStat, error) {
+	cond, args := mysqlSchemaCond(database)
+	return scanTableStats(ctx, q,
+		`SELECT table_name, table_rows, data_length + index_length
+		 FROM information_schema.tables
+		 WHERE `+cond+` AND table_type = 'BASE TABLE'
+		 ORDER BY table_name`,
+		args...)
+}
+
 func (mysqlDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	cond, args := mysqlSchemaCond(database)
 	rows, err := q.QueryContext(ctx,

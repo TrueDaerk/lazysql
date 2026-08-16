@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -12,8 +13,10 @@ import (
 
 // formModal is the reusable multi-field popup: a vertical stack of labelled
 // fields with one cursor, optional section headers, an inline validation
-// error line, a cursor-following scroll window and the usual enter/esc
-// contract. The connection editor is its main user. (The row insert form
+// error line, a reserved status line, a cursor-following scroll window and
+// the usual enter/esc contract. Its outer size is pinned for the lifetime
+// of one field set, see formLayout. The connection editor is its main user.
+// (The row insert form
 // is its own modal: its fields are columns, and each one cycles between a
 // typed value, NULL and the column's default rather than holding a string.)
 //
@@ -252,7 +255,41 @@ type formModal struct {
 	// form can outgrow a small terminal; view keeps the cursor's line
 	// inside the window and marks clipped rows with ⋮.
 	offset int
+
+	// layout pins the box geometry, see formLayout.
+	layout formLayout
 }
+
+// formLayout is the outer geometry the box is pinned to. A popup that
+// changes size while the user types reads as broken, so width and the
+// reserved row counts are computed once from the worst case — the widest
+// line any transient content could produce, one status line, the whole
+// field block — and every draw renders *into* that frame: content that is
+// absent leaves blank cells instead of shrinking the box. Only a change the
+// user made deliberately invalidates it: a different set of visible fields
+// (the SSH section unfolding, an engine swap) or a resized terminal.
+type formLayout struct {
+	// key is the state the geometry was derived from; a draw whose key
+	// differs recomputes, every other draw reuses.
+	key       string
+	contentW  int // cells every line is padded and clipped to
+	bodyRows  int // rows reserved for the body block
+	fieldRows int // rows reserved for the field block (the scroll window)
+}
+
+// formMsgWidth is the column reserved next to the field under the cursor for
+// its help text or its inline validation message. Both are clipped to it
+// rather than allowed to widen the box: the column is what a message costs,
+// whatever it says. Nothing is lost that matters — a help text is a hint,
+// and the message that blocks a submit shows in full in the status line.
+const formMsgWidth = 32
+
+// formBodyWidth is the width a form with a body block claims. The block is
+// free-form text that tracks what is typed (the dump/restore command
+// preview), so it cannot be measured once: pinning the box to its first
+// draw would clip every later, longer command. It gets a generous fixed
+// column instead, capped by the terminal.
+const formBodyWidth = 100
 
 // withBody attaches the lines rendered above the fields.
 func (f *formModal) withBody(fn func(*formModal) []string) *formModal {
@@ -566,6 +603,75 @@ func (f *formModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 	return cmd
 }
 
+// valueWidth is the widest the field's value cell can get. It is a worst
+// case, not a measurement of the current value: a select is as wide as its
+// longest choice, so stepping through the choices cannot move the box.
+func (fl *formField) valueWidth(inputW int) int {
+	switch fl.kind {
+	case fieldSelect:
+		w := 0
+		for _, c := range fl.choices {
+			w = maxInt(w, lipgloss.Width(c))
+		}
+		return w + 4 // the ‹ › chevrons
+	case fieldBool:
+		return lipgloss.Width("[x] yes")
+	default:
+		// The textinput renders its prompt and a cursor cell outside the
+		// width it was given.
+		return inputW + 2
+	}
+}
+
+// footerWidth is the widest footer the form can show. The completion
+// contract swaps the footer while candidates are up, which is a keystroke
+// away in any path field — so all three spellings count towards the width.
+func (f *formModal) footerWidth() int {
+	w := 0
+	for _, t := range []string{
+		f.footer,
+		"tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel",
+		"tab complete path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss",
+		"tab/shift+tab cycle path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss",
+	} {
+		w = maxInt(w, lipgloss.Width(t))
+	}
+	return w
+}
+
+// computeLayout derives the pinned geometry for the current field set.
+// fieldRows is the number of rows the unclipped field block occupies.
+func (f *formModal) computeLayout(key string, vis []*formField, labelW, inputW, indent, bodyRows, fieldLines, maxW, maxH int) formLayout {
+	// Border and padding cost 6 cells; nothing may render wider than that.
+	lineW := maxInt(maxW-6, 16)
+
+	w := maxInt(lipgloss.Width(f.title), f.footerWidth())
+	for _, fl := range vis {
+		w = maxInt(w, indent+2+labelW+2+fl.valueWidth(inputW)+2+formMsgWidth)
+	}
+	if bodyRows > 0 {
+		w = maxInt(w, formBodyWidth)
+	}
+	w = min(w, lineW)
+
+	// Rows the frame spends outside the field block: two border rows, the
+	// title and its blank line, the body block and its blank line, the
+	// reserved status line with its blank line, and the footer with its own.
+	budget := maxH - 8 - bodyRows
+	if bodyRows > 0 {
+		budget--
+	}
+	if budget < 3 {
+		budget = 3
+	}
+	return formLayout{
+		key:       key,
+		contentW:  w,
+		bodyRows:  bodyRows,
+		fieldRows: min(fieldLines, budget),
+	}
+}
+
 func (f *formModal) view(s styles, maxW, maxH int) string {
 	vis := f.visibleFields()
 	labelW := 0
@@ -653,23 +759,19 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		lines = append(lines, line)
 	}
 
+	// The pinned geometry: recomputed only when the visible field set or
+	// the terminal changed, so nothing typed into a field can move the box.
+	key := layoutKey(f.title, f.footer, vis, maxW, maxH)
+	if f.layout.key != key {
+		f.layout = f.computeLayout(key, vis, labelW, inputW, lipgloss.Width(indent),
+			len(bodyLines), len(lines), maxW, maxH)
+	}
+
 	// Scroll window: a sectioned form with SSH open outgrows a small
 	// terminal, so the block is clipped to what fits and the window
 	// follows the cursor. Clipped edges show ⋮ in place of their first or
 	// last row.
-	budget := maxH - 6 - len(bodyLines)
-	if len(bodyLines) > 0 {
-		budget--
-	}
-	if f.err != "" {
-		budget -= 2
-	}
-	if f.info != "" {
-		budget -= 2
-	}
-	if budget < 3 {
-		budget = 3
-	}
+	budget := f.layout.fieldRows
 	if total := len(lines); total > budget {
 		if f.offset > total-budget {
 			f.offset = total - budget
@@ -717,27 +819,43 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		}
 	}
 
-	// Every line is clipped to what the modal can spend horizontally
-	// (border and padding cost 6 cells), or a long help text or footer
-	// would widen the box past a narrow terminal.
-	lineW := maxInt(maxW-6, 16)
+	// Every line is clipped to the pinned width and padded back out to it,
+	// so the box measures the same however much (or little) each line
+	// carries — a long help text cannot widen it, an empty one cannot
+	// narrow it.
+	lineW := f.layout.contentW
+	fit := func(line string) string { return pad(truncate(line, lineW), lineW) }
 	var b strings.Builder
-	b.WriteString(s.modalTitle.Render(truncate(f.title, lineW)) + "\n\n")
-	for _, line := range bodyLines {
-		b.WriteString(truncate(line, lineW) + "\n")
+	b.WriteString(fit(s.modalTitle.Render(f.title)) + "\n\n")
+	// The body block keeps its reserved rows whatever it returns today:
+	// short of them it is padded out, past them it is cut.
+	for i := 0; i < f.layout.bodyRows; i++ {
+		line := ""
+		if i < len(bodyLines) {
+			line = bodyLines[i]
+		}
+		b.WriteString(fit(line) + "\n")
 	}
-	if len(bodyLines) > 0 {
+	if f.layout.bodyRows > 0 {
 		b.WriteString("\n")
 	}
-	for _, line := range lines {
-		b.WriteString(truncate(line, lineW) + "\n")
+	for i := 0; i < f.layout.fieldRows; i++ {
+		line := ""
+		if i < len(lines) {
+			line = lines[i]
+		}
+		b.WriteString(fit(line) + "\n")
 	}
-	if f.err != "" {
-		b.WriteString("\n" + s.danger.Render("✗ "+f.err) + "\n")
+	// One status line, always reserved: an error, otherwise an info
+	// message, otherwise blank. Showing one must not push the footer down.
+	status := ""
+	switch {
+	case f.err != "":
+		status = s.danger.Render("✗ " + f.err)
+	case f.info != "":
+		status = s.titleFocused.Render(f.info)
 	}
-	if f.info != "" {
-		b.WriteString("\n" + s.titleFocused.Render(f.info) + "\n")
-	}
+	b.WriteString("\n" + fit(status) + "\n")
 	footer := f.footer
 	if footer == "" {
 		footer = "tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel"
@@ -752,6 +870,19 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 			footer = "tab/shift+tab cycle path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss"
 		}
 	}
-	b.WriteString("\n" + s.muted.Render(truncate(footer, lineW)))
+	b.WriteString("\n" + fit(s.muted.Render(footer)))
 	return s.modal.Render(b.String())
+}
+
+// layoutKey is the state the pinned geometry depends on: the terminal, the
+// title and footer, and which fields are visible with which labels. Nothing
+// in it changes from typing — engine-dependent fields appearing or
+// disappearing is a deliberate content change and may resize the box.
+func layoutKey(title, footer string, vis []*formField, maxW, maxH int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%dx%d|%s|%s|", maxW, maxH, title, footer)
+	for _, fl := range vis {
+		b.WriteString(fl.name + ":" + fl.label + ",")
+	}
+	return b.String()
 }

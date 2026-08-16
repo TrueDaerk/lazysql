@@ -1486,3 +1486,19 @@ Chronological history of wiki changes, newest last.
   documents, and checked against every other `K`/`J` binding in the codebase
   (`ShiftUp`/`ShiftDown`, vim motions) for collisions — none, since those are
   scoped to a different panel.
+- Added [design/form-modal-stable-size](design/form-modal-stable-size.md) for
+  issue #159: `formModal.view` now renders into a `formLayout` (content
+  width, reserved body rows, reserved field rows) computed once per visible
+  field set and cached under a `layoutKey` of terminal size, title, footer
+  and visible field names — so nothing a keystroke does inside one field set
+  moves the box, while an engine swap or an unfolding SSH section may still
+  resize it. Width is the worst case: widest of the three footer spellings,
+  each field's widest possible value cell (a select measures its longest
+  choice), plus a fixed 32-cell `formMsgWidth` column that help text and
+  inline validation messages are clipped to; a form with a body block claims
+  `formBodyWidth` (100) since its preview text tracks what is typed. `err`
+  and `info` collapsed into one always-reserved status line, making the
+  chrome outside the field block constant (`maxH - 8`) instead of stealing
+  scroll budget when a message appeared. Letting the longest help text set
+  the width was rejected — it pushed the connection form to nearly the full
+  terminal.

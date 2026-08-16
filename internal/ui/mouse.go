@@ -285,8 +285,14 @@ func (m *Model) applyScroll(t scrollTarget, delta int) {
 func (m *Model) scrollMain(row, delta int) {
 	switch {
 	case m.focus == panelConnections:
-		// An open schema diff is the only scrollable thing panel [1]
-		// puts here; the profile detail always fits.
+		// A schema diff and the activity report are the two scrollable
+		// things panel [1] puts here; the profile detail always fits. The
+		// report is a cursor rather than an offset, so the wheel walks
+		// its rows the way j/k does.
+		if m.activity != nil {
+			m.scrollActivity(delta)
+			return
+		}
 		if m.diff != nil {
 			m.diff.offset += delta
 		}

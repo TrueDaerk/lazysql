@@ -264,6 +264,63 @@ func (postgresDialect) triggerDDL(ctx context.Context, q querier, database, trig
 	return ddls[0], nil
 }
 
+// The process list is pg_stat_activity, which carries the lock waits
+// too: pg_blocking_pids(pid) is the server's own answer to "who is this
+// backend waiting for", so unlike MySQL no second catalog is involved.
+// Four details are worth naming:
+//
+//   - backend_type filters the rows down to real sessions plus autovacuum
+//     workers, which are the ones that can block a session. The column
+//     exists from PostgreSQL 10, and pg_blocking_pids from 9.6.
+//   - EXTRACT is cast to float8: it returns numeric on PostgreSQL 14+ and
+//     double precision before, and the cast keeps one Go type either way.
+//   - An idle session gets no duration at all. state_change would give
+//     one, but "idle for six hours" is not work and would sort on top of
+//     the query the view exists to surface.
+//   - The wait event is only appended to a working session's state:
+//     every idle backend is waiting on `Client: ClientRead`, which says
+//     nothing, while `Lock: transactionid` on a working one says
+//     everything.
+//
+// See wiki/reference/server-activity-per-dialect.md.
+const pgProcessListSQL = `SELECT a.pid, a.usename, a.datname, host(a.client_addr),
+        CASE
+          WHEN a.wait_event_type IS NOT NULL AND coalesce(a.state, '') <> 'idle'
+            THEN coalesce(a.state, '') || ' (' || a.wait_event_type || ': ' ||
+                 coalesce(a.wait_event, '?') || ')'
+          ELSE coalesce(a.state, '')
+        END,
+        CASE
+          WHEN a.state = 'idle' THEN NULL
+          ELSE EXTRACT(EPOCH FROM (now() - coalesce(a.query_start, a.backend_start)))::float8
+        END,
+        a.query,
+        array_to_string(pg_catalog.pg_blocking_pids(a.pid), ','),
+        a.pid = pg_catalog.pg_backend_pid()
+ FROM pg_catalog.pg_stat_activity a
+ WHERE a.backend_type = 'client backend' OR a.backend_type LIKE '%autovacuum%'`
+
+func (postgresDialect) processListSQL() (string, error) { return pgProcessListSQL, nil }
+
+func (postgresDialect) listProcesses(ctx context.Context, q querier) ([]Process, error) {
+	return scanProcesses(ctx, q, pgProcessListSQL)
+}
+
+// killProcessSQL terminates the backend rather than cancelling its
+// query: pg_cancel_backend would stop the statement and leave the
+// session (and its transaction, and its locks) in place, which is not
+// what "kill this session" means in the view.
+func (postgresDialect) killProcessSQL(id string) (KillStatement, error) {
+	pid, err := processID(id)
+	if err != nil {
+		return KillStatement{}, err
+	}
+	return KillStatement{
+		SQL:        "SELECT pg_catalog.pg_terminate_backend(" + pid + ")",
+		ReturnsRow: true,
+	}, nil
+}
+
 // PostgreSQL does not keep the original CREATE TABLE text, so the DDL
 // is synthesized from the introspected columns, indexes and foreign
 // keys. It is a faithful description, not a byte-identical replay of

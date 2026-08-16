@@ -339,6 +339,9 @@ func (m Model) mainTitle(w int) string {
 		titleStyle = m.style.titleFocused
 	}
 	if m.focus == panelConnections {
+		if m.activity != nil {
+			return m.activityTitle()
+		}
 		if m.diff != nil {
 			return m.diffTitle()
 		}
@@ -373,8 +376,11 @@ func (m Model) mainTitle(w int) string {
 // summary of what the focused panel points at.
 func (m Model) mainContent(w, h int) string {
 	if m.focus == panelConnections {
-		// An open schema diff replaces the profile detail until esc
-		// dismisses it.
+		// An open report — the server activity list or a schema diff —
+		// replaces the profile detail until esc dismisses it.
+		if m.activity != nil {
+			return m.activityContent(w, h)
+		}
 		if m.diff != nil {
 			return m.diffContent(w, h)
 		}
@@ -589,6 +595,21 @@ func (m Model) renderOptionsBar() string {
 	// five-key contract, documented in `?` under the Connections panel.
 	if _, ok := m.modal.(*enginePickerModal); ok {
 		bindings = m.keys.enginePickerKeys()
+	}
+	// The activity report claims panel [1]'s keys while it is on screen —
+	// `K` kills a session there rather than moving a connection — so the
+	// bar offers its set instead of the panel's, all of it documented
+	// under `?` in the same group.
+	if m.focus == panelConnections && m.activity != nil && m.modal == nil {
+		own := m.keys.serverActivity()
+		// A read-only connection cannot kill anything — the driver
+		// refuses it — so the key comes off the bar the way the grid's
+		// write keys do. `?` keeps listing it.
+		if m.readOnly() {
+			own = withoutBindings(own, []key.Binding{m.keys.KillProcess})
+		}
+		bindings = append(own,
+			m.keys.Jump, m.keys.NextPanel, m.keys.OpenEditor, m.keys.Help, m.keys.Quit)
 	}
 	// A trigger definition is a read-only text block, so the grid's own
 	// actions would only ever be no-ops there: the bar offers the keys

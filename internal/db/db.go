@@ -232,6 +232,16 @@ type Driver interface {
 	TableForeignKeys(ctx context.Context, database, table string) ([]ForeignKey, error)
 	TableDDL(ctx context.Context, database, table string) (string, error)
 
+	// ListProcesses returns the sessions the server currently has, longest
+	// running first (see SortProcesses). An engine without a server —
+	// SQLite, DuckDB — answers ErrUnsupported rather than an empty list,
+	// so "nothing is running" and "no such concept" stay distinguishable.
+	ListProcesses(ctx context.Context) ([]Process, error)
+	// KillProcess ends one session. It is the one destructive operation
+	// that is not staged, so the caller confirms it first; a read-only
+	// session refuses it like any other write.
+	KillProcess(ctx context.Context, id string) error
+
 	// QueryPage reads one page of a table. filter and sortBy may be nil.
 	// Identifiers are quoted per dialect and filter arguments travel as
 	// query parameters.
@@ -310,6 +320,16 @@ type Dialect interface {
 	// explain runs the dialect's EXPLAIN prefix over one statement and
 	// shapes the answer into a Plan.
 	explain(ctx context.Context, q querier, sql string) (*Plan, error)
+
+	// listProcesses reads the server's session list, or ErrUnsupported
+	// for an engine that has no server.
+	listProcesses(ctx context.Context, q querier) ([]Process, error)
+	// processListSQL is the statement listProcesses runs. It is separate
+	// from listProcesses so the dialect SQL can be asserted without a
+	// server to run it against — see activity_test.go.
+	processListSQL() (string, error)
+	// killProcessSQL is the statement that ends session id.
+	killProcessSQL(id string) (KillStatement, error)
 }
 
 // querier is the subset of *sql.DB the dialects need.

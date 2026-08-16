@@ -208,6 +208,18 @@ func (duckdbDialect) triggerDDL(context.Context, querier, string, string) (strin
 	return "", ErrUnsupported
 }
 
+// DuckDB runs in the process too, so like SQLite it has no session list
+// and no session to kill — see the same note in dialect_sqlite.go.
+func (duckdbDialect) listProcesses(context.Context, querier) ([]Process, error) {
+	return nil, ErrUnsupported
+}
+
+func (duckdbDialect) processListSQL() (string, error) { return "", ErrUnsupported }
+
+func (duckdbDialect) killProcessSQL(string) (KillStatement, error) {
+	return KillStatement{}, ErrUnsupported
+}
+
 func (duckdbDialect) tableDDL(ctx context.Context, q querier, database, table string) (string, error) {
 	cond, args := duckdbDBCond(database)
 	ddls, err := scanStrings(ctx, q,

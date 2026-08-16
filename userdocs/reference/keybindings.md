@@ -62,11 +62,29 @@ mode it runs the statement the caret is in.
 | `y` | Duplicate connection | `duplicate-connection` |
 | `t` | Test connection | `test-connection` |
 | `D` | Schema diff vs… | `schema-diff` |
+| `A` | Server activity (processes, locks) | `server-activity` |
 | `K` | Move up | `move-conn-up` |
 | `J` | Move down | `move-conn-down` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |
 | `a` | Actions menu | `actions` |
+
+### In the server activity view (`A`)
+
+The report takes over the main view while `[1] Connections` keeps the focus,
+and claims these keys for as long as it is open — `K` kills a session there
+rather than moving a connection. `esc` closes it and gives the panel its keys
+back.
+
+| Keys | Action | Action name |
+|---|---|---|
+| `k` · `↑` / `j` · `↓` | Move between sessions | `up` / `down` |
+| `R` · `r` | Re-read the process list | `refresh` |
+| `t` | Auto-refresh every 5s, on or off | `activity-auto` |
+| `K` | Kill the session under the cursor (asks first) | `kill-process` |
+| `v` | Show the session's statement in full | `view-cell` |
+| `g` / `G` | First / last session | — |
+| `esc` | Close the report | `back` |
 
 ### In the engine picker
 

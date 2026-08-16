@@ -1452,3 +1452,15 @@ Chronological history of wiki changes, newest last.
   happens once at save, not at `Config.Load`, and existing relative paths
   already on disk are left untouched until the profile is re-saved — no
   silent config rewrite.
+- Amended [design/path-completion-in-forms](design/path-completion-in-forms.md)
+  for issue #155: the File field's candidates are no longer rows spliced into
+  the form — `pathSuggest.rows`/`popup` render them into a bordered box that
+  `Model.pathSuggestLayer` composites over the modal at `Z(2)`, reusing
+  `placePopup`'s clamp/flip rules from the query editor's popup. `formModal.view`
+  records the completing field's value cell as `anchorX/anchorY/anchorW`
+  relative to its own box (modal frame + title + body + row inside the scroll
+  window) because the compositor places by absolute cell and a centered box
+  cannot know where it landed. The form's height is now identical with and
+  without the list; the selected row is a `popupSelected` bar instead of a `▸`
+  marker. Checked in a PTY at 60×18, where the box flips above the field and
+  shrinks to the rows that fit plus the `… +N more` tail.

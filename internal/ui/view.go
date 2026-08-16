@@ -76,12 +76,19 @@ func (m Model) View() tea.View {
 
 	if m.modal != nil {
 		box := m.modal.view(m.style, m.width, m.height)
-		px := (m.width - lipgloss.Width(box)) / 2
-		py := (m.height - lipgloss.Height(box)) / 2
-		full = lipgloss.NewCompositor(
+		px := maxInt((m.width-lipgloss.Width(box))/2, 0)
+		py := maxInt((m.height-lipgloss.Height(box))/2, 0)
+		layers := []*lipgloss.Layer{
 			lipgloss.NewLayer(full),
-			lipgloss.NewLayer(box).X(maxInt(px, 0)).Y(maxInt(py, 0)).Z(1),
-		).Render()
+			lipgloss.NewLayer(box).X(px).Y(py).Z(1),
+		}
+		// A form's path candidates float over the modal rather than inside
+		// it, so they are a second layer on top of the one just placed —
+		// anchored from the box's origin, which is only known here.
+		if pop, x, y, ok := m.pathSuggestLayer(px, py); ok {
+			layers = append(layers, lipgloss.NewLayer(pop).X(x).Y(y).Z(2))
+		}
+		full = lipgloss.NewCompositor(layers...).Render()
 	}
 
 	v.SetContent(full)
@@ -253,6 +260,40 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	}
 	relX, relY := placePopup(ax-mx, ay-my, lipgloss.Width(box), lipgloss.Height(box), mw, mh)
 	return box, mx + relX, my + relY, true
+}
+
+// pathSuggestLayer is an open form's path-completion box and the absolute
+// cell it is drawn at. boxX/boxY are where the modal itself was placed:
+// the form recorded its completing field's offset inside its own box while
+// rendering it (see formModal.view), and this turns that offset into a
+// screen coordinate the layer compositor can place.
+//
+// The box is kept inside the terminal the way the editor's popup is: it
+// takes the rows below the field, flips above when there are more of them
+// up there, slides left at the right edge, and is dropped entirely when
+// neither side has room for a bordered row — a short terminal shows the
+// field, not a box drawn over the form's footer.
+func (m Model) pathSuggestLayer(boxX, boxY int) (box string, x, y int, ok bool) {
+	f, isForm := m.modal.(*formModal)
+	if !isForm || !f.anchorOK {
+		return "", 0, 0, false
+	}
+	ax, ay := boxX+f.anchorX, boxY+f.anchorY
+	// The border costs two of the rows on whichever side the box lands, and
+	// placePopup prefers below, so the budget is the roomier side's.
+	rows := min(maxSuggestLines, len(f.sugg.candidates))
+	if room := maxInt(m.height-ay-3, ay-2); room < rows {
+		rows = room
+	}
+	if rows < 1 {
+		return "", 0, 0, false
+	}
+	box = f.sugg.popup(m.style, maxInt(min(f.anchorW, m.width-ax-2), minSuggestWidth), rows)
+	if box == "" {
+		return "", 0, 0, false
+	}
+	x, y = placePopup(ax, ay, lipgloss.Width(box), lipgloss.Height(box), m.width, m.height)
+	return box, x, y, true
 }
 
 // placePopup puts a w x h box next to an anchor cell inside a screen of

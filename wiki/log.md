@@ -1433,3 +1433,15 @@ Chronological history of wiki changes, newest last.
   instant. Documented the flow and the one-time repository Pages setting
   ("Deploy from a branch" → `gh-pages` → `/root`) in
   `userdocs/contributing.md`.
+
+## 2026-08-16
+
+- Amended [design/path-completion-in-forms](design/path-completion-in-forms.md)
+  for issue #154: ↓/↑ now walk the File field's open candidate list instead of
+  changing fields, `enter` accepts the highlighted candidate instead of
+  submitting, and `esc` dismisses the list before it cancels the form —
+  `pathSuggest.navigate`/`accept` reuse the `cycling`/`selected` state
+  tab-cycling already tracked rather than adding a second index. Added
+  `keyMap.PathCandidateNav`/`PathCandidateAccept`/`PathCandidateDismiss` so
+  `?` documents the keys' meaning while the list is up, separately from
+  `NextField`/`PrevField`/`FormSave`/`Back`.

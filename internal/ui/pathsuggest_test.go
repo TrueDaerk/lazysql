@@ -142,7 +142,10 @@ func TestTabMovesWithoutCandidates(t *testing.T) {
 }
 
 // Suggestions belong to the file field alone: leaving it clears them, and a
-// server engine has no file field to complete at all.
+// server engine has no file field to complete at all. ↓/↑ are captured by
+// the open list (see TestArrowKeysNavigateCandidates), so the field is left
+// with shift+tab here instead — the one field-navigation key the list does
+// not take over.
 func TestSuggestionsClearOnBlur(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.db"), nil, 0o600); err != nil {
@@ -155,7 +158,7 @@ func TestSuggestionsClearOnBlur(t *testing.T) {
 		t.Fatal("no candidates to clear")
 	}
 
-	m = send(t, m, special(tea.KeyDown, 0))
+	m = send(t, m, special(tea.KeyTab, tea.ModShift))
 	form = m.modal.(*formModal)
 	if form.sugg.active() {
 		t.Errorf("candidates survived leaving the field: %v", form.sugg.candidates)
@@ -172,6 +175,113 @@ func TestSuggestionsClearOnBlur(t *testing.T) {
 			t.Error("a server engine offers path completion")
 		}
 		pg.move(1)
+	}
+}
+
+// While the candidate list is open, ↓/↑ walk the list instead of moving to
+// another field, and wrap.
+func TestArrowKeysNavigateCandidates(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "sales."))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+	if got := len(form.sugg.candidates); got != 2 {
+		t.Fatalf("candidates = %d, want 2 (%v)", got, form.sugg.candidates)
+	}
+
+	cursor := form.cursor
+	m = send(t, m, special(tea.KeyDown, 0))
+	form = m.modal.(*formModal)
+	if form.cursor != cursor {
+		t.Errorf("down moved the cursor to field %d while candidates were up", form.cursor)
+	}
+	if !form.sugg.cycling {
+		t.Fatal("down on an open list should highlight a candidate")
+	}
+	first := form.field("file").input.Value()
+	if first != filepath.Join(dir, "sales.duckdb") && first != filepath.Join(dir, "sales.sqlite") {
+		t.Fatalf("down selected %q, want one of the two candidates", first)
+	}
+
+	m = send(t, m, special(tea.KeyDown, 0))
+	form = m.modal.(*formModal)
+	second := form.field("file").input.Value()
+	if second == first {
+		t.Fatalf("second down left the value at %q, want the other candidate", second)
+	}
+
+	// Up wraps back to the first candidate.
+	m = send(t, m, special(tea.KeyUp, 0))
+	form = m.modal.(*formModal)
+	if got := form.field("file").input.Value(); got != first {
+		t.Errorf("up = %q, want back to %q", got, first)
+	}
+}
+
+// Enter with the list open accepts the highlighted candidate into the field
+// instead of submitting the form.
+func TestEnterAcceptsCandidateWithoutSubmitting(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "sales."))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+
+	m = send(t, m, special(tea.KeyDown, 0))
+	form = m.modal.(*formModal)
+	selected := form.field("file").input.Value()
+
+	m = send(t, m, special(tea.KeyEnter, 0))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("enter on an open list submitted the form: modal is now %T", m.modal)
+	}
+	if got := form.field("file").input.Value(); got != selected {
+		t.Errorf("enter changed the value to %q, want the accepted candidate %q", got, selected)
+	}
+}
+
+// Esc dismisses the open list on the first press and only cancels the form
+// on the next one.
+func TestEscDismissesListBeforeCancelingForm(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, form := fileForm(t, sized(120, 40))
+	form.field("file").input.SetValue(filepath.Join(dir, "a"))
+	form.sugg.refresh(form.field("file").input.Value())
+	if !form.sugg.active() {
+		t.Fatal("no candidates to dismiss")
+	}
+
+	m = send(t, m, special(tea.KeyEscape, 0))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("esc on an open list cancelled the form: modal is now %T", m.modal)
+	}
+	if form.sugg.active() {
+		t.Fatal("first esc should have dismissed the list")
+	}
+
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if _, ok := m.modal.(*enginePickerModal); !ok {
+		t.Fatalf("second esc did not cancel the form: modal is %T", m.modal)
 	}
 }
 

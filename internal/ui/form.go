@@ -413,6 +413,14 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	cur := f.current()
 	switch {
 	case msg.String() == "esc":
+		// While path candidates are up, the first esc only dismisses the
+		// list — it is the thing on screen the user is most likely trying
+		// to back out of. A second esc (list already gone) cancels the form
+		// as usual.
+		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			f.sugg.clear()
+			return false, nil
+		}
 		f.sugg.clear()
 		if f.onCancel != nil {
 			f.onCancel(m)
@@ -432,6 +440,14 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		f.move(1)
 		return false, nil
 	case msg.String() == "down":
+		// While path candidates are up, ↓ walks the candidate list instead
+		// of moving to the next field — the field navigation users expect
+		// tab, not the arrows, to still own.
+		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			sf.input.SetValue(f.sugg.navigate(1))
+			sf.input.CursorEnd()
+			return false, nil
+		}
 		f.move(1)
 		return false, nil
 	case msg.String() == "shift+tab":
@@ -445,9 +461,24 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		f.move(-1)
 		return false, nil
 	case msg.String() == "up":
+		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			sf.input.SetValue(f.sugg.navigate(-1))
+			sf.input.CursorEnd()
+			return false, nil
+		}
 		f.move(-1)
 		return false, nil
-	case msg.String() == "enter", key.Matches(msg, m.keys.AcceptChanges):
+	case msg.String() == "enter":
+		// While path candidates are up, enter accepts the highlighted one
+		// into the field instead of submitting the form — the form only
+		// submits once the list is gone, same shape as esc above.
+		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			sf.input.SetValue(f.sugg.accept())
+			sf.input.CursorEnd()
+			return false, nil
+		}
+		fallthrough
+	case key.Matches(msg, m.keys.AcceptChanges):
 		if f.onSubmit == nil {
 			f.sugg.clear()
 			return true, nil
@@ -710,11 +741,13 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		footer = "tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel"
 	}
 	if sugRows > 0 {
-		// tab is taken by completion here, so the bar must stop advertising
-		// it as the way to move between fields.
-		footer = "tab complete path · ↑↓ field · enter/ctrl+enter save · esc cancel"
+		// tab and ↑↓ are taken by completion here, so the bar must stop
+		// advertising them as the way to move between fields — and enter/esc
+		// act on the list first, so their usual save/cancel meaning gets a
+		// ctrl+enter mention instead.
+		footer = "tab complete path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss"
 		if f.sugg.cycling {
-			footer = "tab/shift+tab cycle path · ↑↓ field · enter/ctrl+enter save · esc cancel"
+			footer = "tab/shift+tab cycle path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss"
 		}
 	}
 	b.WriteString("\n" + s.muted.Render(truncate(footer, lineW)))

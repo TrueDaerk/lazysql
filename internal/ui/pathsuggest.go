@@ -75,6 +75,40 @@ func (s *pathSuggest) complete(input string) string {
 // binding otherwise.
 func (s *pathSuggest) completeBack() string { return s.step(-1) }
 
+// navigate moves the highlighted candidate by delta — ↓/↑'s meaning while
+// the list is up, sharing the same selected index tab-cycling uses instead
+// of tracking a second one. The first press with nothing highlighted yet
+// starts cycling from whichever end delta points at, so a single down (or
+// up) always lands on a candidate rather than skipping past one.
+func (s *pathSuggest) navigate(delta int) string {
+	if len(s.candidates) == 0 {
+		return ""
+	}
+	if !s.cycling {
+		s.cycling = true
+		if delta < 0 {
+			s.selected = len(s.candidates) - 1
+		} else {
+			s.selected = 0
+		}
+		return s.candidates[s.selected]
+	}
+	return s.step(delta)
+}
+
+// accept returns the candidate enter should apply to the field: the one
+// already highlighted by a cycle or a navigate, or the first candidate when
+// the list is up but nothing has been highlighted yet.
+func (s *pathSuggest) accept() string {
+	if len(s.candidates) == 0 {
+		return ""
+	}
+	if !s.cycling {
+		return s.candidates[0]
+	}
+	return s.candidates[s.selected]
+}
+
 // step moves the selected candidate by delta, wrapping around the list.
 func (s *pathSuggest) step(delta int) string {
 	n := len(s.candidates)

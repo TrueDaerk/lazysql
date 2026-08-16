@@ -1,14 +1,14 @@
 ---
 type: Design Decision
 title: Filesystem path completion in the connection form
-description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist, cycles through an ambiguous match once nothing more can be extended, and only then stops moving between fields.
+description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist and cycles an ambiguous match, ↓/↑ walk the open list instead of changing fields, enter accepts the highlighted candidate instead of submitting, and esc dismisses the list before it cancels the form.
 tags: [tui, modal, forms, connections, completion]
 generated:
   by: claude-code/opus-5
   at: 2026-08-10T00:00:00Z
 updated:
   by: claude-code/sonnet-5
-  at: 2026-08-12T00:00:00Z
+  at: 2026-08-16T00:00:00Z
 ---
 
 # Filesystem path completion in the connection form
@@ -78,8 +78,6 @@ The resolution is state-dependent rather than a new key:
 - `shift+tab` reverses an in-progress cycle. Outside a cycle it keeps its old
   meaning of walking to the previous field — `pathSuggest.cycling` is what
   formModal.update checks to decide which one applies.
-- `↓`/`↑` always walk fields regardless of suggestion state, so field
-  navigation is never unreachable even mid-cycle.
 - Any keystroke that changes the input (typing, pasting, leaving the field)
   cancels a cycle — `pathSuggest.refresh` resets `cycling`, since a fresh
   edit means the user is typing, not continuing the walk through candidates.
@@ -89,11 +87,46 @@ rejected here: a path input is the one place where every shell has trained the
 user that `tab` completes, and the fallback keeps the old habit working the
 moment there is nothing to complete.
 
+## ↓/↑, enter and esc while the list is open (#154)
+
+Field navigation originally kept `↓`/`↑` regardless of suggestion state, but
+that shape was wrong for a list of file candidates: users expect the arrows to
+walk the list, the way every shell and picker in the app already behaves
+(`enginePickerKeys`, the query editor's own completion popup). So the same
+state check `tab` uses now gates `↓`/`↑`, `enter` and `esc` too, each falling
+back to its normal form meaning the moment the list is gone:
+
+- `↓`/`↑` move `pathSuggest.selected` by one, wrapping — `pathSuggest.navigate`
+  reuses the exact index `complete`'s tab-cycling already tracks rather than
+  adding a second one. The first press with nothing highlighted starts
+  `cycling` from whichever end the delta points at (`↓` from the top, `↑` from
+  the bottom), so a single press always lands on a candidate instead of
+  skipping past one. With no candidates, `↓`/`↑` fall through to
+  `formModal.move`, unchanged from before.
+- `enter` accepts the highlighted candidate into the field (`pathSuggest.
+  accept` — the first candidate if nothing has been highlighted yet) instead
+  of submitting the form. `ctrl+enter` (`AcceptChanges`) is untouched and
+  still submits even with the list open, since it is a dedicated save key, not
+  the one enter overloads with two meanings.
+- `esc` dismisses the list on the first press (`pathSuggest.clear`, form stays
+  open) and only cancels the form — the old, only meaning — on a second press
+  once the list is already gone. This is the same "closest thing on screen
+  goes first" shape the rest of the app uses for esc.
+
+The list's own key handling stays independent of its rendering (still a plain
+line list under the field, one `▸` marker) — the follow-up issue restyling it
+as a floating overlay changes `pathSuggest.lines`/`formModal.view` only, none
+of `formModal.update`.
+
 The footer — a modal's options bar — swaps to
-`tab complete path · ↑↓ field · …` exactly when completion owns the key, so
-the bar never advertises a binding that is currently taken. `keyMap.
-formPathComplete()` documents the same three keys in `?` on the Connections
-panel, following the precedent of `editorCompletion()`.
+`tab complete path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss`
+exactly when the list owns these keys, so the bar never advertises a binding
+that is currently taken. `keyMap.formPathComplete()` documents the same keys
+in `?` on the Connections panel: `PathCandidateNav`/`PathCandidateAccept`/
+`PathCandidateDismiss` are dedicated bindings (like the query editor's
+`CompleteNext`/`CompletePrev`) rather than reusing `NextField`/`PrevField`/
+`FormSave`/`Back`, because their help text ("select candidate", not "next
+field") only applies while the list is up.
 
 ## Fitting the modal
 

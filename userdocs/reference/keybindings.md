@@ -93,7 +93,10 @@ On the `File` field of a SQLite or DuckDB profile.
 | Keys | Action | Action name |
 |---|---|---|
 | `tab` · `shift+tab` | Complete the path, then cycle candidates | — |
-| `↓` · `tab` / `↑` · `shift+tab` | Next / previous field | — |
+| `↓` · `↑` | Select a candidate | — |
+| `enter` | Accept the selected candidate | — |
+| `ctrl+enter` | Save (bypasses the candidate list) | — |
+| `esc` | Dismiss the list, then back out of the form | `back` |
 
 ## `[2] Objects`
 

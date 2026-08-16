@@ -133,6 +133,14 @@ func (c *conn) TriggerDDL(ctx context.Context, database, trigger string) (string
 	return c.dialect.triggerDDL(ctx, q, database, trigger)
 }
 
+func (c *conn) TableStats(ctx context.Context, database string) ([]TableStat, error) {
+	q, err := c.q()
+	if err != nil {
+		return nil, err
+	}
+	return c.dialect.tableStats(ctx, q, database)
+}
+
 func (c *conn) TableColumns(ctx context.Context, database, table string) ([]Column, error) {
 	q, err := c.q()
 	if err != nil {

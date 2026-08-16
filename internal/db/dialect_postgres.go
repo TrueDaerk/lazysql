@@ -51,6 +51,25 @@ func (postgresDialect) listRelations(ctx context.Context, q querier, database st
 		pgSchema(database))
 }
 
+// tableStats reads the planner's own statistics. reltuples is what
+// ANALYZE and autovacuum leave behind — PostgreSQL 14 and later spell
+// "never analyzed" as -1, which scanTableStats maps to unknown — and
+// pg_total_relation_size sums the table, its indexes and its TOAST
+// relation, so the size answers "what does this table cost on disk".
+// relkind 'r' and 'p' keep ordinary and partitioned tables; a partition
+// is an 'r' of its own and is listed separately, exactly as the tree
+// lists it.
+func (postgresDialect) tableStats(ctx context.Context, q querier, database string) ([]TableStat, error) {
+	return scanTableStats(ctx, q,
+		`SELECT c.relname, c.reltuples::bigint,
+		        pg_catalog.pg_total_relation_size(c.oid)
+		 FROM pg_catalog.pg_class c
+		 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = $1 AND c.relkind IN ('r', 'p')
+		 ORDER BY c.relname`,
+		pgSchema(database))
+}
+
 func (d postgresDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	schema := pgSchema(database)
 	rows, err := q.QueryContext(ctx,

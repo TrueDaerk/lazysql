@@ -2,9 +2,11 @@ package ui
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/db"
 )
@@ -86,6 +88,11 @@ type treeNode struct {
 	cat objectCategory
 	// table is the relation a trigger fires on, empty for everything else.
 	table string
+	// stat is the engine's size estimate for a table node, nil while it
+	// has not landed, has failed, or the node is not a table. It is a
+	// pointer because a zero-row table is a real answer and the zero
+	// value of the struct is not.
+	stat *db.TableStat
 
 	expanded bool
 	// loading marks an introspection query in flight, loaded that one has
@@ -116,6 +123,11 @@ type objectTree struct {
 	single    bool
 	relations map[string][]db.Relation
 	triggers  map[string][]db.Trigger
+	// stats is the per-namespace table-size cache, keyed by table name
+	// inside each namespace. Its lifetime is the relation listing's: the
+	// two are refetched together, and a relation listing that arrives
+	// before or after its stats reply picks the cached one up either way.
+	stats map[string]map[string]db.TableStat
 }
 
 // newObjectTree builds the collapsed tree for a connection's namespaces.
@@ -125,6 +137,7 @@ func newObjectTree(displays []string) *objectTree {
 	t := &objectTree{
 		relations: map[string][]db.Relation{},
 		triggers:  map[string][]db.Trigger{},
+		stats:     map[string]map[string]db.TableStat{},
 	}
 	if len(displays) == 1 {
 		t.single = true
@@ -283,10 +296,14 @@ const (
 	noteMuted noteStyle = iota
 	notePending
 	noteDanger
+	// noteStats is a table's size annotation. It is muted like
+	// noteMuted, but the renderer treats it as the row's least important
+	// part: it is the first thing a narrow panel gives up.
+	noteStats
 )
 
-// note is the trailing annotation: the load state of a branch, or the
-// relation a trigger fires on.
+// note is the trailing annotation: the load state of a branch, the
+// relation a trigger fires on, or a table's size estimate.
 func (r treeRow) note() (string, noteStyle) {
 	n := r.node
 	switch {
@@ -300,8 +317,108 @@ func (r treeRow) note() (string, noteStyle) {
 		return "(none)", noteMuted
 	case n.kind == nodeObject && n.cat == catTriggers && n.table != "":
 		return "on " + n.table, noteMuted
+	case n.kind == nodeObject && n.cat == catTables && n.stat != nil:
+		if s := statNote(*n.stat); s != "" {
+			return s, noteStats
+		}
 	}
 	return "", noteMuted
+}
+
+// ---------- size annotation ----------
+
+// statSep joins the two halves of a size annotation. It is also where
+// fitStatNote cuts, so the halves are what a narrow panel drops.
+const statSep = " · "
+
+// statNote renders a table's size as `~1.2M rows · 340 MB`. Every row
+// count an engine reports is an estimate — a planner statistic, refreshed
+// by ANALYZE or by the engine's own sampling and stale in between — so
+// the count always wears a `~`, while a byte size (which engines measure
+// rather than sample) does not. Halves the engine has no answer for are
+// left out entirely; a table with neither renders no annotation at all.
+func statNote(s db.TableStat) string {
+	var parts []string
+	if s.Rows != db.StatUnknown {
+		unit := " rows"
+		if s.Rows == 1 {
+			unit = " row"
+		}
+		parts = append(parts, "~"+formatCount(s.Rows)+unit)
+	}
+	if s.Bytes != db.StatUnknown {
+		parts = append(parts, formatBytes(s.Bytes))
+	}
+	return strings.Join(parts, statSep)
+}
+
+// fitStatNote shortens a size annotation to the room left beside the
+// name, dropping its halves from the right and then the whole note —
+// the table name never loses a cell to it. room counts the note's
+// leading gap.
+func fitStatNote(note string, room int) string {
+	parts := strings.Split(note, statSep)
+	for i := len(parts); i > 0; i-- {
+		if cand := strings.Join(parts[:i], statSep); lipgloss.Width(cand) <= room {
+			return cand
+		}
+	}
+	return ""
+}
+
+// countUnits are the thousands steps a row estimate is rendered in. An
+// estimate carries no precision worth spelling out in full, and the
+// annotation shares a narrow column with the table name.
+//
+// Each limit sits just under its step so a figure that would round up
+// into four digits changes unit instead: 999,999 reads "1M", never
+// "1000K".
+var countUnits = []struct {
+	limit int64
+	scale float64
+	sym   string
+}{
+	{999_950_000_000, 1e12, "T"},
+	{999_950_000, 1e9, "B"},
+	{999_950, 1e6, "M"},
+	{1e4, 1e3, "K"},
+}
+
+// formatCount renders a row estimate compactly: exact below ten
+// thousand, then one decimal per thousands step (12.3K, 1.2M, 3.4B).
+func formatCount(n int64) string {
+	for _, u := range countUnits {
+		if n >= u.limit {
+			return trimDecimal(float64(n)/u.scale) + u.sym
+		}
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+// byteUnits are the binary steps a size is rendered in; engines report
+// disk footprints in pages, so 1 KB is 1024 bytes here.
+var byteUnits = []string{"B", "KB", "MB", "GB", "TB", "PB"}
+
+// formatBytes renders an on-disk size, one decimal above the byte step.
+func formatBytes(n int64) string {
+	size := float64(n)
+	i := 0
+	// 1023.96 KB would round to a four-digit "1024 KB"; step up instead.
+	for size >= 1023.95 && i < len(byteUnits)-1 {
+		size /= 1024
+		i++
+	}
+	if i == 0 {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	return trimDecimal(size) + " " + byteUnits[i]
+}
+
+// trimDecimal renders one decimal place and drops a trailing ".0", so a
+// round figure reads "3 MB" rather than "3.0 MB".
+func trimDecimal(f float64) string {
+	s := strconv.FormatFloat(f, 'f', 1, 64)
+	return strings.TrimSuffix(s, ".0")
 }
 
 // ---------- panel glue ----------
@@ -466,7 +583,13 @@ func (m *Model) loadCategory(n *treeNode) tea.Cmd {
 			c.loading, c.err = true, ""
 		}
 	}
-	return loadRelationsCmd(m.active, m.driver, n.database)
+	// The size estimates are a second, independent round trip started
+	// with the listing: one query for the whole namespace, and the tree
+	// renders complete without waiting for it.
+	return tea.Batch(
+		loadRelationsCmd(m.active, m.driver, n.database),
+		loadTableStatsCmd(m.active, m.driver, n.database),
+	)
 }
 
 // reloadNode is `R` on the tree: it re-reads whatever level the cursor
@@ -516,7 +639,37 @@ func (m *Model) applyRelations(database string, rels []db.Relation) {
 		c.children = objectNodes(database, c.cat, db.FilterRelations(rels, kind))
 		c.loading, c.loaded, c.err, c.hint = false, true, "", ""
 	}
+	// The nodes are new objects, so whatever sizes already landed have
+	// to be hung on them again.
+	m.tree.attachStats(database)
 	m.syncRelations()
+}
+
+// applyTableStats caches one namespace's table sizes and annotates the
+// table nodes with them.
+func (m *Model) applyTableStats(database string, stats []db.TableStat) {
+	if m.tree == nil {
+		return
+	}
+	m.tree.stats[database] = db.TableStatMap(stats)
+	m.tree.attachStats(database)
+}
+
+// attachStats points a namespace's table nodes at the cached sizes. A
+// table the statistics say nothing about keeps no annotation, so a
+// refresh that loses an estimate also loses the stale figure.
+func (t *objectTree) attachStats(database string) {
+	c := t.category(database, catTables)
+	if c == nil {
+		return
+	}
+	byName := t.stats[database]
+	for _, n := range c.children {
+		n.stat = nil
+		if s, ok := byName[n.name]; ok && s.Known() {
+			n.stat = &s
+		}
+	}
 }
 
 // applyTriggers fills the Triggers category of one namespace.

@@ -58,6 +58,18 @@ func (duckdbDialect) listRelations(ctx context.Context, q querier, database stri
 		append(append([]any{}, args...), args...)...)
 }
 
+// tableStats reads duckdb_tables().estimated_size, the cardinality the
+// optimizer plans with. DuckDB's catalog reports no per-table byte size —
+// pragma_database_size is whole-database only — so the size half stays
+// unknown and the tree shows a row estimate alone.
+func (duckdbDialect) tableStats(ctx context.Context, q querier, database string) ([]TableStat, error) {
+	cond, args := duckdbDBCond(database)
+	return scanTableStats(ctx, q,
+		`SELECT table_name, estimated_size, NULL FROM duckdb_tables()
+		 WHERE `+cond+` ORDER BY table_name`,
+		args...)
+}
+
 func (duckdbDialect) tableColumns(ctx context.Context, q querier, database, table string) ([]Column, error) {
 	cond, args := duckdbDBCond(database)
 

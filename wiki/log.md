@@ -1519,3 +1519,33 @@ Chronological history of wiki changes, newest last.
   are truncated instead of wrapped to keep one node on one line; `y` still
   copies the raw document, and non-JSON cells are untouched.
 
+## 2026-08-16 — The :name parameter prompt (issue #152)
+
+- Added [design/query-parameter-prompt](design/query-parameter-prompt.md) for
+  issue #152. The bespoke `paramsModal` in `historypane.go` is replaced by
+  `newParamsForm` in the new `internal/ui/params.go`, built on the shared
+  `formModal`: its cursor, `tab`/`↑↓` navigation, paste handling and pinned
+  box size come for free, the statement under prompt renders through
+  `withBody` syntax-highlighted, and the checkbox the feature needed is its
+  existing `fieldBool`. `enter` now submits from any field rather than
+  walking to the last one.
+- Every value field is followed by a `↳ NULL` toggle, because an empty input
+  cannot say whether the empty string or SQL `NULL` was meant and the two
+  match different rows. `db.BindPlaceholders` takes `[]db.ParamValue`
+  (`{Text, Null}`) instead of `[]string`, binding a nil `any` for NULL;
+  `db.TextParams` adapts plain strings. Verified against live SQLite and
+  DuckDB connections in `placeholders_test.go` — the claim is about the
+  driver, not about the string we built.
+- `Model.params` (`*paramMemory`, pointer-shared like `changes`) remembers
+  the values each statement last ran with, keyed by the statement text and
+  capped at 50 entries, written on submit rather than after the run so a
+  failed statement keeps its values. Session-scoped on purpose: parameter
+  values are often the personal data in a query, and persisting them next to
+  the SQL would be a retention decision, not a convenience.
+- Detection was already tokenizer-based and needed no change; the `::` cast
+  edge case the issue called out is documented in the concept, and was
+  already covered by `sqlhl_test.go` and `placeholders_test.go`.
+- Documented the prompt's contract (NULL toggle, session memory, what does
+  not prompt, what the command log shows) in
+  `userdocs/guides/query-editor.md`.
+

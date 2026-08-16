@@ -168,3 +168,24 @@ SELECT * FROM orders WHERE customer_id = :customer AND total > :min;
 ```
 
 Running that asks for `customer` and `min`, then binds both.
+
+The prompt is the usual form modal: ++tab++ or ++up++/++down++ walks the
+fields, ++enter++ runs, ++esc++ cancels the run entirely. Every value field
+is followed by a **NULL** toggle (++space++ flips it), because an empty field
+alone cannot say whether you meant the empty string or SQL `NULL` — the two
+match different rows. With the toggle on, the text above it is ignored and
+the parameter is bound as `NULL`.
+
+Values are remembered per statement **for the session** (never written to
+disk), so re-running the same query or snippet reopens the prompt filled in:
+usually ++ctrl+r++ ++enter++.
+
+Only statements that carry real placeholders prompt. A `?` or `:name` inside
+a string literal, a comment or a quoted identifier is text, PostgreSQL's
+`::type` cast is a cast, `$1` is already-parameterized SQL and MySQL's `@var`
+is a server variable — none of them ask for anything. Scripts of more than
+one statement never prompt either: one set of values cannot span statements.
+
+The command log records the statement that was sent — with the dialect's own
+markers, `?` or `$1` — and the bound values next to it, so the audit trail
+shows what actually reached the server.

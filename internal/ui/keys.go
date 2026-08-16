@@ -234,6 +234,14 @@ type keyMap struct {
 	CompletePath key.Binding
 	NextField    key.Binding
 	PrevField    key.Binding
+	// PathCandidate{Nav,Accept,Dismiss} document ↓/↑, enter and esc's
+	// meaning while the File field's candidate list is up — they take over
+	// from NextField/PrevField/FormSave/Back for as long as the list is
+	// open, the same way the query editor's Complete{Next,Prev} take over
+	// from plain cursor movement.
+	PathCandidateNav     key.Binding
+	PathCandidateAccept  key.Binding
+	PathCandidateDismiss key.Binding
 	// The rest of a form's contract. These document keys formModal.update
 	// dispatches itself (an open modal swallows every key), so they carry
 	// no slots entries — overriding them in `[keys]` could not change what
@@ -378,6 +386,12 @@ func newKeyMap() keyMap {
 			key.WithKeys("down", "tab"), key.WithHelp("↓/tab", "next field")),
 		PrevField: key.NewBinding(
 			key.WithKeys("up", "shift+tab"), key.WithHelp("↑/shift+tab", "prev field")),
+		PathCandidateNav: key.NewBinding(
+			key.WithKeys("down", "up"), key.WithHelp("↓/↑", "select candidate")),
+		PathCandidateAccept: key.NewBinding(
+			key.WithKeys("enter"), key.WithHelp("enter", "accept candidate")),
+		PathCandidateDismiss: key.NewBinding(
+			key.WithKeys("esc"), key.WithHelp("esc", "dismiss list")),
 		FormChange: key.NewBinding(
 			key.WithKeys("left", "right"), key.WithHelp("←/→", "change value")),
 		FormTest: key.NewBinding(
@@ -592,7 +606,8 @@ func (k keyMap) queryResultKeys() []key.Binding {
 // the owning component — formModal.update, since an open modal swallows every
 // key — so this slice is what documents them in `?`.
 func (k keyMap) formPathComplete() []key.Binding {
-	return []key.Binding{k.CompletePath, k.NextField, k.PrevField}
+	return []key.Binding{
+		k.CompletePath, k.PathCandidateNav, k.PathCandidateAccept, k.PathCandidateDismiss}
 }
 
 // formKeys is a form popup's contract: what the options bar shows while any

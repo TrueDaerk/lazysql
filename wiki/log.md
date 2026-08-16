@@ -1605,3 +1605,22 @@ Chronological history of wiki changes, newest last.
   push a connection's real history out of the ring buffer.
 - Documented the flow, the columns and the safety rules in
   `userdocs/guides/server-activity.md`.
+
+## 2026-08-16 — Accept path completion with enter/tab and advance (issue #170)
+
+- Updated [design/path-completion-in-forms](design/path-completion-in-forms.md)
+  for issue #170: `enter`, and `tab` once a candidate is explicitly
+  highlighted (via `↓`/`↑` or an in-progress `tab`-cycle), now both accept the
+  candidate *and* advance to the next field via the shared
+  `formModal.acceptSuggestion`, instead of leaving the cursor stuck on the
+  path field with the list gone. A directory candidate is the exception: it
+  is not a complete value, so accepting one stays on the field and re-runs
+  completion inside it (`pathSuggest.refresh`) — detected from the trailing
+  separator `pathcomplete.rank` already appends, no stat call needed. The
+  `dirs`-only flavor (`pathSuggest.dirs`, not wired to any field yet) flips
+  that: there a directory is the final value, so it advances too. One
+  behavioral trade-off: repeated `tab` alone can no longer step through every
+  ambiguous candidate, since the second `tab` now accepts the first one
+  instead of cycling to the next — `↓`/`↑` is the way to preview more than one
+  candidate before accepting. Footer hints updated to
+  `enter accept & next` / `tab/enter accept & next · shift+tab back`.

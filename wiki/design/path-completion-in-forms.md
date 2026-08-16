@@ -1,13 +1,13 @@
 ---
 type: Design Decision
 title: Filesystem path completion in the connection form
-description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist and cycles an ambiguous match, ↓/↑ walk the open list instead of changing fields, enter accepts the highlighted candidate instead of submitting, esc dismisses the list before it cancels the form, and the candidates render as a bordered layer floating over the modal rather than as rows inside it.
+description: A pure pathcomplete engine plus a pathSuggest holder on formModal; tab completes the File field while candidates exist and cycles an ambiguous match, ↓/↑ walk the open list instead of changing fields, enter/tab accept the highlighted candidate and advance to the next field (a directory candidate stays and descends instead), esc dismisses the list before it cancels the form, and the candidates render as a bordered layer floating over the modal rather than as rows inside it.
 tags: [tui, modal, forms, connections, completion]
 generated:
   by: claude-code/opus-5
   at: 2026-08-10T00:00:00Z
 updated:
-  by: claude-code/opus-5
+  by: claude-code/sonnet-5
   at: 2026-08-16T00:00:00Z
 ---
 
@@ -68,17 +68,24 @@ The resolution is state-dependent rather than a new key:
 
 - While the cursor is on a `withSuggest` field **and** candidates exist, `tab`
   completes — first to the longest prefix every candidate shares (shell-style
-  extension), same as before.
+  extension), same as before, staying on the field either way since the path
+  is still incomplete.
 - Once that prefix is already the whole input — an ambiguous match with
   nothing left to extend, e.g. `sales.` against `sales.duckdb` and
-  `sales.sqlite` — further `tab` presses instead cycle through the
-  candidates one at a time (`pathSuggest.cycling`), so the ambiguity can
-  still be resolved from the keyboard. The candidate currently applied to
-  the field is the highlighted row of the floating box, and the footer swaps to
-  `tab/shift+tab cycle path` so the new meaning is visible.
-- `shift+tab` reverses an in-progress cycle. Outside a cycle it keeps its old
-  meaning of walking to the previous field — `pathSuggest.cycling` is what
-  formModal.update checks to decide which one applies.
+  `sales.sqlite` — the next `tab` press highlights the first candidate
+  instead (`pathSuggest.cycling`), so the ambiguity can be resolved from the
+  keyboard, but still does not accept it — a highlight has only just
+  appeared. The candidate currently applied to the field is the highlighted
+  row of the floating box.
+- Once `pathSuggest.cycling` is already true when `tab` is pressed — a
+  candidate was explicitly selected, either by this cycling or by `↓`/`↑` —
+  `tab` accepts it and advances to the next field, the same as `enter` (see
+  below): `formModal.acceptSuggestion` is the shared path both keys call.
+  This means repeated `tab` alone can no longer step through every
+  candidate; `↓`/`↑` is the way to preview more than one before accepting
+  with `tab` or `enter`.
+- `shift+tab` reverses an in-progress cycle without accepting. Outside a
+  cycle it keeps its old meaning of walking to the previous field.
 - Any keystroke that changes the input (typing, pasting, leaving the field)
   cancels a cycle — `pathSuggest.refresh` resets `cycling`, since a fresh
   edit means the user is typing, not continuing the walk through candidates.
@@ -113,6 +120,40 @@ back to its normal form meaning the moment the list is gone:
   open) and only cancels the form — the old, only meaning — on a second press
   once the list is already gone. This is the same "closest thing on screen
   goes first" shape the rest of the app uses for esc.
+
+### Accept-and-advance, and the directory exception (#170)
+
+Accepting a candidate used to leave the cursor on the same field — the list
+was gone, but the user still had to press `tab`/`↓` themselves to reach the
+next field. `formModal.acceptSuggestion` (called by both `enter` and `tab`
+once a candidate is highlighted, see above) now does both in one step:
+
+- It applies `pathSuggest.accept()` to the field, same as before.
+- A **file** candidate (or a directory candidate in the `dirs`-only flavor,
+  see below) is a complete, usable value, so it dismisses the list
+  (`formModal.move` clears `pathSuggest` as a side effect) and moves the
+  cursor to the next field.
+- A **directory** candidate is not a complete value in the general flavor —
+  advancing past it would leave an unusable path — so instead it stays on
+  the field and calls `pathSuggest.refresh` with the accepted directory,
+  which re-runs completion inside it (the same "accept a directory, see its
+  contents" step that used to require a manual second `tab`).
+- The directory check is `strings.HasSuffix(v, separator)`, not a stat call:
+  `pathcomplete.rank` already appends the separator to every directory
+  candidate, so the accepted string carries the answer.
+- `pathSuggest.dirs` (the directories-only flavor, `pathcomplete.Dirs` — used
+  by inputs that only ever want a folder, e.g. a future project picker) flips
+  the exception: there a directory *is* the field's whole answer, so it
+  advances like a file would in the general flavor. No form field wires this
+  flavor up yet, but the exception is what `formModal.acceptSuggestion`
+  checks (`!f.sugg.dirs`), not the presence of a trailing separator alone.
+
+The footer reflects the two states while candidates are up: `tab complete
+path · ↑↓ select · enter accept & next · ctrl+enter save · esc dismiss` before
+anything is highlighted (`enter` still accepts-and-advances even without an
+explicit `↓`/`↑` — the first candidate counts as highlighted), and `tab/enter
+accept & next · shift+tab back · ↑↓ select · ctrl+enter save · esc dismiss`
+once `pathSuggest.cycling` is true.
 
 The list's own key handling is independent of its rendering: restyling it as a
 floating overlay (#155, below) touched `pathSuggest`'s row rendering,

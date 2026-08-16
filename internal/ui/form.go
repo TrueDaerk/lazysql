@@ -475,12 +475,19 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case msg.String() == "tab":
-		// While path candidates are up, tab completes the path — first to
-		// the longest shared prefix, then (once that stops changing
-		// anything) cycling through the candidates one at a time. ↑↓ stay
-		// the way to walk fields regardless. With no candidates tab keeps
-		// its usual meaning.
+		// While path candidates are up, a plain tab press extends the input
+		// to the longest shared prefix — still incomplete, so it stays in
+		// the field. Once a candidate is explicitly selected, either by ↑↓
+		// or because that extension already started cycling, the candidate
+		// is highlighted rather than merely offered, so a further tab
+		// accepts it and advances like enter does below. ↑↓ stay the way to
+		// walk fields regardless. With no candidates tab keeps its usual
+		// meaning.
 		if sf := f.suggestField(); sf != nil && f.sugg.active() {
+			if f.sugg.cycling {
+				f.acceptSuggestion(sf)
+				return false, nil
+			}
 			sf.input.SetValue(f.sugg.complete(sf.input.Value()))
 			sf.input.CursorEnd()
 			return false, nil
@@ -521,8 +528,7 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// into the field instead of submitting the form — the form only
 		// submits once the list is gone, same shape as esc above.
 		if sf := f.suggestField(); sf != nil && f.sugg.active() {
-			sf.input.SetValue(f.sugg.accept())
-			sf.input.CursorEnd()
+			f.acceptSuggestion(sf)
 			return false, nil
 		}
 		fallthrough
@@ -587,6 +593,25 @@ func (f *formModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, cmd
 }
 
+// acceptSuggestion applies the candidate enter/tab just accepted to sf, then
+// either dismisses the list and moves to the next field — the value is a
+// complete, usable one — or, for a directory candidate outside the
+// directories-only flavor, re-runs completion inside it instead: advancing
+// past a directory would leave a path that can never resolve to a file, so
+// it stays in the field the way a plain prefix extension does. A directory
+// in the directories-only flavor has nowhere further to descend into that
+// the field cares about, so it advances like a file would.
+func (f *formModal) acceptSuggestion(sf *formField) {
+	v := f.sugg.accept()
+	sf.input.SetValue(v)
+	sf.input.CursorEnd()
+	if acceptedIsDir(v) && !f.sugg.dirs {
+		f.sugg.refresh(v)
+		return
+	}
+	f.move(1)
+}
+
 // paste puts pasted text in the field under the cursor, when that field
 // holds text at all — a select or a bool has no room for it. A pasted
 // path re-runs completion, the same way typing one does.
@@ -631,8 +656,8 @@ func (f *formModal) footerWidth() int {
 	for _, t := range []string{
 		f.footer,
 		"tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel",
-		"tab complete path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss",
-		"tab/shift+tab cycle path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss",
+		"tab complete path · ↑↓ select · enter accept & next · ctrl+enter save · esc dismiss",
+		"tab/enter accept & next · shift+tab back · ↑↓ select · ctrl+enter save · esc dismiss",
 	} {
 		w = maxInt(w, lipgloss.Width(t))
 	}
@@ -864,10 +889,13 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		// tab and ↑↓ are taken by completion here, so the bar must stop
 		// advertising them as the way to move between fields — and enter/esc
 		// act on the list first, so their usual save/cancel meaning gets a
-		// ctrl+enter mention instead.
-		footer = "tab complete path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss"
+		// ctrl+enter mention instead. Once a candidate is highlighted, tab
+		// and enter both accept it and advance to the next field (a
+		// directory candidate stays and descends instead); before that, tab
+		// still only extends the shared prefix.
+		footer = "tab complete path · ↑↓ select · enter accept & next · ctrl+enter save · esc dismiss"
 		if f.sugg.cycling {
-			footer = "tab/shift+tab cycle path · ↑↓ select · enter accept · ctrl+enter save · esc dismiss"
+			footer = "tab/enter accept & next · shift+tab back · ↑↓ select · ctrl+enter save · esc dismiss"
 		}
 	}
 	b.WriteString("\n" + fit(s.muted.Render(footer)))

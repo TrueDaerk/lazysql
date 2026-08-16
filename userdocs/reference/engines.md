@@ -82,6 +82,27 @@ unnamed foreign key.
 | SQLite | `EXPLAIN QUERY PLAN` | The id/parent tree |
 | DuckDB | `EXPLAIN` | The engine's own ASCII diagram |
 
+## Server activity
+
+`A` on panel `[1]` — see [Server activity](../guides/server-activity.md).
+
+| Engine | Sessions from | Lock waits from |
+|---|---|---|
+| PostgreSQL | `pg_stat_activity` (needs **10 or newer**: `backend_type`) | `pg_blocking_pids()`, in the same query |
+| MySQL | `information_schema.processlist` | `performance_schema.data_lock_waits` — best-effort |
+| MariaDB | `information_schema.processlist` | `information_schema.innodb_lock_waits` — best-effort, and **removed in MariaDB 10.6** |
+| SQLite / DuckDB | **Not supported** — they run inside lazysql, so there is no session but yours | — |
+
+"Best-effort" means the lock-wait query is allowed to fail: a server whose
+InnoDB lock views are missing, disabled or not permitted still shows its
+process list, just with an empty `Blocked by` column. The attempt is visible
+in the command log like every other statement.
+
+Killing a session sends `KILL CONNECTION <id>` on MySQL/MariaDB and
+`SELECT pg_terminate_backend(<id>)` on PostgreSQL. On PostgreSQL a `false`
+answer — the backend was already gone, or your role may not signal it — is
+reported as a failure rather than a silent no-op.
+
 ## Query cancellation
 
 `ctrl+c` cancels a run. What that means at the server differs:

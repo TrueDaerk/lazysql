@@ -998,9 +998,12 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			}
 		}
 		// Same for the connection form's contract and the engine picker's,
-		// dispatched inside formModal.update / enginePickerModal.update.
+		// dispatched inside formModal.update / enginePickerModal.update,
+		// and the server activity report's, dispatched inside
+		// updateActivityKeys while the report owns the main view.
 		if id == panelConnections {
-			for _, b := range append(k.connFormKeys(), k.enginePickerKeys()...) {
+			for _, b := range append(append(k.connFormKeys(), k.enginePickerKeys()...),
+				k.serverActivity()...) {
 				for _, ks := range b.Keys() {
 					actions[ks] = true
 				}

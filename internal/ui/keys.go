@@ -57,6 +57,16 @@ type keyMap struct {
 	Actions             key.Binding
 	Filter              key.Binding
 
+	// The server activity report, opened from panel [1]. ServerActivity
+	// opens (and re-reads) it; the other two only act while it is on
+	// screen, where the report claims every key it binds before the panel
+	// sees one. KillProcess is `K` rather than the issue's lowercase `k`
+	// for one reason: `k` is the Up binding everywhere in the shell, and
+	// the list `K` acts on is navigated with it.
+	ServerActivity key.Binding
+	KillProcess    key.Binding
+	ActivityAuto   key.Binding
+
 	// MoveConnUp/MoveConnDown reorder the selected row of the [1] Connections
 	// panel, persisting the new order to config.toml immediately. `K`/`J`
 	// (shifted, not plain k/j) are free there: Up/Down already claim plain
@@ -321,6 +331,15 @@ func newKeyMap() keyMap {
 		Refresh:             key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:             key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:              key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
+
+		// `A` for activity: free on panel [1], and uppercase like the
+		// other two server-wide reports there (`D` schema diff, `B`
+		// dump/restore) rather than like the per-profile verbs.
+		ServerActivity: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "server activity")),
+		// `K` shadows MoveConnUp while the report is open — the report is
+		// asked for keys first — and nothing in it moves a connection.
+		KillProcess:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "kill session")),
+		ActivityAuto: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "auto-refresh")),
 
 		MoveConnUp:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
 		MoveConnDown: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
@@ -637,6 +656,17 @@ func (k keyMap) connFormKeys() []key.Binding {
 		k.NextField, k.PrevField, k.FormChange, k.FormTest, k.FormEngine, k.FormSave, k.Back}
 }
 
+// serverActivity are the keys the activity report owns while it is on
+// screen (panel [1] focused). updateActivityKeys dispatches them ahead of
+// the panel's own actions — `K` means kill there, not move a connection —
+// so this slice is what documents them in `?` and what the options bar
+// renders while the report is up.
+func (k keyMap) serverActivity() []key.Binding {
+	return []key.Binding{
+		k.Up, k.Down, k.Refresh, k.KillProcess, k.ActivityAuto, k.ViewCell, k.Back,
+	}
+}
+
 // enginePickerKeys is the engine picker's contract: what the options bar
 // shows while it is open, and what `?` documents. The picker dispatches
 // these keys itself, like every modal.
@@ -709,6 +739,9 @@ const (
 	actDuplicateConnection
 	actTestConnection
 	actSchemaDiff
+	actServerActivity
+	actKillProcess
+	actActivityAuto
 	actMoveConnUp
 	actMoveConnDown
 	actRefresh
@@ -803,6 +836,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDuplicateConnection, k.DuplicateConnection},
 			{actTestConnection, k.TestConnection},
 			{actSchemaDiff, k.SchemaDiff},
+			{actServerActivity, k.ServerActivity},
 			{actMoveConnUp, k.MoveConnUp},
 			{actMoveConnDown, k.MoveConnDown},
 			{actBackup, k.Backup},
@@ -956,6 +990,7 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 	// path completion — are documented there.
 	if id == panelConnections {
 		groups = append(groups,
+			helpGroup{"In the server activity view (A):", k.serverActivity()},
 			helpGroup{"In the engine picker:", k.enginePickerKeys()},
 			helpGroup{"In the connection form:", k.connFormKeys()},
 			helpGroup{"While path suggestions are up:", k.formPathComplete()},
@@ -992,6 +1027,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"drop-connection", &k.DropConnection}, {"duplicate-connection", &k.DuplicateConnection},
 		{"test-connection", &k.TestConnection},
 		{"schema-diff", &k.SchemaDiff},
+		{"server-activity", &k.ServerActivity}, {"kill-process", &k.KillProcess},
+		{"activity-auto", &k.ActivityAuto},
 		{"move-conn-up", &k.MoveConnUp}, {"move-conn-down", &k.MoveConnDown},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"expand-node", &k.ExpandNode}, {"collapse-node", &k.CollapseNode},

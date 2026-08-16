@@ -38,6 +38,11 @@ One page per feature area. Each assumes you have read
 
     Comparing two connections' schemas.
 
+- **[Server activity](server-activity.md)**
+
+    Who is connected, what they are running, who is blocked — and killing a
+    session.
+
 - **[Dump and restore](dump-and-restore.md)**
 
     Driving the engine's own dump tool, safely.

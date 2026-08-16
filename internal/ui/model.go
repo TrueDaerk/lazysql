@@ -246,6 +246,11 @@ type Model struct {
 	// none. It dials its own connections, so it survives disconnects.
 	diff *diffView
 
+	// activity is the server activity report on screen (processes, lock
+	// waits), nil when none. Like the diff it takes over the main view
+	// while panel [1] keeps the focus. See activity.go.
+	activity *activityView
+
 	// plan is the EXPLAIN result on screen, nil when none. It replaces
 	// the editor in the main view while panel [3] keeps the focus, and
 	// `esc` dismisses it with the buffer untouched.
@@ -491,6 +496,9 @@ func (m *Model) resetBrowse() {
 	}
 	// A plan describes a statement against the connection being left.
 	m.plan = nil
+	// So do the sessions of the server it was read from — and closing the
+	// view is what stops its auto-refresh.
+	m.closeActivity()
 	// So does a trigger definition.
 	m.trigger = nil
 	m.database = ""
@@ -711,6 +719,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
+
+	case activityLoadedMsg:
+		// Bind the command first: applyActivity mutates the view on m,
+		// and Go may otherwise copy the pre-call model into the return.
+		cmd := m.applyActivity(msg)
+		return m, cmd
+
+	case activityTickMsg:
+		cmd := m.activityTick(msg)
+		return m, cmd
+
+	case activityKilledMsg:
+		cmd := m.finishKill(msg)
 		return m, cmd
 
 	case explainDoneMsg:
@@ -1311,10 +1333,17 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	p := m.panels[m.focus]
 
-	// An open schema diff owns the report keys while panel [1] is
-	// focused; anything it does not claim falls through to the panel.
+	// An open schema diff or activity report owns the report keys while
+	// panel [1] is focused; anything neither claims falls through to the
+	// panel. Only one of the two is ever on screen — opening either
+	// replaces what the main view shows.
 	if m.focus == panelConnections && m.diff != nil {
 		if mm, cmd, handled := m.updateDiffKeys(msg); handled {
+			return mm, cmd
+		}
+	}
+	if m.focus == panelConnections && m.activity != nil {
+		if mm, cmd, handled := m.updateActivityKeys(msg); handled {
 			return mm, cmd
 		}
 	}
@@ -1469,6 +1498,18 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 
 	case actSchemaDiff:
 		cmd := m.openSchemaDiff()
+		return m, cmd
+
+	case actServerActivity:
+		cmd := m.openActivity()
+		return m, cmd
+
+	case actKillProcess:
+		cmd := m.killSelectedProcess()
+		return m, cmd
+
+	case actActivityAuto:
+		cmd := m.toggleActivityAuto()
 		return m, cmd
 
 	case actMoveConnUp:

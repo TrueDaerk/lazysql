@@ -89,6 +89,7 @@ nav:
       - The query editor: guides/query-editor.md
       - Copy and export: guides/copy-and-export.md
       - Schema diff: guides/schema-diff.md
+      - Server activity: guides/server-activity.md
       - Dump and restore: guides/dump-and-restore.md
       - SSH tunnels: guides/ssh-tunnels.md
       - Configuration: guides/configuration.md

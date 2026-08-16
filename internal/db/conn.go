@@ -165,6 +165,74 @@ func (c *conn) TableDDL(ctx context.Context, database, table string) (string, er
 	return c.dialect.tableDDL(ctx, q, database, table)
 }
 
+func (c *conn) ListProcesses(ctx context.Context) ([]Process, error) {
+	q, err := c.q()
+	if err != nil {
+		return nil, err
+	}
+	ps, err := c.dialect.listProcesses(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	// The order is part of what ListProcesses promises, and it is settled
+	// here rather than in each dialect's ORDER BY: a NULL duration sorts
+	// differently on every engine, and the tie-break has to be the same
+	// one on all of them or a refresh would shuffle rows under the cursor.
+	SortProcesses(ps)
+	return ps, nil
+}
+
+// KillProcess ends one server session. The statement is built by the
+// dialect from a validated decimal id and executed here — never staged,
+// never batched — so the command log holds exactly one line per kill.
+func (c *conn) KillProcess(ctx context.Context, id string) error {
+	if c.db == nil {
+		return errNotConnected
+	}
+	stmt, err := c.dialect.killProcessSQL(id)
+	if err != nil {
+		return err
+	}
+	// Killing a session is a write in every sense that matters, and
+	// PostgreSQL spells it as a SELECT — which the statement classifier
+	// would wave through. The guard is therefore explicit here rather
+	// than left to ContainsWrite.
+	if c.readOnly {
+		return c.rejectWrite(stmt.SQL, nil)
+	}
+	start := time.Now()
+	if !stmt.ReturnsRow {
+		_, err := c.db.ExecContext(ctx, stmt.SQL)
+		c.logger.record(stmt.SQL, nil, start, err)
+		return err
+	}
+	rows, err := c.db.QueryContext(ctx, stmt.SQL)
+	if err != nil {
+		c.logger.record(stmt.SQL, nil, start, err)
+		return err
+	}
+	// The single returned value says whether the signal was delivered; a
+	// false is not an error from the driver's point of view, so it is
+	// turned into one here.
+	delivered := true
+	if rows.Next() {
+		var v any
+		if err := rows.Scan(&v); err == nil {
+			delivered = processBool(v)
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	c.logger.record(stmt.SQL, nil, start, err)
+	if err != nil {
+		return err
+	}
+	if !delivered {
+		return fmt.Errorf("db: the server did not terminate session %s — it is already gone, or this user may not signal it", id)
+	}
+	return nil
+}
+
 func (c *conn) Explain(ctx context.Context, sql string) (*Plan, error) {
 	q, err := c.q()
 	if err != nil {

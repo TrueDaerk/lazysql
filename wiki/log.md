@@ -1549,3 +1549,42 @@ Chronological history of wiki changes, newest last.
   not prompt, what the command log shows) in
   `userdocs/guides/query-editor.md`.
 
+
+## 2026-08-16 — The server activity view (issue #151)
+
+- Added [design/server-activity-view](design/server-activity-view.md) and
+  [reference/server-activity-per-dialect](reference/server-activity-per-dialect.md)
+  for issue #151. `A` on panel [1] opens a session list that takes over the
+  main view the way the schema diff does; opening either report now closes
+  the other, so panel [1]'s main view never has to arbitrate between two
+  takeovers.
+- Two new Driver methods, `ListProcesses` and `KillProcess`, over one
+  dialect-agnostic `db.Process`. Every dialect's `processListSQL` produces
+  the same nine columns (`id, user, database, client, state,
+  duration_seconds, query, blocked_by, is_self`) so one `scanProcesses`
+  reads all of them, and `blocked_by` travels as comma-separated text
+  rather than an array — PostgreSQL's `pg_blocking_pids` returns `int[]`,
+  and `array_to_string` keeps array decoding out of `database/sql`.
+- The order is the driver's, not the view's: `SortProcesses` puts the
+  longest-running session first, sessions with no duration last, ties by
+  ascending id. The tie-break is what keeps the cursor still across a
+  refresh, since the list is re-read whole every time.
+- "Duration" is deliberately not "age": an idle session reports none at
+  all on either engine (MySQL's `Sleep`, PostgreSQL's `idle`), so idle
+  connections sort to the bottom instead of burying the long query. `idle
+  in transaction` is not idle by that rule and keeps its duration.
+- MySQL/MariaDB need a second query for lock waits and it is best-effort:
+  the InnoDB catalog moved between MySQL 5.7, MySQL 8 and MariaDB, and
+  MariaDB 10.6 removed it outright. A server without it still gets its
+  process list; only the `Blocked by` column stays empty, and the failed
+  attempt is visible in the command log like any other statement.
+- The kill takes a validated decimal literal rather than a placeholder —
+  MySQL's `KILL` accepts no parameter marker — and PostgreSQL's
+  `pg_terminate_backend` returning `false` is turned into an error, since
+  a signal that was not delivered is not a success.
+- `K`, not the issue's `k`: `k` is the Up binding in the very list the key
+  acts on. Auto-refresh (`t`) is off until asked for, because every
+  refresh is a statement in the command log and a 5-second timer would
+  push a connection's real history out of the ring buffer.
+- Documented the flow, the columns and the safety rules in
+  `userdocs/guides/server-activity.md`.

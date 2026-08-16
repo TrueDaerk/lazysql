@@ -26,6 +26,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.
 - **Relations view** — a per-table map of incoming and outgoing foreign keys, walkable with `enter`.
 - **Schema diff** — compare the schemas of two connections (`D` on a connection): tables, columns, indexes and foreign keys, with type synonyms normalized within one engine family.
+- **Server activity** — what the server is doing (`A` on a connection): sessions, their statements and runtimes, lock waits marked with the blocking session, and a confirmed `KILL` for the one under the cursor. MySQL, MariaDB and PostgreSQL.
 - **Edit** — change single cells inline; insert, duplicate, and delete rows. All mutations are *staged* first (lazygit-style) and only applied on explicit commit — with rollback.
 - **Query editor** — free-form SQL with dialect-aware syntax highlighting, schema-aware autocomplete, history, result tabs, and cancellation.
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file; a table's DDL, or a whole database's DDL in foreign-key dependency order, to a `.sql` file.

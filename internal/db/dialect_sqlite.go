@@ -242,6 +242,20 @@ func scanIndexColumns(ctx context.Context, q querier, query string) ([]string, e
 	return out, rows.Err()
 }
 
+// SQLite is a library, not a server: there is no session but this one,
+// nothing to list and nothing to kill. Both entry points answer
+// ErrUnsupported rather than an empty list, so the view can say "this
+// engine has no server" instead of "no sessions".
+func (sqliteDialect) listProcesses(context.Context, querier) ([]Process, error) {
+	return nil, ErrUnsupported
+}
+
+func (sqliteDialect) processListSQL() (string, error) { return "", ErrUnsupported }
+
+func (sqliteDialect) killProcessSQL(string) (KillStatement, error) {
+	return KillStatement{}, ErrUnsupported
+}
+
 func (d sqliteDialect) tableDDL(ctx context.Context, q querier, database, table string) (string, error) {
 	ddls, err := scanStrings(ctx, q,
 		`SELECT sql FROM `+sqliteSchema(d, database)+`.sqlite_master

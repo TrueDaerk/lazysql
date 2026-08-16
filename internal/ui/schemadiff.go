@@ -156,6 +156,9 @@ func (m *Model) startSchemaDiff(a, b diffSideSpec) tea.Cmd {
 	if m.diff != nil {
 		id = m.diff.id + 1
 	}
+	// The activity report shares this main view; a starting diff puts it
+	// away, and with it the auto-refresh it may have running.
+	m.closeActivity()
 	m.diff = &diffView{
 		id: id, running: true,
 		note:   "connecting…",

@@ -245,6 +245,96 @@ func (d mysqlDialect) triggerDDL(ctx context.Context, q querier, database, trigg
 		qualifiedTable(d, database, table), orientation, body), nil
 }
 
+// The process list is information_schema.processlist, which both MySQL
+// and MariaDB keep (MySQL 8.0.22 deprecated it in favour of
+// performance_schema.processlist, but has not removed it and mirrors the
+// same rows). Two columns are shaped rather than passed through:
+//
+//   - state is COMMAND plus the finer-grained STATE, because "Query"
+//     alone says nothing and "Sending data" alone does not say it is a
+//     query.
+//   - TIME is seconds in the current state, which for a sleeping session
+//     is how long it has been idle. That is not a runtime, so it is
+//     dropped: the view sorts by how long work has been going on.
+//
+// See wiki/reference/server-activity-per-dialect.md.
+const mysqlProcessListSQL = `SELECT p.id, p.user, p.db, p.host,
+        TRIM(CONCAT(p.command, IF(p.state IS NULL OR p.state = '', '', CONCAT(': ', p.state)))),
+        IF(p.command = 'Sleep', NULL, p.time),
+        p.info, NULL, p.id = CONNECTION_ID()
+ FROM information_schema.processlist p`
+
+func (mysqlDialect) processListSQL() (string, error) { return mysqlProcessListSQL, nil }
+
+// mysqlLockWaitsSQL is the waiter → blocker query per engine. InnoDB has
+// moved this catalog twice and the two engines ended up in different
+// places: MySQL 8.0 reports lock waits in performance_schema, while
+// MariaDB kept information_schema.innodb_lock_waits — and removed it
+// again in 10.6, which is why the query is best-effort in both cases.
+func mysqlLockWaitsSQL(engine Engine) string {
+	if engine == EngineMariaDB {
+		return `SELECT r.trx_mysql_thread_id, b.trx_mysql_thread_id
+		 FROM information_schema.innodb_lock_waits w
+		 JOIN information_schema.innodb_trx r ON r.trx_id = w.requesting_trx_id
+		 JOIN information_schema.innodb_trx b ON b.trx_id = w.blocking_trx_id`
+	}
+	return `SELECT r.trx_mysql_thread_id, b.trx_mysql_thread_id
+	 FROM performance_schema.data_lock_waits w
+	 JOIN information_schema.innodb_trx r ON r.trx_id = w.requesting_engine_transaction_id
+	 JOIN information_schema.innodb_trx b ON b.trx_id = w.blocking_engine_transaction_id`
+}
+
+func (d mysqlDialect) listProcesses(ctx context.Context, q querier) ([]Process, error) {
+	ps, err := scanProcesses(ctx, q, mysqlProcessListSQL)
+	if err != nil {
+		return nil, err
+	}
+	// Lock waits are a separate catalog here, and one that is not always
+	// there: the query is deliberately allowed to fail. A server whose
+	// InnoDB lock views are missing, disabled or removed still gets its
+	// process list — only the blocker column stays empty.
+	if blockers, err := mysqlBlockers(ctx, q, d.engine); err == nil {
+		applyBlockers(ps, blockers)
+	}
+	return ps, nil
+}
+
+// mysqlBlockers maps each waiting session id to the sessions it waits
+// for.
+func mysqlBlockers(ctx context.Context, q querier, engine Engine) (map[string][]string, error) {
+	rows, err := q.QueryContext(ctx, mysqlLockWaitsSQL(engine))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var waiter, blocker any
+		if err := rows.Scan(&waiter, &blocker); err != nil {
+			return nil, err
+		}
+		w, b := processText(waiter), processText(blocker)
+		if w == "" || b == "" {
+			continue
+		}
+		out[w] = append(out[w], b)
+	}
+	return out, rows.Err()
+}
+
+// killProcessSQL uses the explicit CONNECTION form: plain `KILL <id>`
+// means the same thing, but a statement that ends a user's session
+// should say which of the two things it kills. `KILL QUERY` — cancel the
+// statement, keep the session — is a different action and is not what
+// the activity view offers.
+func (mysqlDialect) killProcessSQL(id string) (KillStatement, error) {
+	pid, err := processID(id)
+	if err != nil {
+		return KillStatement{}, err
+	}
+	return KillStatement{SQL: "KILL CONNECTION " + pid}, nil
+}
+
 func (d mysqlDialect) tableDDL(ctx context.Context, q querier, database, table string) (string, error) {
 	rows, err := q.QueryContext(ctx,
 		"SHOW CREATE TABLE "+qualifiedTable(d, database, table))

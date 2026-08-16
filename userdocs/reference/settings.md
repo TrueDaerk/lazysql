@@ -128,6 +128,7 @@ What each one does, and its default keys, is in
 `filter-hist-next` · `filter-hist-prev` · `follow-fk` · `help` ·
 `hist-delete` · `hist-load` · `hist-run` · `hist-section` · `hist-snippet` ·
 `history` · `incoming-refs` · `insert-row` · `jump` · `leave-insert` ·
+`move-conn-down` · `move-conn-up` ·
 `new-connection` · `next-main-tab` · `next-page` · `next-panel` ·
 `open-editor` · `open-picker` · `pick-down` · `pick-month-next` ·
 `pick-month-prev` · `pick-next` · `pick-prev` · `pick-raw` · `pick-section` ·

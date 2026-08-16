@@ -1462,6 +1462,18 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		cmd := m.openSchemaDiff()
 		return m, cmd
 
+	case actMoveConnUp:
+		if c, ok := m.selectedConnection(); ok && m.cfg.MoveUp(c.Name) {
+			m.refreshConnections(c.Name)
+			return m, reorderCmd(m.cfg.Clone(), c.Name)
+		}
+
+	case actMoveConnDown:
+		if c, ok := m.selectedConnection(); ok && m.cfg.MoveDown(c.Name) {
+			m.refreshConnections(c.Name)
+			return m, reorderCmd(m.cfg.Clone(), c.Name)
+		}
+
 	case actRefresh:
 		return m, m.reloadFocused()
 

@@ -57,6 +57,13 @@ type keyMap struct {
 	Actions             key.Binding
 	Filter              key.Binding
 
+	// MoveConnUp/MoveConnDown reorder the selected row of the [1] Connections
+	// panel, persisting the new order to config.toml immediately. `K`/`J`
+	// (shifted, not plain k/j) are free there: Up/Down already claim plain
+	// k/j for navigation, and nothing else in that panel binds shift+letter.
+	MoveConnUp   key.Binding
+	MoveConnDown key.Binding
+
 	// The [2] Objects tree. ExpandNode opens the branch under the cursor
 	// (and steps into it when it is already open), CollapseNode closes it
 	// (and steps out to the parent when it is already closed) — `enter`
@@ -314,6 +321,9 @@ func newKeyMap() keyMap {
 		Refresh:             key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:             key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:              key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
+
+		MoveConnUp:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
+		MoveConnDown: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
 
 		ExpandNode: key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "expand")),
 		CollapseNode: key.NewBinding(
@@ -680,6 +690,8 @@ const (
 	actDuplicateConnection
 	actTestConnection
 	actSchemaDiff
+	actMoveConnUp
+	actMoveConnDown
 	actRefresh
 	actFilter
 	actExpandNode
@@ -772,6 +784,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDuplicateConnection, k.DuplicateConnection},
 			{actTestConnection, k.TestConnection},
 			{actSchemaDiff, k.SchemaDiff},
+			{actMoveConnUp, k.MoveConnUp},
+			{actMoveConnDown, k.MoveConnDown},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
 		}
@@ -958,6 +972,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"drop-connection", &k.DropConnection}, {"duplicate-connection", &k.DuplicateConnection},
 		{"test-connection", &k.TestConnection},
 		{"schema-diff", &k.SchemaDiff},
+		{"move-conn-up", &k.MoveConnUp}, {"move-conn-down", &k.MoveConnDown},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"expand-node", &k.ExpandNode}, {"collapse-node", &k.CollapseNode},
 

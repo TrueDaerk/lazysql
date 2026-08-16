@@ -174,9 +174,14 @@ func TestSuggestOverlayStaysInBounds(t *testing.T) {
 	}
 }
 
-// Once tab has extended the input as far as the shared prefix goes, further
-// tab presses cycle through the remaining candidates one at a time, and
-// shift+tab reverses that cycle instead of moving to the previous field.
+// Once tab has extended the input as far as the shared prefix goes, the next
+// tab press highlights the first candidate instead of moving to the next
+// field — but stops there without accepting it, since a highlight has only
+// just appeared. ↓ previews the other candidate and shift+tab reverses the
+// cycle, neither accepting or moving the cursor; once a candidate is
+// highlighted, a further tab accepts it and advances (see
+// TestTabAcceptsHighlightedCandidateAndAdvances for the general case,
+// TestDirectoryCandidateStaysAndDescends for the directory exception).
 func TestFileFieldCyclesOnAmbiguousPrefix(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
@@ -194,9 +199,14 @@ func TestFileFieldCyclesOnAmbiguousPrefix(t *testing.T) {
 		t.Fatalf("candidates = %d, want 2 (%v)", got, form.sugg.candidates)
 	}
 
-	// Nothing left to extend: the first tab starts cycling on candidate 0.
+	// Nothing left to extend: the first tab starts cycling on candidate 0,
+	// staying on the field.
+	cursor := form.cursor
 	m = send(t, m, special(tea.KeyTab, 0))
 	form = m.modal.(*formModal)
+	if form.cursor != cursor {
+		t.Fatalf("the first tab on an ambiguous prefix moved the cursor to %d, want to stay at %d", form.cursor, cursor)
+	}
 	if !form.sugg.cycling {
 		t.Fatal("tab on an ambiguous, already-extended prefix should start cycling")
 	}
@@ -221,23 +231,172 @@ func TestFileFieldCyclesOnAmbiguousPrefix(t *testing.T) {
 	if highlighted == plain {
 		t.Errorf("overlay does not mark the selected candidate:\n%s", highlighted)
 	}
-	if view := form.view(m.style, m.width, m.height); !strings.Contains(view, "tab/shift+tab cycle path") {
-		t.Errorf("footer does not advertise cycling:\n%s", view)
+	if view := form.view(m.style, m.width, m.height); !strings.Contains(view, "tab/enter accept & next") {
+		t.Errorf("footer does not advertise accept & next while cycling:\n%s", view)
 	}
 
-	// A second tab moves to the other candidate.
-	m = send(t, m, special(tea.KeyTab, 0))
+	// ↓ previews the other candidate without accepting or moving the cursor.
+	m = send(t, m, special(tea.KeyDown, 0))
 	form = m.modal.(*formModal)
 	second := form.field("file").input.Value()
 	if second == first {
-		t.Fatalf("second tab left the value at %q, want the other candidate", second)
+		t.Fatalf("down left the value at %q, want the other candidate", second)
+	}
+	if form.cursor != cursor {
+		t.Errorf("down moved the cursor to field %d while previewing candidates", form.cursor)
 	}
 
-	// shift+tab reverses the cycle, back to the first candidate.
+	// shift+tab reverses the cycle, back to the first candidate, still
+	// without accepting.
 	m = send(t, m, special(tea.KeyTab, tea.ModShift))
 	form = m.modal.(*formModal)
 	if got := form.field("file").input.Value(); got != first {
 		t.Errorf("shift+tab = %q, want back to %q", got, first)
+	}
+	if form.cursor != cursor {
+		t.Errorf("shift+tab moved the cursor to field %d while reversing the cycle", form.cursor)
+	}
+
+	// A further tab now accepts the highlighted (file) candidate and
+	// advances to the next field.
+	m = send(t, m, special(tea.KeyTab, 0))
+	form = m.modal.(*formModal)
+	if got := form.field("file").input.Value(); got != first {
+		t.Errorf("accepting tab changed the value to %q, want %q", got, first)
+	}
+	if form.cursor == cursor {
+		t.Error("tab on a highlighted file candidate should advance the cursor")
+	}
+	if form.sugg.active() {
+		t.Error("accepting a file candidate should dismiss the candidate list")
+	}
+}
+
+// Plain longest-common-prefix extension keeps its stay-in-field behavior
+// even once it silently starts cycling: TestFileFieldCyclesOnAmbiguousPrefix
+// covers the transition into cycling explicitly. This test is the
+// complementary case for tab and enter both accepting a highlighted
+// candidate once ↑↓ made the selection explicit.
+func TestTabAcceptsHighlightedCandidateAndAdvances(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "sales."))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+
+	cursor := form.cursor
+	m = send(t, m, special(tea.KeyDown, 0))
+	form = m.modal.(*formModal)
+	selected := form.field("file").input.Value()
+
+	m = send(t, m, special(tea.KeyTab, 0))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("tab on a highlighted candidate closed the form: modal is now %T", m.modal)
+	}
+	if got := form.field("file").input.Value(); got != selected {
+		t.Errorf("tab changed the value to %q, want the highlighted candidate %q", got, selected)
+	}
+	if form.cursor == cursor {
+		t.Error("tab on a highlighted file candidate should advance the cursor")
+	}
+	if form.sugg.active() {
+		t.Error("accepting a file candidate should dismiss the candidate list")
+	}
+}
+
+// A directory candidate is not a complete value for a general (non
+// directories-only) path field: accepting one re-runs completion inside the
+// directory and keeps the cursor on the field, rather than advancing to a
+// value that could never resolve to a file.
+func TestDirectoryCandidateStaysAndDescends(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "proj"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "proj", "data.db"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "p"))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+	if got := len(form.sugg.candidates); got != 1 {
+		t.Fatalf("candidates = %d, want 1 (%v)", got, form.sugg.candidates)
+	}
+
+	cursor := form.cursor
+	m = send(t, m, special(tea.KeyDown, 0))
+	m = send(t, m, special(tea.KeyEnter, 0))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("accepting a directory closed the form: modal is now %T", m.modal)
+	}
+
+	if form.cursor != cursor {
+		t.Errorf("accepting a directory moved the cursor to %d, want to stay at %d", form.cursor, cursor)
+	}
+	want := filepath.Join(dir, "proj") + string(filepath.Separator)
+	if got := form.field("file").input.Value(); got != want {
+		t.Errorf("field = %q, want %q", got, want)
+	}
+	if !form.sugg.active() {
+		t.Fatal("accepting a directory should re-run completion inside it")
+	}
+	wantInner := filepath.Join(dir, "proj", "data.db")
+	if got := form.sugg.candidates; len(got) != 1 || got[0] != wantInner {
+		t.Errorf("candidates after descending = %v, want [%s]", got, wantInner)
+	}
+}
+
+// The directories-only flavor has nothing further to descend into that the
+// field cares about: a directory is its final value there, so accepting one
+// advances like a file would in the general flavor.
+func TestDirsOnlyFlavorAdvancesOnDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "proj"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	form.sugg.dirs = true
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "p"))
+	base.input.CursorEnd()
+	form.sugg.refresh(base.input.Value())
+	if got := len(form.sugg.candidates); got != 1 {
+		t.Fatalf("candidates = %d, want 1 (%v)", got, form.sugg.candidates)
+	}
+
+	cursor := form.cursor
+	m = send(t, m, special(tea.KeyDown, 0))
+	m = send(t, m, special(tea.KeyEnter, 0))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("accepting a directory closed the form: modal is now %T", m.modal)
+	}
+
+	want := filepath.Join(dir, "proj") + string(filepath.Separator)
+	if got := form.field("file").input.Value(); got != want {
+		t.Errorf("field = %q, want %q", got, want)
+	}
+	if form.cursor == cursor {
+		t.Error("accepting a directory in the dirs-only flavor should advance the cursor")
+	}
+	if form.sugg.active() {
+		t.Error("advancing should dismiss the candidate list")
 	}
 }
 
@@ -343,7 +502,7 @@ func TestArrowKeysNavigateCandidates(t *testing.T) {
 }
 
 // Enter with the list open accepts the highlighted candidate into the field
-// instead of submitting the form.
+// and advances to the next field, instead of submitting the form.
 func TestEnterAcceptsCandidateWithoutSubmitting(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"sales.duckdb", "sales.sqlite"} {
@@ -358,6 +517,7 @@ func TestEnterAcceptsCandidateWithoutSubmitting(t *testing.T) {
 	base.input.CursorEnd()
 	form.sugg.refresh(base.input.Value())
 
+	cursor := form.cursor
 	m = send(t, m, special(tea.KeyDown, 0))
 	form = m.modal.(*formModal)
 	selected := form.field("file").input.Value()
@@ -369,6 +529,12 @@ func TestEnterAcceptsCandidateWithoutSubmitting(t *testing.T) {
 	}
 	if got := form.field("file").input.Value(); got != selected {
 		t.Errorf("enter changed the value to %q, want the accepted candidate %q", got, selected)
+	}
+	if form.cursor == cursor {
+		t.Error("enter on a highlighted file candidate should advance the cursor")
+	}
+	if form.sugg.active() {
+		t.Error("accepting a file candidate should dismiss the candidate list")
 	}
 }
 

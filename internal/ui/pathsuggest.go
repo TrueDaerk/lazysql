@@ -135,6 +135,14 @@ func (s *pathSuggest) step(delta int) string {
 // completes instead of moving the cursor to the next field.
 func (s *pathSuggest) active() bool { return len(s.candidates) > 0 }
 
+// acceptedIsDir reports whether v — a value returned by accept() — names a
+// directory. pathcomplete always appends the separator to a directory
+// candidate (see pathcomplete.rank), so that is all this needs to check:
+// no extra stat call against the filesystem.
+func acceptedIsDir(v string) bool {
+	return v != "" && strings.HasSuffix(v, string(filepath.Separator))
+}
+
 // clear drops the candidates (field blurred, form closed or submitted).
 func (s *pathSuggest) clear() {
 	s.candidates = nil

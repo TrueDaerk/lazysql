@@ -42,6 +42,18 @@ type triggersLoadedMsg struct {
 	err      error
 }
 
+// tableStatsLoadedMsg carries one namespace's table sizes — the second,
+// independent reply the Tables category's expand starts. It rides beside
+// relationsLoadedMsg rather than inside it because the sizes are
+// decoration: they may arrive late, arrive never, or fail, and the tree
+// is complete without them.
+type tableStatsLoadedMsg struct {
+	conn     string
+	database string
+	stats    []db.TableStat
+	err      error
+}
+
 // triggerDDLMsg carries one trigger's definition for the read-only main
 // view. req drops a reply for a trigger the cursor has already left.
 type triggerDDLMsg struct {
@@ -78,6 +90,21 @@ func loadRelationsCmd(conn string, drv db.Driver, database string) tea.Cmd {
 		defer cancel()
 		rels, err := drv.ListRelations(ctx, database)
 		return relationsLoadedMsg{conn: conn, database: database, relations: rels, err: err}
+	}
+}
+
+// loadTableStatsCmd reads one namespace's row and size estimates in a
+// single catalog query. It runs beside the relation listing, so a slow
+// or hanging statistics query never delays the table names themselves.
+func loadTableStatsCmd(conn string, drv db.Driver, database string) tea.Cmd {
+	if drv == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), browseTimeout)
+		defer cancel()
+		stats, err := drv.TableStats(ctx, database)
+		return tableStatsLoadedMsg{conn: conn, database: database, stats: stats, err: err}
 	}
 }
 

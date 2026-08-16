@@ -907,6 +907,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tableStatsLoadedMsg:
+		// Sizes are decoration: a stale connection or a failed statistics
+		// query leaves the tree exactly as it was — unannotated, never
+		// broken. The failed statement is already in the command log.
+		if msg.conn != m.active || msg.err != nil {
+			return m, nil
+		}
+		m.applyTableStats(msg.database, msg.stats)
+		m.refreshTree()
+		return m, nil
+
 	case triggersLoadedMsg:
 		if msg.conn != m.active {
 			return m, nil

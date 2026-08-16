@@ -324,19 +324,33 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 				note, noteSt = " "+text, st
 			}
 		}
+		name := prefix + p.decor[item] + item
+		if noteSt == noteStats {
+			// A size annotation is the row's least important part: in a
+			// narrow column it gives up its halves and then itself,
+			// before the table name loses a single cell.
+			note = fitStatNote(note, w-markerW-lipgloss.Width(name))
+		}
 		noteW := lipgloss.Width(note)
 		avail := maxInt(w-markerW-noteW, 0)
 
 		style := lipgloss.NewStyle()
-		if selected {
+		switch {
+		case selected:
 			style = s.selected.Width(avail)
+		case noteW > 0 && noteSt == noteStats:
+			// Padding the name to the full width right-aligns the
+			// annotation at the panel's edge instead of letting it hug a
+			// short table name — the selected row gets that for free
+			// from its own fixed width.
+			style = style.Width(avail)
 		}
 		// Status color survives selection: the selected row keeps its
 		// highlight background and only swaps foreground.
 		if fg, ok := statusColor(p.statusAt(idx)); ok {
 			style = style.Foreground(fg)
 		}
-		line := truncate(prefix+p.decor[item]+item, avail)
+		line := truncate(name, avail)
 		lines = append(lines, marker+style.Render(line)+noteStyleOf(s, noteSt).Render(note))
 	}
 	return strings.Join(lines, "\n")

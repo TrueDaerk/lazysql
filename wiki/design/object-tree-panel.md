@@ -100,6 +100,51 @@ note and a line in the command log; only `db.ErrUnsupported` is different
 namespace-wide foreign-key scan — is a mirror of the tree's cache for the
 *browsed* namespace, filled in exactly one place (`syncRelations`).
 
+### Table nodes carry a size annotation (issue #153)
+
+A table row shows what it costs to open, right-aligned and dim:
+
+```
+▾ Tables
+    users                  ~1.2M rows · 340 MB
+    events                     ~2.4K rows · 1 MB
+```
+
+The figures come from `Driver.TableStats(ctx, database)` — **one catalog
+query for the whole namespace**, never a `COUNT(*)` per table. Which
+catalog, and how stale each engine's numbers are, is
+[reference/table-size-estimates](../reference/table-size-estimates.md).
+Row counts always wear a `~`: every engine's figure is a planner
+statistic, not a count.
+
+Three decisions make it fit the tree that already existed:
+
+- **A second, independent round trip.** `loadCategory` batches
+  `loadTableStatsCmd` beside `loadRelationsCmd` rather than folding the
+  sizes into `relationsLoadedMsg`. The names are what the user is waiting
+  for; the sizes may arrive late, arrive never, or fail, and the tree is
+  complete without them. `tableStatsLoadedMsg` with an error — or from a
+  connection the user has already left — is dropped silently, leaving
+  exactly the unannotated rendering. The failed statement is in the
+  command log like every other one.
+- **The cache is the relation listing's.** `objectTree.stats` is keyed by
+  namespace and refetched with it, so `R` refreshes both. Because either
+  reply may land first, both `applyRelations` and `applyTableStats` end
+  in `attachStats`, which re-points the (possibly brand-new) table nodes
+  at the cached figures. `treeNode.stat` is a pointer: a zero-row table
+  is a real answer and the struct's zero value is not.
+- **The annotation is the row's least important part.** It is a
+  `noteStyle` of its own (`noteStats`) purely so `sidePanel.render` can
+  treat it as elastic: `fitStatNote` drops the size half, then the whole
+  note, before the *table name* loses a single cell — the opposite of the
+  fixed notes (`loading…`, `failed`), which are the row's message and
+  keep their space. While it does fit, the name is padded to the panel
+  width so the annotation sits at the right edge instead of hugging a
+  short name.
+
+Views and triggers are never annotated: a view has no storage, and
+`attachStats` only walks the `Tables` category.
+
 ### Keys
 
 - `enter` toggles a branch, opens a table/view in the main view, and
@@ -175,5 +220,8 @@ invalidate an in-flight page load of the table underneath.
   and pseudo-database rules this panel inherited.
 - [reference/trigger-introspection](../reference/trigger-introspection.md) —
   what each engine reports for a trigger, and what DuckDB does not.
+- [reference/table-size-estimates](../reference/table-size-estimates.md) —
+  which catalog each engine's row and size figures come from, and how stale
+  each one is.
 - [design/tui-shell-architecture](tui-shell-architecture.md) — the panel set
   and the update routing order.

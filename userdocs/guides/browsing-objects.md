@@ -53,6 +53,37 @@ until you press `R`.
 `R` reloads the focused panel's level: on a category it re-reads that
 category, and on a database it re-reads the namespace.
 
+## How big is that table?
+
+Table rows carry their size next to the name, so you can see what opening one
+would cost before you do:
+
+```text
+├─[2] Objects───────────────────────────┤
+│ ▾ Tables                              │
+│     users           ~1.2M rows · 340 MB│
+│     audit_log         ~48M rows · 12 GB│
+│     settings            ~12 rows · 8 KB│
+```
+
+- The `~` is not decoration: the numbers come from the **statistics the
+  database keeps for its own query planner**, in one query for the whole
+  schema. lazysql never counts your tables to fill this in — on a large table
+  that would be exactly the slow scan the annotation is there to warn you
+  about.
+- How current they are is up to the engine. PostgreSQL refreshes them on
+  `ANALYZE`/autovacuum, MySQL samples them for InnoDB and can be off by
+  tens of percent, and **SQLite only has them once you have run `ANALYZE`** —
+  until then a SQLite table shows its on-disk size alone, or nothing at all.
+- Not every engine reports both halves. DuckDB gives a row estimate and no
+  size; a table the statistics say nothing about is shown plain.
+- `R` refetches them with the listing.
+- In a narrow terminal the annotation gives way: first the size, then the
+  whole note. The table name is never truncated to make room for it.
+
+For the exact number of rows, open the table — the status line under the grid
+counts them.
+
 ## Filtering
 
 `/` opens an inline filter over the expanded level. It matches by

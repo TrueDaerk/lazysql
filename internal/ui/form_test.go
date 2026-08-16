@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
@@ -318,5 +319,116 @@ func TestEditPrefillsPerEngine(t *testing.T) {
 	// Edit opens on the name, not the file: the path exists already.
 	if cur := f.current(); cur == nil || cur.name != "name" {
 		t.Fatalf("edit form opens on %v, want name", cur)
+	}
+}
+
+// The size invariant (issue #159): nothing a keystroke does inside one
+// field set may move the modal's outer edges. Errors, help text, info
+// lines and path candidates all render into reserved space.
+func TestFormSizeStableWhileTyping(t *testing.T) {
+	m := send(t, sized(120, 40), press('1'), press('n'))
+	m = send(t, m, pickEngineKey(t, m, db.EngineMySQL))
+	f := m.modal.(*formModal)
+
+	box := func() (int, int) {
+		v := f.view(m.style, m.width, m.height)
+		return lipgloss.Width(v), lipgloss.Height(v)
+	}
+	w0, h0 := box()
+	check := func(what string) {
+		t.Helper()
+		if w, h := box(); w != w0 || h != h0 {
+			t.Fatalf("%s resized the form to %dx%d, want %dx%d", what, w, h, w0, h0)
+		}
+	}
+
+	// Typing into every field, including values that trip a validator.
+	for _, fl := range f.visibleFields() {
+		if fl.kind != fieldText && fl.kind != fieldPassword {
+			continue
+		}
+		f.focusField(fl.name)
+		for _, v := range []string{"", "x", "nope-not-a-port", strings.Repeat("long", 30)} {
+			fl.input.SetValue(v)
+			check("typing " + v + " into " + fl.name)
+		}
+		fl.input.SetValue("")
+	}
+
+	// The status line: an error, an info message, neither.
+	f.err = "something went quite wrong on the way to the database"
+	check("an error")
+	f.err, f.info = "", "✓ ok in 12ms"
+	check("an info line")
+	f.info = ""
+	check("a cleared status line")
+
+	// A failed submit marks every empty required field inline.
+	f.focusField("name")
+	if _, _ = f.update(special(tea.KeyEnter, 0), &m); !f.submitted {
+		t.Fatal("enter did not attempt a submit")
+	}
+	check("a blocked submit")
+
+	// Stepping a select through its choices. "custom" unfolds a second
+	// field, which is a deliberate content change and may resize the box —
+	// every other choice must not.
+	f.focusField("color")
+	color := f.field("color")
+	for range color.choices {
+		color.choice = (color.choice + 1) % len(color.choices)
+		if hasVisibleField(f, "color_hex") {
+			continue
+		}
+		check("cycling the color tag to " + color.value())
+	}
+	color.choice = 0
+}
+
+// Path candidates float over the box (pathsuggest.go) and the footer swaps
+// to the completion contract while they are up — neither may resize the
+// modal, at a normal or a cramped terminal size.
+func TestFormSizeStableWithPathCandidates(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"alpha.db", "beta.db", "gamma.db", "delta.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, size := range [][2]int{{120, 40}, {70, 18}} {
+		m := send(t, sized(size[0], size[1]), press('1'), press('n'))
+		m = send(t, m, pickEngineKey(t, m, db.EngineSQLite))
+		f := m.modal.(*formModal)
+		f.focusField("file")
+		file := f.field("file")
+
+		v := f.view(m.style, m.width, m.height)
+		w0, h0 := lipgloss.Width(v), lipgloss.Height(v)
+
+		for _, typed := range []string{dir, dir + string(filepath.Separator), dir + string(filepath.Separator) + "a"} {
+			file.input.SetValue(typed)
+			f.sugg.refresh(typed)
+			v := f.view(m.style, m.width, m.height)
+			if w, h := lipgloss.Width(v), lipgloss.Height(v); w != w0 || h != h0 {
+				t.Fatalf("%dx%d: candidates for %q resized the form to %dx%d, want %dx%d",
+					size[0], size[1], typed, w, h, w0, h0)
+			}
+		}
+	}
+}
+
+// The tiny-terminal guard still holds with the reserved rows in place.
+func TestFormFitsTinyTerminal(t *testing.T) {
+	m := send(t, sized(40, 12), press('1'), press('n'))
+	m = send(t, m, pickEngineKey(t, m, db.EngineMySQL))
+	f := m.modal.(*formModal)
+	f.field("ssh").on = true
+	for range f.visibleFields() {
+		v := f.view(m.style, m.width, m.height)
+		if lipgloss.Width(v) > m.width {
+			t.Fatalf("form is %d cells wide on a %d-col terminal", lipgloss.Width(v), m.width)
+		}
+		f.move(1)
 	}
 }

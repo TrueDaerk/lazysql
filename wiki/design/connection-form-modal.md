@@ -32,10 +32,10 @@ the original flat list, so the other `formModal` users are untouched.
 
 The field block scrolls: `view` clips it to the terminal height, keeps
 the cursor's line inside the window (`formModal.offset`) and replaces
-clipped edge rows with `⋮`. Every rendered line is also clamped to the
-modal's width budget, so a long help text cannot push the box past a
-narrow terminal. The mouse wheel walks the cursor (`scroll`), clamped
-rather than wrapping.
+clipped edge rows with `⋮`. Every rendered line is clipped *and* padded to
+the pinned content width, so no line's content decides the box's size —
+see [design/form-modal-stable-size](form-modal-stable-size.md). The mouse
+wheel walks the cursor (`scroll`), clamped rather than wrapping.
 
 ## Dynamic visibility
 
@@ -122,3 +122,6 @@ profile be tested by typing the password into the form.
 - [design/path-completion-in-forms](path-completion-in-forms.md) — filesystem
   completion on the `File` field, and why it takes `tab` away from field
   navigation while candidates are up.
+- [design/form-modal-stable-size](form-modal-stable-size.md) — why the box's
+  width and rows are pinned per field set, and where errors, info lines and
+  help text render.

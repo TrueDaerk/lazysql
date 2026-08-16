@@ -390,6 +390,35 @@ func storeSecret(key, value string) error {
 	return secrets.Set(key, value)
 }
 
+// duplicatePersistCmd is persistCmd for the duplicate-connection flow: instead
+// of renaming an edited profile's secrets, it copies the source connection's
+// keyring entries onto the new name, leaving the source untouched. An explicit
+// secret typed into the form (sec) still wins, applied after the copy.
+func duplicatePersistCmd(cfg *config.Config, sourceName, name string, sec formSecrets) tea.Cmd {
+	return func() tea.Msg {
+		fail := func(err error) tea.Msg {
+			return connPersistedMsg{verb: "save", name: name, err: err}
+		}
+		if err := secrets.Copy(sourceName, name); err != nil && !errors.Is(err, secrets.ErrUnsupported) {
+			return fail(err)
+		}
+		if sec.setPassword {
+			if err := storeSecret(name, sec.password); err != nil {
+				return fail(err)
+			}
+		}
+		if sec.setSSH {
+			if err := storeSecret(secrets.SSHKey(name), sec.ssh); err != nil {
+				return fail(err)
+			}
+		}
+		if err := cfg.Save(); err != nil {
+			return fail(err)
+		}
+		return connPersistedMsg{verb: "save", name: name}
+	}
+}
+
 // forgetCmd removes a deleted connection's config entry and both of its
 // keyring secrets together, so no orphan password or passphrase survives.
 func forgetCmd(cfg *config.Config, name string) tea.Cmd {
@@ -555,6 +584,12 @@ type connDraft struct {
 	sshPort   string
 	password  string
 	sshSecret string
+
+	// dupSource is the connection this draft was duplicated from, so its
+	// submit knows to copy the source's keyring secrets onto the new name
+	// (duplicatePersistCmd) instead of the plain create/edit path
+	// (persistCmd). Empty for every other flow.
+	dupSource string
 }
 
 // draftFrom seeds a draft from a stored profile — the edit path.
@@ -666,6 +701,38 @@ func changeEnginePicker(title string, d connDraft, oldName string, backToForm bo
 // replaced.
 func newConnectionForm(title string, c config.Connection, oldName string) *formModal {
 	return newConnectionFormDraft(title, draftFrom(c), oldName)
+}
+
+// duplicateName picks the first unused "<base> - Copy"[, "- Copy 2", …] name,
+// so `y` on a connection never collides with an existing profile.
+func duplicateName(cfg *config.Config, base string) string {
+	name := base + " - Copy"
+	if _, ok := cfg.Find(name); !ok {
+		return name
+	}
+	for n := 2; ; n++ {
+		name = fmt.Sprintf("%s - Copy %d", base, n)
+		if _, ok := cfg.Find(name); !ok {
+			return name
+		}
+	}
+}
+
+// newDuplicateConnectionForm opens the profile's form pre-filled with c's
+// values under a fresh, unique name — the same fields a "new connection"
+// submit would save, but seeded from an existing profile instead of blank.
+// The password field never carries the source's secret (draftFrom never
+// reads one); it is copied into the keyring on save instead, by
+// duplicatePersistCmd via the draft's dupSource. esc discards like any other
+// create, without the engine-picker detour a from-scratch new connection
+// takes on cancel — the engine is already decided.
+func newDuplicateConnectionForm(title string, c config.Connection, sourceName string) *formModal {
+	d := draftFrom(c)
+	d.dupSource = sourceName
+	fm := newConnectionFormDraft(title, d, "")
+	fm.onCancel = nil
+	fm.footer = "tab/↑↓ field · ctrl+t test · ctrl+e engine · enter save · esc cancel"
+	return fm
 }
 
 // newConnectionFormDraft is step two of the connection flow: the form for
@@ -786,8 +853,12 @@ func newConnectionFormDraft(title string, d connDraft, oldName string) *formModa
 		}
 		m.renameConnState(oldName, conn.Name)
 		m.refreshConnections(conn.Name)
+		persist := persistCmd(m.cfg.Clone(), oldName, conn.Name, sec)
+		if d.dupSource != "" {
+			persist = duplicatePersistCmd(m.cfg.Clone(), d.dupSource, conn.Name, sec)
+		}
 		return true, tea.Batch(
-			persistCmd(m.cfg.Clone(), oldName, conn.Name, sec),
+			persist,
 			logCmd("-- save connection %s (%s)", conn.Name, conn.Engine),
 		)
 	})
@@ -822,19 +893,24 @@ func newConnectionFormDraft(title string, d connDraft, oldName string) *formModa
 			// The test dials exactly what the form shows, without persisting
 			// anything. Untouched secret fields fall back to the keyring entries
 			// of the profile being edited — looked up under oldName, because the
-			// form may be renaming it.
+			// form may be renaming it — or, while duplicating, under the source
+			// connection's name.
+			secretSource := oldName
+			if secretSource == "" {
+				secretSource = d.dupSource
+			}
 			req := dialRequest{conn: conn, form: f}
 			if sec.setPassword {
 				req.password, req.hasPassword = sec.password, true
-			} else if oldName != "" {
-				if pw, err := keyringSecret(oldName); err == nil && pw != "" {
+			} else if secretSource != "" {
+				if pw, err := keyringSecret(secretSource); err == nil && pw != "" {
 					req.password, req.hasPassword = pw, true
 				}
 			}
 			if sec.setSSH {
 				req.sshSecret, req.hasSSHSecret = sec.ssh, true
-			} else if oldName != "" {
-				if s, err := keyringSecret(secrets.SSHKey(oldName)); err == nil && s != "" {
+			} else if secretSource != "" {
+				if s, err := keyringSecret(secrets.SSHKey(secretSource)); err == nil && s != "" {
 					req.sshSecret, req.hasSSHSecret = s, true
 				}
 			}

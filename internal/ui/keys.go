@@ -46,15 +46,16 @@ type keyMap struct {
 	Quit        key.Binding
 
 	// Context actions, keyed by panel.
-	NewConnection  key.Binding
-	EditConnection key.Binding
-	DropConnection key.Binding
-	TestConnection key.Binding
-	SchemaDiff     key.Binding
-	Connect        key.Binding
-	Refresh        key.Binding
-	Actions        key.Binding
-	Filter         key.Binding
+	NewConnection       key.Binding
+	EditConnection      key.Binding
+	DropConnection      key.Binding
+	DuplicateConnection key.Binding
+	TestConnection      key.Binding
+	SchemaDiff          key.Binding
+	Connect             key.Binding
+	Refresh             key.Binding
+	Actions             key.Binding
+	Filter              key.Binding
 
 	// MoveConnUp/MoveConnDown reorder the selected row of the [1] Connections
 	// panel, persisting the new order to config.toml immediately. `K`/`J`
@@ -311,12 +312,15 @@ func newKeyMap() keyMap {
 		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
 		DropConnection: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove connection")),
-		TestConnection: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
-		SchemaDiff:     key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "schema diff vs…")),
-		Connect:        key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
-		Refresh:        key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
-		Actions:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
-		Filter:         key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
+		// `y` for "yank" — free in this panel; the data grid's own `y` (copy
+		// menu) is a different panel's binding.
+		DuplicateConnection: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "duplicate connection")),
+		TestConnection:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
+		SchemaDiff:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "schema diff vs…")),
+		Connect:             key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
+		Refresh:             key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
+		Actions:             key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
+		Filter:              key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
 
 		MoveConnUp:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
 		MoveConnDown: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
@@ -683,6 +687,7 @@ const (
 	actNewConnection
 	actEditConnection
 	actDropConnection
+	actDuplicateConnection
 	actTestConnection
 	actSchemaDiff
 	actMoveConnUp
@@ -776,6 +781,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actNewConnection, k.NewConnection},
 			{actEditConnection, k.EditConnection},
 			{actDropConnection, k.DropConnection},
+			{actDuplicateConnection, k.DuplicateConnection},
 			{actTestConnection, k.TestConnection},
 			{actSchemaDiff, k.SchemaDiff},
 			{actMoveConnUp, k.MoveConnUp},
@@ -963,7 +969,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
-		{"drop-connection", &k.DropConnection}, {"test-connection", &k.TestConnection},
+		{"drop-connection", &k.DropConnection}, {"duplicate-connection", &k.DuplicateConnection},
+		{"test-connection", &k.TestConnection},
 		{"schema-diff", &k.SchemaDiff},
 		{"move-conn-up", &k.MoveConnUp}, {"move-conn-down", &k.MoveConnDown},
 		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},

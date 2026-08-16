@@ -59,6 +59,7 @@ mode it runs the statement the caret is in.
 | `n` | New connection | `new-connection` |
 | `e` | Edit connection | `edit-connection` |
 | `d` | Remove connection | `drop-connection` |
+| `y` | Duplicate connection | `duplicate-connection` |
 | `t` | Test connection | `test-connection` |
 | `D` | Schema diff vs… | `schema-diff` |
 | `K` | Move up | `move-conn-up` |

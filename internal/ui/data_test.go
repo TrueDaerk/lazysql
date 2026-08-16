@@ -323,23 +323,26 @@ func TestCellCursorMovesAndClamps(t *testing.T) {
 	}
 }
 
-// `v` shows the untruncated value, pretty-printing JSON.
-func TestViewCellPrettyPrintsJSON(t *testing.T) {
+// `v` shows the untruncated value, JSON as a foldable tree.
+func TestViewCellRendersJSONAsTree(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('l'), press('l'), press('l'), press('v')) // payload column
 	c, ok := m.modal.(*cellModal)
 	if !ok {
 		t.Fatalf("v opened %T, want the cell modal", m.modal)
 	}
-	if len(c.lines) < 3 {
-		t.Fatalf("cell body = %v, want indented JSON", c.lines)
+	if c.tree == nil {
+		t.Fatalf("cell body = %v, want a parsed JSON tree", c.lines)
 	}
 	if !strings.Contains(c.title, "json") {
 		t.Errorf("title = %q, want it to mention json", c.title)
 	}
-	body := strings.Join(c.lines, "\n")
-	if !strings.Contains(body, `"label"`) || !strings.Contains(body, "truncation") {
-		t.Errorf("cell body does not hold the whole value: %q", body)
+	var body strings.Builder
+	for _, r := range jsonRows(c.tree) {
+		body.WriteString(r.text() + "\n")
+	}
+	if !strings.Contains(body.String(), `"label"`) || !strings.Contains(body.String(), "truncation") {
+		t.Errorf("cell body does not hold the whole value: %q", body.String())
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
 	if m.modal != nil {

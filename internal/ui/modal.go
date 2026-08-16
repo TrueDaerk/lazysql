@@ -224,13 +224,20 @@ func (p *promptModal) view(s styles, maxW, maxH int) string {
 
 // cellModal is `v`: the full, scrollable value of the cell under the
 // cursor, which the grid can only show truncated at maxColWidth. Content
-// decides its own rendering — classifyCell picks pretty-printed JSON, a
-// hex dump for invalid UTF-8 (a BLOB), or the raw text otherwise — but
-// `y` always copies the untransformed value, never the rendered form.
+// decides its own rendering — classifyCell picks a foldable tree for
+// JSON, a hex dump for invalid UTF-8 (a BLOB), or the raw text otherwise
+// — but `y` always copies the untransformed value, never the rendered
+// form.
 type cellModal struct {
 	title  string
 	lines  []string
 	offset int
+
+	// tree is the parsed document of a JSON cell, nil for every other
+	// kind. When it is set the popup is navigated (a cursor over folded
+	// nodes) rather than scrolled, and lines is unused.
+	tree   *jsonNode
+	cursor int
 
 	rawText      string // exactly what `y` copies
 	copySubject  string
@@ -266,9 +273,16 @@ func newCellModal(subject, column string, colType string, value any) *cellModal 
 
 	raw := db.FormatValue(value, nullText)
 	var text, kindLabel string
+	var tree *jsonNode
 	switch classifyCell(raw) {
 	case cellJSON:
-		text, kindLabel = prettyJSON(raw), "json"
+		kindLabel = "json"
+		// A document the tree parser cannot walk still gets the old
+		// pretty-printed rendering: showing something plain beats showing
+		// nothing at all.
+		if tree = parseJSONTree(raw); tree == nil {
+			text = prettyJSON(raw)
+		}
 	case cellBinary:
 		text, kindLabel = strings.Join(hexDumpLines(raw), "\n"), "binary"
 	default:
@@ -286,16 +300,23 @@ func newCellModal(subject, column string, colType string, value any) *cellModal 
 		title += " (" + kindLabel + ")"
 	}
 
-	return &cellModal{
+	cm := &cellModal{
 		title:        title,
-		lines:        strings.Split(text, "\n"),
+		tree:         tree,
 		rawText:      raw,
 		copySubject:  copySubject,
 		copyFilename: copyFilename,
 	}
+	if tree == nil {
+		cm.lines = strings.Split(text, "\n")
+	}
+	return cm
 }
 
 func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	if c.tree != nil {
+		return c.updateTree(msg, m)
+	}
 	switch msg.String() {
 	case "esc", "q", "enter", "v":
 		return true, nil
@@ -317,14 +338,113 @@ func (c *cellModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// updateTree is the JSON cell's key contract: the object tree's own keys
+// — j/k between visible nodes, enter/l to open, h to close or step out —
+// over the parsed document. `enter` opens a node here instead of closing
+// the popup, which esc, q and v still do.
+func (c *cellModal) updateTree(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
+	rows := jsonRows(c.tree)
+	switch {
+	case msg.String() == "esc", msg.String() == "q", msg.String() == "v":
+		return true, nil
+	case msg.String() == "y":
+		return false, copyTextCmd(c.copySubject, c.copyFilename, c.rawText)
+	case key.Matches(msg, m.keys.Down):
+		c.cursor++
+	case key.Matches(msg, m.keys.Up):
+		c.cursor--
+	case key.Matches(msg, m.keys.Enter), key.Matches(msg, m.keys.ExpandNode):
+		c.expandRow(rows)
+	case key.Matches(msg, m.keys.CollapseNode):
+		c.collapseRow(rows)
+	case msg.String() == "ctrl+d", msg.String() == "pgdown", msg.String() == "ctrl+f":
+		c.cursor += 10
+	case msg.String() == "ctrl+u", msg.String() == "pgup", msg.String() == "ctrl+b":
+		c.cursor -= 10
+	case msg.String() == "g", msg.String() == "home":
+		c.cursor = 0
+	case msg.String() == "G", msg.String() == "end":
+		c.cursor = len(rows) - 1
+	}
+	c.clampCursor(len(jsonRows(c.tree)))
+	return false, nil
+}
+
+// expandRow is `enter`/`l` on the tree: open the node under the cursor,
+// or — when it is already open — step onto its first child. A leaf does
+// nothing, so the key is safe to hold down.
+func (c *cellModal) expandRow(rows []jsonRow) {
+	n := c.nodeAt(rows)
+	if n == nil || !n.foldable() {
+		return
+	}
+	if n.expanded {
+		c.cursor++
+		return
+	}
+	n.expanded = true
+}
+
+// collapseRow is `h`: close the node under the cursor, or — when it is
+// already closed or is a leaf — step out to its parent.
+func (c *cellModal) collapseRow(rows []jsonRow) {
+	n := c.nodeAt(rows)
+	if n == nil {
+		return
+	}
+	if n.foldable() && n.expanded {
+		n.expanded = false
+		return
+	}
+	if n.parent == nil {
+		return
+	}
+	// The parent is always above the cursor in the flattened rows, so
+	// walking back is cheaper than re-flattening to find it.
+	for i := c.cursor - 1; i >= 0; i-- {
+		if rows[i].node == n.parent {
+			c.cursor = i
+			return
+		}
+	}
+}
+
+// nodeAt is the node under the cursor, nil when the tree is empty.
+func (c *cellModal) nodeAt(rows []jsonRow) *jsonNode {
+	if c.cursor < 0 || c.cursor >= len(rows) {
+		return nil
+	}
+	return rows[c.cursor].node
+}
+
+func (c *cellModal) clampCursor(n int) {
+	if c.cursor >= n {
+		c.cursor = n - 1
+	}
+	if c.cursor < 0 {
+		c.cursor = 0
+	}
+}
+
 // scroll is the wheel. view clamps the offset against the box it ends up
-// with, so an overshoot here costs nothing.
-func (c *cellModal) scroll(delta int) { c.offset += delta }
+// with, so an overshoot here costs nothing. The tree has a cursor rather
+// than a scroll offset, so there the wheel walks nodes the way j/k does.
+func (c *cellModal) scroll(delta int) {
+	if c.tree == nil {
+		c.offset += delta
+		return
+	}
+	c.cursor += delta
+	c.clampCursor(len(jsonRows(c.tree)))
+}
 
 func (c *cellModal) view(s styles, maxW, maxH int) string {
 	width := min(maxW-8, 100)
 	if width < 8 {
 		width = 8
+	}
+	if c.tree != nil {
+		return c.treeView(s, width, maxH)
 	}
 
 	// Wrap every logical line to the modal width rather than truncating
@@ -365,6 +485,51 @@ func (c *cellModal) view(s styles, maxW, maxH int) string {
 			c.offset+1, c.offset+rows, len(wrapped))
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
+	return s.modal.Render(b.String())
+}
+
+// treeView draws the visible window of the JSON tree. Rows are flattened
+// from the fold state on every frame — only the expanded nodes are walked
+// — and a row is truncated rather than wrapped, so one node stays one
+// line and the cursor keeps meaning what it points at.
+func (c *cellModal) treeView(s styles, width, maxH int) string {
+	rows := jsonRows(c.tree)
+	c.clampCursor(len(rows))
+
+	height := maxH - 6
+	if height < 1 {
+		height = 1
+	}
+	if height > len(rows) {
+		height = len(rows)
+	}
+	if c.cursor < c.offset {
+		c.offset = c.cursor
+	}
+	if c.cursor >= c.offset+height {
+		c.offset = c.cursor - height + 1
+	}
+	if maxOff := len(rows) - height; c.offset > maxOff {
+		c.offset = maxOff
+	}
+	if c.offset < 0 {
+		c.offset = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(s.modalTitle.Render(truncate(c.title, width)) + "\n\n")
+	for i := c.offset; i < c.offset+height && i < len(rows); i++ {
+		line := truncate(rows[i].text(), width)
+		if i == c.cursor {
+			line = s.selected.Render(line)
+		}
+		b.WriteString(line + "\n")
+	}
+	footer := "j/k move · enter/l expand · h collapse · y copy · esc close"
+	if len(rows) > height {
+		footer = fmt.Sprintf("node %d of %d · %s", c.cursor+1, len(rows), footer)
+	}
+	b.WriteString("\n" + s.muted.Render(truncate(footer, width)))
 	return s.modal.Render(b.String())
 }
 

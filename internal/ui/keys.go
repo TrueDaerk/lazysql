@@ -657,6 +657,25 @@ func (k keyMap) datePicker() []key.Binding {
 	}
 }
 
+// cellCopyKey and cellCloseKey are the cell detail popup's own two keys.
+// They are not in slots(): the popup dispatches them literally, the way
+// every modal's esc does, so there is nothing for `[keys]` to override.
+var (
+	cellCopyKey  = key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy raw value"))
+	cellCloseKey = key.NewBinding(key.WithKeys("esc", "q", "v"), key.WithHelp("esc", "close"))
+)
+
+// jsonCellKeys are the keys the cell detail popup owns while it shows a
+// JSON document: the object tree's own navigation over the parsed value,
+// plus the popup's copy and close. Dispatched inside the modal — an open
+// modal swallows every key — so this slice is what documents them in `?`
+// and what the options bar renders.
+func (k keyMap) jsonCellKeys() []key.Binding {
+	return []key.Binding{
+		k.Down, k.Up, k.Enter, k.ExpandNode, k.CollapseNode, cellCopyKey, cellCloseKey,
+	}
+}
+
 // filterInput are the keys the grid's inline WHERE line owns while it is
 // open. Every other key types into the clause, which is why this slice —
 // not the grid's action list — is what the options bar and `?` show
@@ -929,6 +948,7 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 		groups = append(groups,
 			helpGroup{"In the filter input (/):", k.filterInput()},
 			helpGroup{"In the date picker:", k.datePicker()},
+			helpGroup{"In a JSON cell popup (v):", k.jsonCellKeys()},
 		)
 	}
 	// The connection flow is opened from the Connections panel, so its

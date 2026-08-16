@@ -1486,3 +1486,20 @@ Chronological history of wiki changes, newest last.
   documents, and checked against every other `K`/`J` binding in the codebase
   (`ShiftUp`/`ShiftDown`, vim motions) for collisions — none, since those are
   scoped to a different panel.
+
+## 2026-08-16
+
+- Updated [design/cell-detail-popup](design/cell-detail-popup.md) for issue
+  #150: a JSON cell in `v` is now a collapsible tree instead of a
+  pretty-printed wall of text. `parseJSONTree` walks `json.Decoder` tokens
+  (member order preserved, `UseNumber` so bigints keep their digits) into
+  `jsonNode`s carrying their own fold state, and `jsonRows` flattens only the
+  expanded ones — the object tree's model, markers and `treeIndent`, so the
+  fully expanded rendering is never materialized. Folded containers summarize
+  as `{…} 12 keys` / `[…] 40 items`, empty ones are leaves, and the document
+  opens at `jsonExpandDepth = 2`. Navigation reuses the tree bindings
+  (`Up`/`Down`/`ExpandNode`/`CollapseNode`, plus `enter` = expand rather than
+  close), listed in `?` and the options bar via `keyMap.jsonCellKeys`. Rows
+  are truncated instead of wrapped to keep one node on one line; `y` still
+  copies the raw document, and non-JSON cells are untouched.
+

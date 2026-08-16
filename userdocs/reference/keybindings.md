@@ -269,6 +269,22 @@ Every other key types into the clause.
 | `y` | Copy the raw value — never the rendering |
 | `esc` · `q` · `enter` · `v` | Close |
 
+### In a JSON cell popup (`v`)
+
+A JSON value opens as a collapsible tree, so the keys are the object
+tree's — including `enter`, which expands a node here instead of closing
+the popup.
+
+| Keys | Action | Action name |
+|---|---|---|
+| `j` · `↓` / `k` · `↑` | Next / previous visible node | `down` / `up` |
+| `enter` · `l` · `→` | Expand, or step into an open node | `enter` / `expand-node` |
+| `h` · `←` | Collapse, or step out to the parent | `collapse-node` |
+| `ctrl+d` · `pgdn` · `ctrl+f` / `ctrl+u` · `pgup` · `ctrl+b` | Ten nodes down / up |
+| `g` · `home` / `G` · `end` | First / last visible node |
+| `y` | Copy the raw JSON — never the tree |
+| `esc` · `q` · `v` | Close |
+
 ### In the date picker
 
 | Keys | Action | Action name |

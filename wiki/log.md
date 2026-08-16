@@ -1445,3 +1445,10 @@ Chronological history of wiki changes, newest last.
   `keyMap.PathCandidateNav`/`PathCandidateAccept`/`PathCandidateDismiss` so
   `?` documents the keys' meaning while the list is up, separately from
   `NextField`/`PrevField`/`FormSave`/`Back`.
+- Added [design/absolute-file-paths](design/absolute-file-paths.md) for issue
+  #157: `config.ResolveFilePath` expands `~` and resolves a relative
+  SQLite/DuckDB `File` path to absolute, called from `toConnection()` at
+  connection-form submit time (and so also on `ctrl+t` test). Resolution
+  happens once at save, not at `Config.Load`, and existing relative paths
+  already on disk are left untouched until the profile is re-saved — no
+  silent config rewrite.

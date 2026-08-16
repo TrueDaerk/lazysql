@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -94,6 +96,50 @@ func TestSQLiteNameDerivesFromFile(t *testing.T) {
 	c, ok := m.cfg.Find("app")
 	if !ok || c.File != "/tmp/app.db" {
 		t.Fatalf("profile = %+v (found %v), want name derived from the file", c, ok)
+	}
+}
+
+// A relative or `~`-prefixed SQLite path is persisted as absolute, so the
+// connection keeps resolving to the same file regardless of the directory
+// lazysql is later started from. Re-editing the profile shows the resolved
+// absolute path, not what was originally typed.
+func TestSQLiteFilePersistsAsAbsolute(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		typed string
+		want  string
+	}{
+		{typed: "./out/db.duckdb", want: filepath.Join(cwd, "out", "db.duckdb")},
+		{typed: "~/x.db", want: filepath.Join(home, "x.db")},
+	}
+	for _, tc := range cases {
+		m := send(t, sized(120, 40), press('1'), press('n'))
+		m = send(t, m, pickEngineKey(t, m, db.EngineSQLite))
+		f := m.modal.(*formModal)
+		f.field("file").input.SetValue(tc.typed)
+		m = send(t, m, special(tea.KeyEnter, 0))
+		if m.modal != nil {
+			t.Fatalf("form still open for %q: %v", tc.typed, m.modal.(*formModal).err)
+		}
+		names := m.cfg.Names()
+		c, ok := m.cfg.Find(names[len(names)-1])
+		if !ok || c.File != tc.want {
+			t.Fatalf("typed %q: profile = %+v (found %v), want file %q", tc.typed, c, ok, tc.want)
+		}
+
+		// Re-editing shows the persisted absolute path, not the original text.
+		edit := newConnectionForm("Edit", c, c.Name)
+		if got := edit.field("file").value(); got != tc.want {
+			t.Fatalf("typed %q: re-edit file field = %q, want %q", tc.typed, got, tc.want)
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
+	"lazysql/internal/secrets"
 )
 
 // TestMain isolates the suite from the developer's real environment: the
@@ -353,6 +354,100 @@ func TestEditConnectionRenamesInPlace(t *testing.T) {
 	}
 	if m.connState["renamed"].status != statusOK || m.active != "renamed" {
 		t.Fatalf("status did not follow the rename: %+v active=%q", m.connState, m.active)
+	}
+}
+
+// `y` opens the form prefilled under a unique "<name> - Copy" name; saving
+// adds a second profile and copies the source's keyring secret, leaving the
+// original connection and its secret untouched.
+func TestDuplicateConnectionAddsProfile(t *testing.T) {
+	m := sized(120, 40)
+	if err := secrets.Set("local-mysql", "hunter2"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { secrets.Forget("local-mysql"); secrets.Forget("local-mysql - Copy") })
+	m.panels[panelConnections].selectByName("local-mysql")
+	before := len(m.cfg.Connections)
+
+	m = send(t, m, press('y'))
+	form, ok := m.modal.(*formModal)
+	if !ok {
+		t.Fatalf("y opened %T, want *formModal", m.modal)
+	}
+	if got := form.field("name").value(); got != "local-mysql - Copy" {
+		t.Fatalf("form name = %q, want %q", got, "local-mysql - Copy")
+	}
+	if got := form.field("host").value(); got != "localhost" {
+		t.Fatalf("form host = %q, want the source's host", got)
+	}
+	// The source's password must never be rendered into the form.
+	if got := form.field("password").value(); got != "" {
+		t.Fatalf("password field = %q, want empty", got)
+	}
+
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.modal != nil {
+		t.Fatalf("form stayed open: %v", form.err)
+	}
+	if got := len(m.cfg.Connections); got != before+1 {
+		t.Fatalf("connections = %d, want %d", got, before+1)
+	}
+	if _, ok := m.cfg.Find("local-mysql"); !ok {
+		t.Fatal("the original connection was removed")
+	}
+	dup, ok := m.cfg.Find("local-mysql - Copy")
+	if !ok {
+		t.Fatal("the duplicate was not saved")
+	}
+	if dup.Host != "localhost" || dup.User != "root" || dup.Engine != db.EngineMySQL {
+		t.Fatalf("duplicate = %+v, did not carry over the source's fields", dup)
+	}
+
+	if got, err := secrets.Get("local-mysql - Copy"); err != nil || got != "hunter2" {
+		t.Fatalf("keyring secret for the duplicate = %q, %v, want the source's password", got, err)
+	}
+	if got, err := secrets.Get("local-mysql"); err != nil || got != "hunter2" {
+		t.Fatalf("the source's own keyring secret changed: %q, %v", got, err)
+	}
+}
+
+// A second duplicate of the same connection does not collide with the first.
+func TestDuplicateConnectionNameIsUnique(t *testing.T) {
+	m := sized(120, 40)
+	m.panels[panelConnections].selectByName("local-mysql")
+
+	m = send(t, m, press('y'))
+	form := m.modal.(*formModal)
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.modal != nil {
+		t.Fatalf("form stayed open: %v", form.err)
+	}
+
+	m.panels[panelConnections].selectByName("local-mysql")
+	m = send(t, m, press('y'))
+	form = m.modal.(*formModal)
+	if got := form.field("name").value(); got != "local-mysql - Copy 2" {
+		t.Fatalf("second duplicate name = %q, want %q", got, "local-mysql - Copy 2")
+	}
+}
+
+// esc discards the duplicate form outright, without the engine-picker detour
+// a from-scratch new connection takes on cancel.
+func TestDuplicateConnectionEscDiscards(t *testing.T) {
+	m := sized(120, 40)
+	m.panels[panelConnections].selectByName("local-mysql")
+	before := len(m.cfg.Connections)
+
+	m = send(t, m, press('y'))
+	if _, ok := m.modal.(*formModal); !ok {
+		t.Fatalf("y opened %T, want *formModal", m.modal)
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.modal != nil {
+		t.Fatalf("esc left %T open, want the form to close outright", m.modal)
+	}
+	if got := len(m.cfg.Connections); got != before {
+		t.Fatalf("connections = %d, want %d (esc must not save)", got, before)
 	}
 }
 

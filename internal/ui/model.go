@@ -1422,6 +1422,13 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 			m.modal = newConnectionForm("Edit connection — "+c.Name, c, c.Name)
 		}
 
+	case actDuplicateConnection:
+		if c, ok := m.selectedConnection(); ok {
+			source := c.Name
+			c.Name = duplicateName(m.cfg, c.Name)
+			m.modal = newDuplicateConnectionForm("Duplicate connection — "+source, c, source)
+		}
+
 	case actDropConnection:
 		if c, ok := m.selectedConnection(); ok {
 			name := c.Name

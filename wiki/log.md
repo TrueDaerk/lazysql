@@ -1464,3 +1464,13 @@ Chronological history of wiki changes, newest last.
   without the list; the selected row is a `popupSelected` bar instead of a `▸`
   marker. Checked in a PTY at 60×18, where the box flips above the field and
   shrinks to the rows that fit plus the `… +N more` tail.
+- Added [design/duplicate-connection](design/duplicate-connection.md) for
+  issue #156: `y` on `[1] Connections` opens the connection form pre-filled
+  from the selected profile under a unique `<name> - Copy` name, saving as a
+  plain `Config.Upsert("", conn)` — a real new entry, source untouched. `esc`
+  discards outright rather than taking the create flow's engine-picker
+  detour. New `secrets.Copy` (`internal/secrets`) — `Rename` without the
+  trailing `Delete` — copies the source's database password and SSH secret
+  onto the new keyring entries on save; an explicit password typed into the
+  duplicate form still wins over the copy. The password field itself is
+  never pre-filled, the same as every other connection-form open.

@@ -81,6 +81,30 @@ func renameOne(oldName, newName string) error {
 	return Delete(oldName)
 }
 
+// Copy duplicates a connection's stored secrets — both the database password
+// and the SSH secret — under a new name, leaving the source entries in place.
+// It is a no-op for secrets that do not exist, the same as Rename.
+func Copy(srcName, dstName string) error {
+	if srcName == dstName {
+		return nil
+	}
+	if err := copyOne(srcName, dstName); err != nil {
+		return err
+	}
+	return copyOne(SSHKey(srcName), SSHKey(dstName))
+}
+
+func copyOne(srcName, dstName string) error {
+	pw, err := Get(srcName)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return Set(dstName, pw)
+}
+
 // Forget removes every secret a connection owns, so deleting a profile leaves
 // no orphan password or passphrase behind.
 func Forget(name string) error {

@@ -91,6 +91,48 @@ func TestSSHSecretIsSeparateFromThePassword(t *testing.T) {
 	}
 }
 
+func TestCopyDuplicatesBothSecrets(t *testing.T) {
+	if err := Set("orig", "db-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Set(SSHKey("orig"), "ssh-pw"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Copy("orig", "dup"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := Get("dup"); got != "db-pw" {
+		t.Fatalf("password after copy = %q", got)
+	}
+	if got, _ := Get(SSHKey("dup")); got != "ssh-pw" {
+		t.Fatalf("ssh secret after copy = %q", got)
+	}
+	// The source entries must survive the copy.
+	if got, _ := Get("orig"); got != "db-pw" {
+		t.Fatalf("source password after copy = %q, want unchanged", got)
+	}
+	if got, _ := Get(SSHKey("orig")); got != "ssh-pw" {
+		t.Fatalf("source ssh secret after copy = %q, want unchanged", got)
+	}
+	if err := Forget("orig"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Forget("dup"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Copying a connection that never stored a password must succeed, leaving
+// the destination without one too.
+func TestCopyMissingIsNotAnError(t *testing.T) {
+	if err := Copy("never-existed", "also-never"); err != nil {
+		t.Fatalf("Copy of a missing entry = %v, want nil", err)
+	}
+	if _, err := Get("also-never"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Get(also-never) = %v, want ErrNotFound", err)
+	}
+}
+
 func TestRenameMovesBothSecrets(t *testing.T) {
 	if err := Set("old", "db-pw"); err != nil {
 		t.Fatal(err)

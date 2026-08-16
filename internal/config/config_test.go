@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -174,6 +175,61 @@ func TestRemoveAndClone(t *testing.T) {
 	}
 	if len(clone.Connections) != 1 {
 		t.Fatal("removing from the original mutated the clone")
+	}
+}
+
+func TestMoveUpAndMoveDown(t *testing.T) {
+	cfg := &Config{Connections: []Connection{
+		{Name: "a", Engine: db.EngineSQLite, File: "a.db"},
+		{Name: "b", Engine: db.EngineSQLite, File: "b.db"},
+		{Name: "c", Engine: db.EngineSQLite, File: "c.db"},
+	}}
+
+	if cfg.MoveUp("a") {
+		t.Fatal("MoveUp on the first entry should report no move")
+	}
+	if !cfg.MoveDown("a") {
+		t.Fatal("MoveDown on a non-last entry should report a move")
+	}
+	if got := cfg.Names(); !reflect.DeepEqual(got, []string{"b", "a", "c"}) {
+		t.Fatalf("order after MoveDown(a) = %v", got)
+	}
+
+	if !cfg.MoveUp("a") {
+		t.Fatal("MoveUp should report a move")
+	}
+	if got := cfg.Names(); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("order after MoveUp(a) = %v", got)
+	}
+
+	if cfg.MoveDown("c") {
+		t.Fatal("MoveDown on the last entry should report no move")
+	}
+	if cfg.MoveUp("missing") || cfg.MoveDown("missing") {
+		t.Fatal("moving an unknown name should report no move")
+	}
+}
+
+// MoveDown must swap whole entries, not just names — every other field
+// (engine, file, options…) has to travel with the connection or a reorder
+// would silently scramble profiles.
+func TestMoveDownPreservesFullEntry(t *testing.T) {
+	cfg := &Config{Connections: []Connection{
+		{Name: "a", Engine: db.EngineMySQL, Host: "h1", Port: 3306, Options: map[string]string{"k": "v"}},
+		{Name: "b", Engine: db.EngineSQLite, File: "b.db"},
+	}}
+	if !cfg.MoveDown("a") {
+		t.Fatal("MoveDown should report a move")
+	}
+	moved, ok := cfg.Find("a")
+	if !ok {
+		t.Fatal("connection a vanished after MoveDown")
+	}
+	if moved.Host != "h1" || moved.Port != 3306 || moved.Options["k"] != "v" {
+		t.Fatalf("MoveDown mangled entry fields: %+v", moved)
+	}
+	if cfg.Connections[0].Name != "b" || cfg.Connections[1].Name != "a" {
+		t.Fatalf("unexpected order: %v", cfg.Names())
 	}
 }
 

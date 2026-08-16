@@ -326,6 +326,90 @@ func pickEngineKey(t *testing.T, m Model, e db.Engine) tea.KeyPressMsg {
 	return tea.KeyPressMsg{}
 }
 
+// `J`/`K` reorder the selected connection and the cursor follows the moved
+// row, immediately — no modal, no confirm.
+func TestMoveConnectionUpdatesListAndSelection(t *testing.T) {
+	m := sized(120, 40)
+	names := testConnections()
+	m.panels[panelConnections].selectByName(names[0].Name)
+
+	m = send(t, m, press('J'))
+	if got := m.cfg.Names(); got[0] != names[1].Name || got[1] != names[0].Name {
+		t.Fatalf("order after J = %v, want %s swapped to position 1", got, names[0].Name)
+	}
+	if got := m.panels[panelConnections].selected(); got != names[0].Name {
+		t.Fatalf("selection after J = %q, want it to follow the moved row (%q)", got, names[0].Name)
+	}
+
+	m = send(t, m, press('K'))
+	if got := m.cfg.Names(); got[0] != names[0].Name {
+		t.Fatalf("order after K = %v, want %s back at position 0", got, names[0].Name)
+	}
+	if got := m.panels[panelConnections].selected(); got != names[0].Name {
+		t.Fatalf("selection after K = %q, want it to follow the moved row (%q)", got, names[0].Name)
+	}
+}
+
+// Moving the top row up (or the bottom row down) is a no-op: the list and
+// selection are unchanged.
+func TestMoveConnectionAtEdgeIsNoop(t *testing.T) {
+	m := sized(120, 40)
+	names := testConnections()
+	before := m.cfg.Names()
+
+	m.panels[panelConnections].selectByName(names[0].Name)
+	m = send(t, m, press('K'))
+	if got := m.cfg.Names(); !equalStrings(got, before) {
+		t.Fatalf("K at the top mutated order: %v", got)
+	}
+
+	m.panels[panelConnections].selectByName(names[len(names)-1].Name)
+	m = send(t, m, press('J'))
+	if got := m.cfg.Names(); !equalStrings(got, before) {
+		t.Fatalf("J at the bottom mutated order: %v", got)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// A reorder must survive a restart: it is written to config.toml the same
+// way add/edit are, through the whole-file rewrite in cfg.Save().
+func TestMoveConnectionPersistsToDisk(t *testing.T) {
+	m := sized(120, 40)
+	names := testConnections()
+	m.panels[panelConnections].selectByName(names[0].Name)
+	m = send(t, m, press('J'))
+
+	path, err := config.Path()
+	if err != nil {
+		t.Fatalf("config.Path: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+
+	onDisk, err := config.LoadFrom(path)
+	if err != nil {
+		t.Fatalf("LoadFrom: %v", err)
+	}
+	if got := onDisk.Names(); got[0] != names[1].Name || got[1] != names[0].Name {
+		t.Fatalf("order on disk = %v, want %s swapped to position 1", got, names[0].Name)
+	}
+	// Every other field of the moved connection must have travelled with it.
+	moved, ok := onDisk.Find(names[0].Name)
+	if !ok || moved.Engine != names[0].Engine || moved.File != names[0].File {
+		t.Fatalf("moved connection on disk = %+v, want it to match the original entry %+v", moved, names[0])
+	}
+}
+
 // `e` opens the form prefilled; renaming replaces the profile in place rather
 // than adding a second one, and carries its status across.
 func TestEditConnectionRenamesInPlace(t *testing.T) {

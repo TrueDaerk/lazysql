@@ -404,6 +404,18 @@ func forgetCmd(cfg *config.Config, name string) tea.Cmd {
 	}
 }
 
+// reorderCmd persists the config file after moving a connection up/down in
+// panel [1]. Only the order changes — no secret is touched — so this is
+// just cfg.Save(), the same whole-file rewrite add/edit already use.
+func reorderCmd(cfg *config.Config, name string) tea.Cmd {
+	return func() tea.Msg {
+		if err := cfg.Save(); err != nil {
+			return connPersistedMsg{verb: "reorder", name: name, err: err}
+		}
+		return connPersistedMsg{verb: "reorder", name: name}
+	}
+}
+
 // ---------- options encoding ----------
 
 // formatOptions renders driver options as the `k=v, k=v` text the form edits.

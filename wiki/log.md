@@ -1464,3 +1464,15 @@ Chronological history of wiki changes, newest last.
   without the list; the selected row is a `popupSelected` bar instead of a `▸`
   marker. Checked in a PTY at 60×18, where the box flips above the field and
   shrinks to the rows that fit plus the `… +N more` tail.
+
+## 2026-08-16
+
+- Added [design/connection-reorder](design/connection-reorder.md) for issue
+  #158: `K`/`J` move the selected row up/down in panel [1], backed by
+  `Config.MoveUp`/`MoveDown` swapping whole `Connection` structs by index and
+  a `reorderCmd` that reuses `cfg.Save()`'s existing whole-file rewrite — no
+  second serializer, no keyring touch. Shifted `K`/`J` chosen over
+  `ctrl+up`/`ctrl+down` for the same terminal-support reason `acceptKeys`
+  documents, and checked against every other `K`/`J` binding in the codebase
+  (`ShiftUp`/`ShiftDown`, vim motions) for collisions — none, since those are
+  scoped to a different panel.

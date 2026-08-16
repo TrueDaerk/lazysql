@@ -61,6 +61,8 @@ mode it runs the statement the caret is in.
 | `d` | Remove connection | `drop-connection` |
 | `t` | Test connection | `test-connection` |
 | `D` | Schema diff vs… | `schema-diff` |
+| `K` | Move up | `move-conn-up` |
+| `J` | Move down | `move-conn-down` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |
 | `a` | Actions menu | `actions` |

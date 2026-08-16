@@ -549,6 +549,30 @@ func (c *Config) Remove(name string) bool {
 	return true
 }
 
+// MoveUp swaps the named connection with its predecessor, reporting whether
+// a swap happened — false when the name is unknown or already first. Field
+// order within each entry is untouched; only their positions in the slice
+// (and so their order on disk) change.
+func (c *Config) MoveUp(name string) bool {
+	i := c.Index(name)
+	if i <= 0 {
+		return false
+	}
+	c.Connections[i-1], c.Connections[i] = c.Connections[i], c.Connections[i-1]
+	return true
+}
+
+// MoveDown swaps the named connection with its successor, reporting whether
+// a swap happened — false when the name is unknown or already last.
+func (c *Config) MoveDown(name string) bool {
+	i := c.Index(name)
+	if i < 0 || i >= len(c.Connections)-1 {
+		return false
+	}
+	c.Connections[i+1], c.Connections[i] = c.Connections[i], c.Connections[i+1]
+	return true
+}
+
 // Clone returns a deep copy. Saving happens in a tea.Cmd goroutine; it works
 // on a clone so it can never race the model's copy.
 func (c *Config) Clone() *Config {

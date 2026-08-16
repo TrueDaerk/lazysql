@@ -1,11 +1,11 @@
 ---
 type: Design Decision
 title: Cell detail popup — content-aware rendering and raw copy
-description: How `v` decides between pretty-printed JSON, a hex dump and plain text, why the choice is based on the bytes rather than the declared column type, and why the modal copies the untransformed value.
-tags: [tui, main-view, modal, json, blob, clipboard]
+description: How `v` decides between a foldable JSON tree, a hex dump and plain text, why the choice is based on the bytes rather than the declared column type, how the JSON tree folds and is navigated, and why the modal copies the untransformed value.
+tags: [tui, main-view, modal, json, tree, blob, clipboard]
 generated:
-  by: claude-code/sonnet-5
-  at: 2026-08-09T00:00:00Z
+  by: claude-code/opus-5
+  at: 2026-08-16T00:00:00Z
 ---
 
 # Cell detail popup
@@ -22,12 +22,12 @@ way to read a long value in place.
 `classifyCell` (`internal/ui/celldetail.go`) picks the rendering from the
 cell's own content, not from the column's declared SQL type:
 
-- Valid JSON whose trimmed text starts with `{` or `[` → pretty-printed
-  with `encoding/json.Indent`. A bare scalar (`42`, `"hello"`) is valid
-  JSON too but is not pretty-printed — re-indenting a one-token value
-  gains nothing, so the check requires an object or array root.
-  Malformed JSON (a trailing comma, an unterminated brace) falls through
-  to plain text rather than erroring the modal.
+- Valid JSON whose trimmed text starts with `{` or `[` → a foldable
+  tree (see below). A bare scalar (`42`, `"hello"`) is valid JSON too
+  but is not treated as a document — folding a one-token value gains
+  nothing, so the check requires an object or array root. Malformed
+  JSON (a trailing comma, an unterminated brace) falls through to plain
+  text rather than erroring the modal.
 - Otherwise, invalid UTF-8 → a `hexdump -C`-style dump
   (`hexDumpLines`): 8-digit offset, 16 bytes per line in two 8-byte hex
   groups (padded so a short last line still lines up), and an ASCII
@@ -44,6 +44,51 @@ column can hold JSON (SQLite has no native JSON type), and a `bytea`
 column can hold valid UTF-8. Sniffing the bytes is what stays correct
 in all three cases; the declared type is used only for the title, and
 only as a label.
+
+### JSON is a tree, not a wall of indented text
+
+Pretty-printing a 5 MB `jsonb` document produced a hundred thousand
+lines with no way to get an overview, so `cellJSON` renders as a
+collapsible tree instead (issue #150). The fold model is the object
+tree's, deliberately: `jsonNode` carries its own `expanded` flag and
+`jsonRows` flattens **only the expanded nodes** into `jsonRow{node,
+depth}` values — the same `treeRow` shape, the same `treeIndent` and the
+same `▾`/`▸` markers `internal/ui/objtree.go` uses. The fully expanded
+rendering is therefore never materialized: per keystroke the popup pays
+for the rows that are on screen, not for the document.
+
+- **Parsing** (`parseJSONTree`) walks `json.Decoder` tokens rather than
+  unmarshalling into `map[string]any`, because a map loses member
+  order — a `json` column stores its text verbatim and re-sorting it
+  would show something the row does not hold. `dec.UseNumber()` keeps
+  numeric literals exactly as written, so a bigint id is not rounded
+  through `float64` on screen. Nesting depth needs no guard of its own:
+  `json.Valid` in `classifyCell` already enforces `encoding/json`'s
+  10 000-level limit, so the recursion is bounded before it starts.
+- **Rows**: an expanded container shows its opening bracket (`▾ "b": {`),
+  a folded one a summary with the child count (`▸ "b": {…} 12 keys`),
+  and an empty one is a leaf (`"b": {}`) — folding `{}` would hide
+  nothing. There are no closing-bracket rows: one node is one row, which
+  is what keeps the cursor meaning exactly what it points at.
+- **Keys** are the tree conventions, dispatched inside the modal against
+  `m.keys` so `[keys]` overrides of `up`/`down`/`expand-node`/
+  `collapse-node` apply here too: `j`/`k` walk visible nodes, `enter`/`l`
+  open a folded node or step onto the first child of an open one, `h`
+  closes it or — on a leaf — jumps to its parent. `enter` therefore does
+  **not** close the popup for a JSON cell, which is the one deliberate
+  divergence from the other read-only modals; `esc`, `q` and `v` still
+  close it, and `keyMap.jsonCellKeys` is what documents the set in `?`
+  and the options bar.
+- **Fold depth** starts at `jsonExpandDepth = 2`: the root and its
+  members are open, everything below them folded. That fits the common
+  shape (a config or payload object of a dozen keys) on one screen while
+  a deep document still opens as an overview.
+- Rows are **truncated, not wrapped**, unlike the plain-text rendering:
+  wrapping would break the one-row-per-node mapping the cursor depends
+  on. The whole value is one `y` away.
+- A document the parser cannot walk falls back to `prettyJSON`
+  (`cellModal.tree == nil`), so a rendering exists even if the tree
+  builder is ever wrong about a shape `json.Valid` accepted.
 
 ### Why `[]byte` cells are already plain Go strings here
 
@@ -81,7 +126,8 @@ uses everywhere else. It does not close the modal (`update` returns
 and closing on every copy would make comparing the clipboard against the
 still-open value impossible. `esc`/`q`/`enter`/`v` close it, matching
 every other read-only modal in the app (`commandLogModal`, the old
-`helpModal`).
+`helpModal`) — except on a JSON cell, where `enter` expands the node
+under the cursor and only `esc`/`q`/`v` close.
 
 ## Consequences
 
@@ -90,20 +136,22 @@ every other read-only modal in the app (`commandLogModal`, the old
   raises its width cap from 80 to 100 columns (still bounded by the
   terminal) rather than adding a second, narrower rendering path for
   binary content.
-- A JSON value large enough to need scrolling is still pretty-printed in
-  full before display — there is no streaming or partial indent. This
-  matches every other in-memory formatting path in the UI (the grid
-  itself, the row copy formats) and is bounded by the same page size the
-  grid already fetches.
-- No syntax colouring was added for the pretty-printed JSON: the
+- A JSON value is parsed in full before display (one `jsonNode` per
+  value); only the *rendering* is lazy. That is bounded by the same page
+  size the grid already fetches, and it is what makes the child counts on
+  a folded row exact.
+- No syntax colouring was added for the JSON tree: the
   existing `sqlString`/`sqlNumber` styles could be reused for a cheap
-  token colourer, but plain indentation already carries most of the
-  readability gain over the grid's single truncated line, and a second
-  tokenizer for a feature this size was not worth the surface area.
+  token colourer, but the fold markers and indentation already carry
+  most of the readability gain over the grid's single truncated line,
+  and a second tokenizer for a feature this size was not worth the
+  surface area.
 
 ## See also
 
 - [data-grid](data-grid.md) — the grid `v` is opened from, its column
   truncation, and how the cell cursor is tracked.
+- [object-tree-panel](object-tree-panel.md) — the fold state, flatten
+  pass and `l`/`h` contract the JSON tree reuses.
 - [copy-and-export](copy-and-export.md) — the clipboard seam
   (`clipboardWrite`/`copyOut`) the modal's `y` reuses.

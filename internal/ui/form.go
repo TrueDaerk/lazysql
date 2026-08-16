@@ -237,6 +237,17 @@ type formModal struct {
 	// leaves the field, and whenever the form closes or submits.
 	sugg pathSuggest
 
+	// anchor* is where the value cell of the completing field landed in the
+	// box view last rendered, relative to that box's own top-left cell, plus
+	// the text width the field's input occupies. The candidate list is a
+	// layer composited in *screen* coordinates (see pathSuggestLayer), and
+	// the centered box has no idea where it ended up — so view records the
+	// offset while it still knows it. anchorOK is false whenever there is
+	// nothing to anchor: no completing field, no candidates, or a scroll
+	// window that clipped the field's own row away.
+	anchorX, anchorY, anchorW int
+	anchorOK                  bool
+
 	// offset is the first body line the scroll window shows. A sectioned
 	// form can outgrow a small terminal; view keeps the cursor's line
 	// inside the window and marks clipped rows with ⋮.
@@ -583,49 +594,24 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		bodyLines = f.body(f)
 	}
 
-	// Count the headers before rendering: the suggestion budget needs the
-	// field block's full height, and each header costs its own line plus
-	// the blank one above it.
-	headerRows := 0
-	prev := ""
-	for _, fl := range vis {
-		if fl.section != "" && fl.section != prev {
-			headerRows += 2
-			prev = fl.section
-		}
-	}
-	if headerRows > 0 {
-		headerRows-- // the first header has no blank line above it
-	}
-
-	// Path suggestions only get the rows the terminal has left over: the
-	// modal is centered on the full height, so growing past it would break
-	// the tiny-terminal guard. 4 covers the box border and padding.
-	sugRows := 0
+	// Path candidates float over the box instead of being rows in it (see
+	// pathsuggest.go), so nothing here reserves height for them — the form's
+	// layout is the same whether or not the list is up.
+	suggesting := false
 	if sf := f.suggestField(); sf != nil && f.sugg.active() {
-		used := 4 + 2 + len(vis) + headerRows + 2 // chrome, title+blank, block, blank+footer
-		if len(bodyLines) > 0 {
-			used += len(bodyLines) + 1
-		}
-		if f.err != "" {
-			used += 2
-		}
-		if f.info != "" {
-			used += 2
-		}
-		sugRows = min(maxSuggestLines, maxH-used)
+		suggesting = true
 	}
 
 	// A header underlines itself across the field block, so the group
 	// boundary is a rule, not just a word.
 	blockW := min(len(indent)+2+labelW+2+inputW, maxInt(maxW-8, 20))
 
-	// The field block: headers, field lines, suggestion lines. cursorLine
-	// remembers where the cursor's field landed so the scroll window can
-	// follow it.
+	// The field block: headers and field lines. cursorLine remembers where
+	// the cursor's field landed so the scroll window can follow it — and,
+	// once the window is known, so the candidate list can be anchored to it.
 	var lines []string
 	cursorLine := 0
-	prev = ""
+	prev := ""
 	for i, fl := range vis {
 		if fl.section != "" && fl.section != prev {
 			if len(lines) > 0 {
@@ -665,12 +651,6 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 			cursorLine = len(lines)
 		}
 		lines = append(lines, line)
-		if fl.suggest && i == f.cursor {
-			sindent := indent + strings.Repeat(" ", labelW+4)
-			for _, sl := range f.sugg.lines(sugRows) {
-				lines = append(lines, sindent+s.muted.Render(truncate(sl, maxInt(inputW, 8))))
-			}
-		}
 	}
 
 	// Scroll window: a sectioned form with SSH open outgrows a small
@@ -715,6 +695,28 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 		f.offset = 0
 	}
 
+	// Anchor the candidate list on the value cell of the field the cursor is
+	// on, in coordinates relative to the box this call returns: the modal
+	// frame, the title and its blank line, the optional body block, then the
+	// field's row inside the scroll window. A field scrolled out of the
+	// window has no cell to point at, so the overlay is dropped instead of
+	// floating over an unrelated row.
+	f.anchorOK = false
+	if suggesting {
+		lead := 2 + len(bodyLines) // title + blank
+		if len(bodyLines) > 0 {
+			lead++ // the blank line under the body block
+		}
+		row := cursorLine - f.offset
+		if row >= 0 && row < len(lines) {
+			f.anchorX = s.modal.GetBorderLeftSize() + s.modal.GetPaddingLeft() +
+				lipgloss.Width(indent) + 2 + labelW + 2
+			f.anchorY = s.modal.GetBorderTopSize() + s.modal.GetPaddingTop() + lead + row
+			f.anchorW = inputW
+			f.anchorOK = true
+		}
+	}
+
 	// Every line is clipped to what the modal can spend horizontally
 	// (border and padding cost 6 cells), or a long help text or footer
 	// would widen the box past a narrow terminal.
@@ -740,7 +742,7 @@ func (f *formModal) view(s styles, maxW, maxH int) string {
 	if footer == "" {
 		footer = "tab/↑↓ field · ←→ change · enter/ctrl+enter save · esc cancel"
 	}
-	if sugRows > 0 {
+	if suggesting {
 		// tab and ↑↓ are taken by completion here, so the bar must stop
 		// advertising them as the way to move between fields — and enter/esc
 		// act on the list first, so their usual save/cancel meaning gets a

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/config"
 	"lazysql/internal/db"
@@ -59,15 +60,117 @@ func TestFileFieldCompletes(t *testing.T) {
 		t.Errorf("tab completed to %q, want %q", got, want)
 	}
 
-	// The rendered modal shows the candidates and swaps the footer hint.
-	view := form.view(m.style, m.width, m.height)
+	// The candidates show up in the composited frame — as a floating box
+	// over the modal, not as rows of the form — and the footer hint swaps.
+	out := m.View().Content
 	for _, want := range []string{"sales.duckdb", "sales.sqlite", "tab complete path"} {
-		if !strings.Contains(view, want) {
-			t.Errorf("form view missing %q:\n%s", want, view)
+		if !strings.Contains(out, want) {
+			t.Errorf("frame missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(view, "other.db") {
-		t.Errorf("form view offers a non-matching entry:\n%s", view)
+	if strings.Contains(out, "other.db") {
+		t.Errorf("frame offers a non-matching entry:\n%s", out)
+	}
+	if view := form.view(m.style, m.width, m.height); strings.Contains(view, "sales.duckdb") {
+		t.Errorf("candidates are still rendered as form rows:\n%s", view)
+	}
+
+	// The box is bordered and floats over the modal: its own layer, drawn
+	// under the field it belongs to.
+	box, _, y, ok := m.pathSuggestLayer(0, 0)
+	if !ok {
+		t.Fatal("no path suggestion layer while candidates are up")
+	}
+	if !strings.Contains(box, "╮") {
+		t.Errorf("suggestion box is not bordered:\n%s", box)
+	}
+	if y <= form.anchorY {
+		t.Errorf("box row %d is not below the field row %d", y, form.anchorY)
+	}
+}
+
+// The form's own box keeps its size while the list appears and disappears:
+// the candidates are a layer over it, so nothing in the layout reserves
+// rows for them.
+func TestFormHeightUnchangedByCandidates(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"sales.duckdb", "sales.sqlite", "sales.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m, form := fileForm(t, sized(120, 40))
+	base := form.field("file")
+	base.input.SetValue(filepath.Join(dir, "s"))
+	base.input.CursorEnd()
+	form.sugg.clear()
+	quiet := form.view(m.style, m.width, m.height)
+
+	form.sugg.refresh(base.input.Value())
+	if got := len(form.sugg.candidates); got != 3 {
+		t.Fatalf("candidates = %d, want 3 (%v)", got, form.sugg.candidates)
+	}
+	open := form.view(m.style, m.width, m.height)
+
+	if gotH, wantH := lipgloss.Height(open), lipgloss.Height(quiet); gotH != wantH {
+		t.Errorf("form height with candidates = %d, want %d", gotH, wantH)
+	}
+	// The width is not asserted: the footer still swaps to the completion
+	// hint, which is a longer line than the default one. That is the
+	// remaining size wobble and belongs to the stable-popup-size work, not
+	// here — the rows are what this change stopped moving.
+}
+
+// The overlay is clamped to the terminal: it flips above the field when the
+// rows below it belong to the screen's bottom edge, and never draws past any
+// edge — at the smallest terminal the app still renders at, either.
+func TestSuggestOverlayStaysInBounds(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a1.db", "a2.db", "a3.db", "a4.db", "a5.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, size := range [][2]int{{120, 40}, {minWidth, minHeight}, {80, 20}} {
+		m, form := fileForm(t, sized(size[0], size[1]))
+		form.field("file").input.SetValue(filepath.Join(dir, "a"))
+		form.field("file").input.CursorEnd()
+		form.sugg.refresh(form.field("file").input.Value())
+		if !form.sugg.active() {
+			t.Fatalf("%dx%d: no candidates", size[0], size[1])
+		}
+
+		// Render once so the form records its anchor, then place the layer
+		// exactly where View would.
+		box := form.view(m.style, m.width, m.height)
+		px := maxInt((m.width-lipgloss.Width(box))/2, 0)
+		py := maxInt((m.height-lipgloss.Height(box))/2, 0)
+		pop, x, y, ok := m.pathSuggestLayer(px, py)
+		if !ok {
+			// Legitimate on a terminal with no room either side of the
+			// field; the frame must then simply not mention a candidate.
+			continue
+		}
+		if x < 0 || y < 0 {
+			t.Errorf("%dx%d: overlay at (%d,%d) is off the top/left", size[0], size[1], x, y)
+		}
+		if r := x + lipgloss.Width(pop); r > m.width {
+			t.Errorf("%dx%d: overlay right edge %d exceeds width %d", size[0], size[1], r, m.width)
+		}
+		if b := y + lipgloss.Height(pop); b > m.height {
+			t.Errorf("%dx%d: overlay bottom edge %d exceeds height %d", size[0], size[1], b, m.height)
+		}
+		// The composited frame is still exactly the terminal's size — a box
+		// that overflowed would grow it.
+		out := m.View().Content
+		if h := lipgloss.Height(out); h != m.height {
+			t.Errorf("%dx%d: frame height = %d", size[0], size[1], h)
+		}
+		if w := lipgloss.Width(out); w != m.width {
+			t.Errorf("%dx%d: frame width = %d", size[0], size[1], w)
+		}
 	}
 }
 
@@ -101,11 +204,24 @@ func TestFileFieldCyclesOnAmbiguousPrefix(t *testing.T) {
 	if first != filepath.Join(dir, "sales.duckdb") && first != filepath.Join(dir, "sales.sqlite") {
 		t.Fatalf("cycled value = %q, want one of the two candidates", first)
 	}
-	view := form.view(m.style, m.width, m.height)
-	if !strings.Contains(view, "▸ ") {
-		t.Errorf("view does not mark the selected candidate:\n%s", view)
+	// The highlighted candidate is marked in the overlay — a styled bar, so
+	// the box differs from the one drawn with nothing selected.
+	rows := form.sugg.rows(maxSuggestLines)
+	selected := 0
+	for _, r := range rows {
+		if r.selected {
+			selected++
+		}
 	}
-	if !strings.Contains(view, "tab/shift+tab cycle path") {
+	if selected != 1 {
+		t.Errorf("rows mark %d candidates selected, want exactly 1: %+v", selected, rows)
+	}
+	highlighted := form.sugg.popup(m.style, 20, maxSuggestLines)
+	plain := (&pathSuggest{candidates: form.sugg.candidates}).popup(m.style, 20, maxSuggestLines)
+	if highlighted == plain {
+		t.Errorf("overlay does not mark the selected candidate:\n%s", highlighted)
+	}
+	if view := form.view(m.style, m.width, m.height); !strings.Contains(view, "tab/shift+tab cycle path") {
 		t.Errorf("footer does not advertise cycling:\n%s", view)
 	}
 
@@ -285,18 +401,26 @@ func TestEscDismissesListBeforeCancelingForm(t *testing.T) {
 	}
 }
 
-// A short terminal must not grow the modal past the screen: the rows shrink
+// A short terminal must not grow the overlay past the screen: the rows shrink
 // and collapse into the "+N more" tail.
 func TestSuggestionRowsCapped(t *testing.T) {
 	s := &pathSuggest{candidates: []string{"a", "b", "c", "d"}}
-	if got := len(s.lines(0)); got != 0 {
-		t.Errorf("lines(0) = %d rows, want 0", got)
+	if got := len(s.rows(0)); got != 0 {
+		t.Errorf("rows(0) = %d rows, want 0", got)
 	}
-	got := s.lines(2)
-	if len(got) != 2 || got[0] != "a" || !strings.Contains(got[1], "+3 more") {
-		t.Errorf("lines(2) = %v, want [a, … +3 more]", got)
+	got := s.rows(2)
+	if len(got) != 2 || got[0].text != "a" || !strings.Contains(got[1].text, "+3 more") {
+		t.Errorf("rows(2) = %+v, want [a, … +3 more]", got)
 	}
-	if got := s.lines(99); len(got) != 4 {
-		t.Errorf("lines(99) = %v, want all four candidates", got)
+	if !got[1].tail {
+		t.Errorf("the +N more row is not marked as the tail: %+v", got[1])
+	}
+	if got := s.rows(99); len(got) != 4 {
+		t.Errorf("rows(99) = %+v, want all four candidates", got)
+	}
+	// A row budget of one is still a drawable box — one candidate, no tail
+	// row to spare, so the box says what it can rather than nothing.
+	if got := s.rows(1); len(got) != 1 || got[0].text != "a" {
+		t.Errorf("rows(1) = %+v, want [a]", got)
 	}
 }

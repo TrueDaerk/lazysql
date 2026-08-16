@@ -5,19 +5,31 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"lazysql/internal/pathcomplete"
 )
 
 // pathsuggest.go is the form-side glue for the shared path completion engine:
 // a tiny state holder the form modal keeps for the field under the cursor when
 // that field opted into completion (`withSuggest`). The form refreshes it on
-// every edit, applies tab through complete, and renders rows under the field
-// while candidates exist.
+// every edit, applies tab through complete, and renders the candidates as a
+// bordered box floating under the field while any exist.
+//
+// The box is a *layer*, not form rows: it is composited over the modal by the
+// same lipgloss compositor the query editor's autocomplete uses (see
+// internal/ui/complete.go), so the form's own layout keeps the same height
+// whether or not candidates are up. The form records where the field's value
+// cell landed inside its rendered box (formModal.anchor*) and View turns that
+// into the absolute cell the layer is drawn at.
 
 // maxSuggestLines caps the rendered suggestion rows; the remainder collapses
-// into a "+N more" tail so an ambiguous prefix cannot flood the modal. The
-// modal shrinks this further when the terminal is too short.
+// into a "+N more" tail so an ambiguous prefix cannot flood the screen. The
+// overlay shrinks this further when the terminal is too short.
 const maxSuggestLines = 8
+
+// minSuggestWidth is the narrowest text column the box is worth drawing at.
+const minSuggestWidth = 8
 
 // pathSuggest holds the live candidate list for one path input.
 type pathSuggest struct {
@@ -129,15 +141,23 @@ func (s *pathSuggest) clear() {
 	s.cycling = false
 }
 
-// lines returns the rows to render under the field, indented to sit under the
-// input. Every candidate shares the typed directory, so only the final path
-// component is shown (a directory keeps its trailing separator) — long
-// absolute prefixes would otherwise truncate away the distinguishing part.
-// maxRows caps the rows including the "+N more" tail; 0 or less renders
-// nothing. Empty when there is nothing to suggest. While cycling, the row
-// applied to the field is marked with "▸ " and the window scrolls to keep it
-// visible.
-func (s *pathSuggest) lines(maxRows int) []string {
+// suggestRow is one row of the floating list: the text to draw plus what it
+// is — the highlighted candidate, or the "+N more" tail — so the renderer
+// picks the style instead of the row baking markers into its text.
+type suggestRow struct {
+	text     string
+	selected bool
+	tail     bool
+}
+
+// rows returns the rows of the floating list. Every candidate shares the typed
+// directory, so only the final path component is shown (a directory keeps its
+// trailing separator) — long absolute prefixes would otherwise truncate away
+// the distinguishing part. maxRows caps the rows including the "+N more" tail;
+// 0 or less renders nothing. Empty when there is nothing to suggest. While
+// cycling, the row applied to the field is marked selected and the window
+// scrolls to keep it visible.
+func (s *pathSuggest) rows(maxRows int) []suggestRow {
 	n := len(s.candidates)
 	if n == 0 || maxRows <= 0 {
 		return nil
@@ -150,29 +170,66 @@ func (s *pathSuggest) lines(maxRows int) []string {
 		// Leave the last row for the "+N more" tail.
 		shown = maxRows - 1
 	}
-	if shown < 0 {
-		shown = 0
+	if shown < 1 {
+		// A one-row budget spends it on a candidate: a box containing
+		// nothing but "+4 more" tells the user less than the box costs.
+		shown = 1
 	}
 	start := 0
 	if s.cycling && s.selected >= shown {
 		start = s.selected - shown + 1
 	}
-	out := make([]string, 0, maxRows)
+	out := make([]suggestRow, 0, maxRows)
 	for i := start; i < start+shown && i < n; i++ {
-		name := lastPathComponent(s.candidates[i])
-		if s.cycling {
-			if i == s.selected {
-				name = "▸ " + name
-			} else {
-				name = "  " + name
-			}
-		}
-		out = append(out, name)
+		out = append(out, suggestRow{
+			text:     lastPathComponent(s.candidates[i]),
+			selected: s.cycling && i == s.selected,
+		})
 	}
-	if rest := n - (start + shown); rest > 0 {
-		out = append(out, fmt.Sprintf("… +%d more", rest))
+	if rest := n - (start + shown); rest > 0 && len(out) < maxRows {
+		out = append(out, suggestRow{text: fmt.Sprintf("… +%d more", rest), tail: true})
 	}
 	return out
+}
+
+// popup renders the candidate list as the bordered box View composites over
+// the form modal. maxW is the widest text column it may use — the box itself
+// costs two more cells of border — and it shrinks to the longest row when
+// that is narrower, so a list of short names does not draw an empty gutter.
+// maxRows is the vertical budget the terminal has left. It returns "" when
+// there is nothing to draw, so the caller can skip the layer entirely.
+//
+// Every row is padded to the full text column: the highlight has to read as a
+// bar across the box, the way the editor popup's selection does, not as a tint
+// on however many cells the name happens to occupy.
+func (s *pathSuggest) popup(st styles, maxW, maxRows int) string {
+	rows := s.rows(maxRows)
+	if len(rows) == 0 || maxW < 1 {
+		return ""
+	}
+	w := 0
+	for _, r := range rows {
+		if rw := lipgloss.Width(r.text); rw > w {
+			w = rw
+		}
+	}
+	if w > maxW {
+		w = maxW
+	}
+	lines := make([]string, 0, len(rows))
+	for _, r := range rows {
+		text := truncate(r.text, w)
+		pad := strings.Repeat(" ", maxInt(w-lipgloss.Width(text), 0))
+		switch {
+		case r.selected:
+			lines = append(lines, st.popupSelected.Render(text+pad))
+		case r.tail:
+			lines = append(lines, st.muted.Render(text+pad))
+		default:
+			lines = append(lines, text+pad)
+		}
+	}
+	return st.popup.Render(strings.Join(lines, "\n"))
 }
 
 // lastPathComponent is the candidate's final path element, keeping a

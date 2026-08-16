@@ -34,6 +34,9 @@ func TestExtractPlaceholders(t *testing.T) {
 		// not a hole to prompt for.
 		{EnginePostgres, "SELECT a::text FROM t WHERE b = $1", nil},
 		{EnginePostgres, "SELECT a::text FROM t WHERE b = :b", []string{":b"}},
+		// DuckDB spells the cast the same way, and `::` must be consumed
+		// whole: `a::int` names no parameter `:int`.
+		{EngineDuckDB, "SELECT a::int FROM t WHERE b = :b", []string{":b"}},
 		// MySQL user variables are server state, not parameters.
 		{EngineMySQL, "SELECT @v, ?", []string{"? (1)"}},
 	}
@@ -59,30 +62,30 @@ func TestBindPlaceholdersRewritesPerDialect(t *testing.T) {
 		d        Dialect
 		engine   Engine
 		sql      string
-		values   []string
+		values   []ParamValue
 		wantSQL  string
 		wantArgs []any
 	}{
 		{sqlite, EngineSQLite,
 			"SELECT * FROM t WHERE id = ? AND name = :n",
-			[]string{"7", "bob"},
+			TextParams("7", "bob"),
 			"SELECT * FROM t WHERE id = ? AND name = ?",
 			[]any{"7", "bob"}},
 		{postgres, EnginePostgres,
 			"SELECT * FROM t WHERE id = ? AND name = :n",
-			[]string{"7", "bob"},
+			TextParams("7", "bob"),
 			"SELECT * FROM t WHERE id = $1 AND name = $2",
 			[]any{"7", "bob"}},
 		// A repeated name binds its one value at every position.
 		{sqlite, EngineSQLite,
 			"SELECT :a, :b, :a",
-			[]string{"x", "y"},
+			TextParams("x", "y"),
 			"SELECT ?, ?, ?",
 			[]any{"x", "y", "x"}},
 		// String literals, comments and casts pass through untouched.
 		{postgres, EnginePostgres,
 			"SELECT a::text, '?' FROM t WHERE b = :b -- :c",
-			[]string{"v"},
+			TextParams("v"),
 			"SELECT a::text, '?' FROM t WHERE b = $1 -- :c",
 			[]any{"v"}},
 	}
@@ -100,6 +103,83 @@ func TestBindPlaceholdersRewritesPerDialect(t *testing.T) {
 
 	if _, _, err := BindPlaceholders(sqlite, EngineSQLite, "SELECT ?", nil); err == nil {
 		t.Error("BindPlaceholders accepted a missing value")
+	}
+}
+
+// An empty field and a NULL field are different values, and each engine
+// has to see the difference: `name = ''` matches the empty row, `name IS
+// NULL` (never `= NULL`) matches the null one. The values reach the server
+// as real parameters — the statement text carries only the dialect's own
+// markers.
+func TestBindPlaceholdersNullVersusEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		engine Engine
+		dsn    string
+	}{
+		{EngineSQLite, ":memory:"},
+		{EngineDuckDB, ""},
+	} {
+		t.Run(string(tc.engine), func(t *testing.T) {
+			drv, err := Open(tc.engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer drv.Close()
+			ctx := context.Background()
+			if err := drv.Connect(ctx, tc.dsn); err != nil {
+				t.Fatal(err)
+			}
+			for _, stmt := range []string{
+				`CREATE TABLE t (id INTEGER, name VARCHAR)`,
+				`INSERT INTO t VALUES (1, 'alice')`,
+				`INSERT INTO t VALUES (2, '')`,
+				`INSERT INTO t VALUES (3, NULL)`,
+			} {
+				if _, err := drv.Exec(ctx, stmt); err != nil {
+					t.Fatalf("%s: %v", stmt, err)
+				}
+			}
+			d, err := DialectFor(tc.engine)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// The empty string finds the empty row and nothing else.
+			bound, args, err := BindPlaceholders(d, tc.engine,
+				"SELECT id FROM t WHERE name = :n", []ParamValue{{Text: ""}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if args[0] != any("") {
+				t.Fatalf("args = %#v, want the empty string bound", args)
+			}
+			rs, err := drv.Query(ctx, bound, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rs.Rows) != 1 {
+				t.Fatalf("rows = %v, want only the empty-string row", rs.Rows)
+			}
+
+			// NULL binds as a nil argument, so `IS NULL` finds the null row
+			// — and the same value compared with `=` finds nothing, which is
+			// the whole reason the prompt asks instead of guessing.
+			bound, args, err = BindPlaceholders(d, tc.engine,
+				"SELECT id FROM t WHERE name IS NOT DISTINCT FROM :n", []ParamValue{{Null: true}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if args[0] != nil {
+				t.Fatalf("args = %#v, want a nil argument for NULL", args)
+			}
+			rs, err = drv.Query(ctx, bound, args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rs.Rows) != 1 {
+				t.Fatalf("rows = %v, want only the NULL row", rs.Rows)
+			}
+		})
 	}
 }
 
@@ -128,7 +208,7 @@ func TestBoundPlaceholderValueIsNotInterpolated(t *testing.T) {
 	}
 	bound, args, err := BindPlaceholders(sqlite, EngineSQLite,
 		"SELECT * FROM t WHERE id = ? AND name = :n",
-		[]string{"1", "'; DROP TABLE t;--"})
+		TextParams("1", "'; DROP TABLE t;--"))
 	if err != nil {
 		t.Fatal(err)
 	}

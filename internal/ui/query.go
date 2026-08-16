@@ -602,8 +602,12 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	if len(stmts) == 1 {
 		if phs := db.ExtractPlaceholders(m.driver.Engine(), stmts[0]); len(phs) > 0 {
 			stmt := stmts[0]
-			m.modal = newParamsModal(stmt, m.sqlDialect(), phs,
-				func(mm *Model, values []string) tea.Cmd {
+			m.modal = newParamsForm(m.style, stmt, m.sqlDialect(), phs, m.params.recall(stmt),
+				func(mm *Model, values []db.ParamValue) tea.Cmd {
+					// Remembered before the run, not after it: a statement
+					// that fails on the server is exactly the one whose
+					// values are worth getting back on the next attempt.
+					mm.params.remember(stmt, values)
 					bound, args, err := db.BindPlaceholders(
 						mm.driver.Dialect(), mm.driver.Engine(), stmt, values)
 					if err != nil {

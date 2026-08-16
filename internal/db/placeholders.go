@@ -50,18 +50,46 @@ func ExtractPlaceholders(engine Engine, sql string) []Placeholder {
 	return out
 }
 
+// ParamValue is one entered placeholder value. Text alone cannot say
+// whether an empty field means the empty string or SQL NULL, and the two
+// are different values in every dialect (`= ''` matches, `= NULL` never
+// does) — so the prompt carries the distinction explicitly and Null wins
+// over Text when it is set.
+type ParamValue struct {
+	Text string
+	Null bool
+}
+
+// TextParams lifts plain strings into non-NULL ParamValues.
+func TextParams(values ...string) []ParamValue {
+	out := make([]ParamValue, len(values))
+	for i, v := range values {
+		out[i] = ParamValue{Text: v}
+	}
+	return out
+}
+
+// arg is the value as it travels to the driver: a nil `any` for NULL,
+// which every driver lazysql speaks binds as SQL NULL.
+func (v ParamValue) arg() any {
+	if v.Null {
+		return nil
+	}
+	return v.Text
+}
+
 // BindPlaceholders rewrites sql so every prompt-able placeholder becomes
 // the dialect's own parameter marker, and returns the argument list to
-// bind. values are the entered strings, ordered like ExtractPlaceholders
+// bind. values are the entered values, ordered like ExtractPlaceholders
 // returned the placeholders; a repeated `:name` takes its one value at
 // every position. The values never enter the statement text — they only
 // ever travel as bound parameters.
-func BindPlaceholders(d Dialect, engine Engine, sql string, values []string) (string, []any, error) {
+func BindPlaceholders(d Dialect, engine Engine, sql string, values []ParamValue) (string, []any, error) {
 	phs := ExtractPlaceholders(engine, sql)
 	if len(values) != len(phs) {
 		return "", nil, fmt.Errorf("db: %d placeholder values for %d placeholders", len(values), len(phs))
 	}
-	byName := map[string]string{}
+	byName := map[string]ParamValue{}
 	for i, p := range phs {
 		if p.Name != "" {
 			byName[p.Name] = values[i]
@@ -77,7 +105,7 @@ func BindPlaceholders(d Dialect, engine Engine, sql string, values []string) (st
 		if !ok {
 			continue
 		}
-		var v string
+		var v ParamValue
 		if name == "" {
 			// Positional values are consumed left to right, the order
 			// ExtractPlaceholders listed them in.
@@ -86,7 +114,7 @@ func BindPlaceholders(d Dialect, engine Engine, sql string, values []string) (st
 		} else {
 			v = byName[name]
 		}
-		args = append(args, v)
+		args = append(args, v.arg())
 		b.WriteString(sql[last:t.Start])
 		b.WriteString(d.Placeholder(len(args)))
 		last = t.End

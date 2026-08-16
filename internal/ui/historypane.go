@@ -6,11 +6,9 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"lazysql/internal/db"
 	"lazysql/internal/history"
 	"lazysql/internal/snippets"
 	"lazysql/internal/sqlhl"
@@ -372,128 +370,4 @@ func (hm *historyModal) footer() string {
 		pair(k.HistSection, other),
 		"esc close")
 	return strings.Join(parts, " · ")
-}
-
-// ---------- placeholder prompt ----------
-
-// paramsModal asks for one value per placeholder of a statement about to
-// run: positional `?`s in order, each repeated `:name` once. On submit
-// the values are handed back as strings and bound as parameters — they
-// never enter the statement text.
-type paramsModal struct {
-	sql      string
-	dialect  sqlhl.Dialect
-	labels   []string
-	inputs   []textinput.Model
-	focus    int
-	onSubmit func(m *Model, values []string) tea.Cmd
-}
-
-func newParamsModal(sql string, d sqlhl.Dialect, phs []db.Placeholder,
-	onSubmit func(*Model, []string) tea.Cmd) *paramsModal {
-	p := &paramsModal{sql: sql, dialect: d, onSubmit: onSubmit}
-	for i, ph := range phs {
-		ti := textinput.New()
-		ti.SetWidth(40)
-		if i == 0 {
-			ti.Focus()
-		}
-		p.labels = append(p.labels, ph.Label)
-		p.inputs = append(p.inputs, ti)
-	}
-	return p
-}
-
-// setFocus moves the input focus, blurring the rest so exactly one caret
-// blinks.
-func (p *paramsModal) setFocus(i int) {
-	n := len(p.inputs)
-	p.focus = ((i % n) + n) % n
-	for j := range p.inputs {
-		if j == p.focus {
-			p.inputs[j].Focus()
-		} else {
-			p.inputs[j].Blur()
-		}
-	}
-}
-
-func (p *paramsModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		// Cancel executes nothing.
-		return true, nil
-	case "tab", "down":
-		p.setFocus(p.focus + 1)
-		return false, nil
-	case "shift+tab", "up":
-		p.setFocus(p.focus - 1)
-		return false, nil
-	case "enter":
-		// enter walks the inputs and submits from the last one, so a
-		// single-placeholder prompt is type-and-enter.
-		if p.focus < len(p.inputs)-1 {
-			p.setFocus(p.focus + 1)
-			return false, nil
-		}
-		if p.onSubmit == nil {
-			return true, nil
-		}
-		values := make([]string, len(p.inputs))
-		for i := range p.inputs {
-			values[i] = p.inputs[i].Value()
-		}
-		return true, p.onSubmit(m, values)
-	}
-	var cmd tea.Cmd
-	p.inputs[p.focus], cmd = p.inputs[p.focus].Update(msg)
-	return false, cmd
-}
-
-// paste puts pasted text in the placeholder under the cursor — a value
-// copied out of another tool is exactly what these fields are for.
-func (p *paramsModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
-	if p.focus < 0 || p.focus >= len(p.inputs) {
-		return nil
-	}
-	var cmd tea.Cmd
-	p.inputs[p.focus], cmd = p.inputs[p.focus].Update(msg)
-	return cmd
-}
-
-func (p *paramsModal) view(s styles, maxW, maxH int) string {
-	width := min(maxW-8, 70)
-	if width < 20 {
-		width = 20
-	}
-	var b strings.Builder
-	b.WriteString(s.modalTitle.Render("Query parameters") + "\n\n")
-	lines := strings.Split(p.sql, "\n")
-	shown := min(len(lines), 5)
-	for _, l := range lines[:shown] {
-		b.WriteString(highlightSQL(s, p.dialect, truncate(l, width)) + "\n")
-	}
-	if shown < len(lines) {
-		b.WriteString(s.muted.Render(fmt.Sprintf("… %d more lines", len(lines)-shown)) + "\n")
-	}
-	b.WriteString("\n")
-
-	labelW := 0
-	for _, l := range p.labels {
-		if w := lipgloss.Width(l); w > labelW {
-			labelW = w
-		}
-	}
-	for i := range p.inputs {
-		p.inputs[i].SetWidth(max(width-labelW-3, 10))
-		label := fmt.Sprintf("%-*s", labelW, p.labels[i])
-		if i == p.focus {
-			label = s.keyHint.Render(label)
-		} else {
-			label = s.muted.Render(label)
-		}
-		b.WriteString(label + "  " + p.inputs[i].View() + "\n")
-	}
-	b.WriteString("\n" + s.muted.Render("enter next/run · tab next field · esc cancel"))
-	return s.modal.Render(b.String())
 }

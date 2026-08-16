@@ -121,7 +121,8 @@ What each one does, and its default keys, is in
 `close-completion` · `col-left` · `col-right` · `collapse-node` ·
 `command-log` · `commit-changes` · `complete` · `complete-next` ·
 `complete-prev` · `connect` · `copy-menu` · `copy-selection` · `delete-row` ·
-`discard-changes` · `down` · `drop-connection` · `duplicate-row` ·
+`discard-changes` · `down` · `drop-connection` · `duplicate-connection` ·
+`duplicate-row` ·
 `edit-cell` · `edit-connection` · `edit-query` · `enter` · `expand-node` ·
 `explain-query` · `export-database-ddl` · `export-table` · `filter` ·
 `filter-hist-next` · `filter-hist-prev` · `follow-fk` · `help` ·

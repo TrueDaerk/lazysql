@@ -21,6 +21,14 @@ sources:
 > footer and `?`. The placeholder detection and prompt-and-bind flow
 > below are unchanged.
 
+> **Prompt superseded** by
+> [query-parameter-prompt](query-parameter-prompt.md) (issue #152): the
+> bespoke `paramsModal` is gone, replaced by the shared `formModal`
+> with a NULL toggle per parameter and session-scoped memory of the
+> last values, and `BindPlaceholders` now takes `[]db.ParamValue`
+> instead of `[]string`. Detection, the `submitQuery` placement and the
+> never-interpolate rule below are unchanged.
+
 ## Decision
 
 Panel `[4] Query history` is gone. The history is a **floating pane**

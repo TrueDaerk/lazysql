@@ -260,11 +260,10 @@ func TestExportQueryResultStreamsBeyondGridCap(t *testing.T) {
 func TestExportQueryResultReusesBoundPlaceholderArgs(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "SELECT id FROM q WHERE id = ? AND name = :n")
-	if _, ok := m.modal.(*paramsModal); !ok {
-		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
-	}
-	m = send(t, m, press('2'), special(tea.KeyEnter, 0),
-		press('r'), press('o'), press('w'), special(tea.KeyEnter, 0))
+	p := paramsPrompt(t, m)
+	setParam(t, p, 0, "2")
+	setParam(t, p, 1, "row")
+	m = send(t, m, special(tea.KeyEnter, 0))
 	if !m.data.isQuery() || len(m.data.rows) != 1 {
 		t.Fatalf("data = %#v, want the one matching row", m.data)
 	}

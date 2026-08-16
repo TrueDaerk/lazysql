@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -588,20 +590,53 @@ func TestQueryStatementsLandInTheHistory(t *testing.T) {
 
 // ---------- placeholder prompts ----------
 
+// paramsPrompt is the open placeholder prompt, or a fatal error.
+func paramsPrompt(t *testing.T, m Model) *formModal {
+	t.Helper()
+	f, ok := m.modal.(*formModal)
+	if !ok || f.title != "Query parameters" {
+		t.Fatalf("the open modal is %T, want the parameter prompt", m.modal)
+	}
+	return f
+}
+
+// paramLabels are the prompt's placeholder labels, without the NULL
+// toggle that follows each one.
+func paramLabels(f *formModal) []string {
+	var out []string
+	for i := 0; ; i++ {
+		fl := f.field(paramName(paramFieldPrefix, i))
+		if fl == nil {
+			return out
+		}
+		out = append(out, fl.label)
+	}
+}
+
+// setParam fills the i-th placeholder's value field without typing it
+// rune by rune.
+func setParam(t *testing.T, f *formModal, i int, value string) {
+	t.Helper()
+	fl := f.field(paramName(paramFieldPrefix, i))
+	if fl == nil {
+		t.Fatalf("the prompt has no field %d", i)
+	}
+	fl.input.SetValue(value)
+}
+
 // A statement with placeholders prompts for values first and runs as a
 // prepared statement with them bound as parameters.
 func TestPlaceholdersPromptAndBind(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "SELECT * FROM q WHERE id = ? AND name = :n")
-	p, ok := m.modal.(*paramsModal)
-	if !ok {
-		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
+	p := paramsPrompt(t, m)
+	if got := paramLabels(p); !reflect.DeepEqual(got, []string{"? (1)", ":n"}) {
+		t.Fatalf("prompt fields = %v, want the ? and :n", got)
 	}
-	if len(p.inputs) != 2 || p.labels[0] != "? (1)" || p.labels[1] != ":n" {
-		t.Fatalf("prompt fields = %v, want the ? and :n", p.labels)
-	}
-	// One value per placeholder: enter advances, the last enter runs.
-	m = send(t, m, press('2'), special(tea.KeyEnter, 0),
+	// One value per placeholder: tab walks the fields (each value field is
+	// followed by its NULL toggle), enter runs.
+	m = send(t, m, press('2'),
+		special(tea.KeyTab, 0), special(tea.KeyTab, 0),
 		press('r'), press('o'), press('w'), special(tea.KeyEnter, 0))
 	if m.modal != nil {
 		t.Fatalf("the prompt left %T open", m.modal)
@@ -623,9 +658,7 @@ func TestPlaceholdersPromptAndBind(t *testing.T) {
 func TestPlaceholderPromptEscCancels(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "DELETE FROM q WHERE id = ?")
-	if _, ok := m.modal.(*paramsModal); !ok {
-		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
-	}
+	paramsPrompt(t, m)
 	m = send(t, m, special(tea.KeyEscape, 0))
 	if m.modal != nil {
 		t.Fatalf("esc left %T open", m.modal)
@@ -641,11 +674,8 @@ func TestPlaceholderPromptEscCancels(t *testing.T) {
 func TestPlaceholderValueIsBoundNotInterpolated(t *testing.T) {
 	m := queryable(t)
 	m = runQuery(t, m, "SELECT * FROM q WHERE name = :n")
-	p, ok := m.modal.(*paramsModal)
-	if !ok {
-		t.Fatalf("ctrl+r opened %T, want the parameter prompt", m.modal)
-	}
-	p.inputs[0].SetValue("'; DROP TABLE q;--")
+	p := paramsPrompt(t, m)
+	setParam(t, p, 0, "'; DROP TABLE q;--")
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if logContains(m, "FAILED") {
 		t.Fatalf("the bound value broke the statement: %v", m.commandLog)
@@ -668,6 +698,88 @@ func TestNoPromptForQuotedOrCommentedPlaceholders(t *testing.T) {
 	}
 	if !m.data.isQuery() || len(m.data.rows) != 3 {
 		t.Fatalf("data = %#v, want the statement to have run", m.data)
+	}
+}
+
+// An empty field is the empty string; the NULL toggle next to it is SQL
+// NULL. The two select different rows, which is the whole point of asking
+// instead of guessing what an empty input meant.
+func TestPlaceholderNullToggleVersusEmptyValue(t *testing.T) {
+	m := queryable(t)
+	for _, stmt := range []string{
+		`INSERT INTO q (id, name) VALUES (4, NULL)`,
+		`INSERT INTO q (id, name) VALUES (5, '')`,
+	} {
+		if _, err := m.driver.Exec(context.Background(), stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const sql = "SELECT id FROM q WHERE name IS NOT DISTINCT FROM :n"
+
+	// Empty and untoggled: the empty-string row.
+	empty := runQuery(t, m, sql)
+	paramsPrompt(t, empty)
+	empty = send(t, empty, special(tea.KeyEnter, 0))
+	if len(empty.data.rows) != 1 || fmt.Sprint(empty.data.rows[0][0]) != "5" {
+		t.Fatalf("rows = %v, want only the empty-string row", empty.data.rows)
+	}
+
+	// tab moves onto the NULL toggle, space flips it: the NULL row.
+	null := runQuery(t, m, sql)
+	paramsPrompt(t, null)
+	null = send(t, null, special(tea.KeyTab, 0), press(' '), special(tea.KeyEnter, 0))
+	if len(null.data.rows) != 1 || fmt.Sprint(null.data.rows[0][0]) != "4" {
+		t.Fatalf("rows = %v, want only the NULL row", null.data.rows)
+	}
+	// The command log carries the bound value next to the statement it ran
+	// with, so the audit trail says what actually reached the server.
+	if !logHas(null, "-- args [<nil>]") {
+		t.Fatalf("command log = %v, want the bound NULL argument", null.commandLogEntries())
+	}
+}
+
+// The values a statement last ran with come back the next time it is run:
+// re-running a parameterized query or snippet is meant to be enter, not
+// retyping.
+func TestPlaceholderPromptRemembersLastValues(t *testing.T) {
+	m := queryable(t)
+	const sql = "SELECT id FROM q WHERE name = :n AND id <> :id"
+	m = runQuery(t, m, sql)
+	p := paramsPrompt(t, m)
+	setParam(t, p, 0, "row")
+	setParam(t, p, 1, "1")
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	m = runQuery(t, m, sql)
+	p = paramsPrompt(t, m)
+	if got := p.field(paramName(paramFieldPrefix, 0)).input.Value(); got != "row" {
+		t.Fatalf("first field = %q, want it pre-filled with the last run's value", got)
+	}
+	if got := p.field(paramName(paramFieldPrefix, 1)).input.Value(); got != "1" {
+		t.Fatalf("second field = %q, want it pre-filled with the last run's value", got)
+	}
+	// A different statement starts clean — the memory is per statement.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	m = runQuery(t, m, "SELECT id FROM q WHERE name = :other")
+	p = paramsPrompt(t, m)
+	if got := p.field(paramName(paramFieldPrefix, 0)).input.Value(); got != "" {
+		t.Fatalf("field of an unrelated statement = %q, want it empty", got)
+	}
+}
+
+// The NULL toggle is remembered too: a parameter left NULL last time
+// opens toggled, so a repeated run is one keystroke.
+func TestPlaceholderPromptRemembersNullToggle(t *testing.T) {
+	m := queryable(t)
+	const sql = "SELECT id FROM q WHERE name IS NOT DISTINCT FROM :n"
+	m = runQuery(t, m, sql)
+	paramsPrompt(t, m)
+	m = send(t, m, special(tea.KeyTab, 0), press(' '), special(tea.KeyEnter, 0))
+
+	m = runQuery(t, m, sql)
+	p := paramsPrompt(t, m)
+	if !p.field(paramName(paramNullPrefix, 0)).on {
+		t.Fatal("the NULL toggle reopened off, want the last run's state")
 	}
 }
 

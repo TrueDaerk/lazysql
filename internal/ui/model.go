@@ -264,6 +264,14 @@ type Model struct {
 	// story the history is the automatic half of.
 	snippets []snippets.Snippet
 
+	// params remembers the values last bound to each statement's
+	// placeholders, so re-running a query or a snippet opens the prompt
+	// pre-filled. It is a pointer so every copied Model shares one store,
+	// the way changes shares one changeset, and it is deliberately
+	// session-scoped: parameter values are often exactly the data that
+	// must not survive on disk. See params.go.
+	params *paramMemory
+
 	// completion is the editor's autocomplete popup, and schema the
 	// column cache behind it. The cache keys itself on connection +
 	// database and drops itself when either changes.
@@ -336,6 +344,7 @@ func New(noRestore bool) (Model, error) {
 		refsCache: map[fkKey][]namespaceFK{},
 		fkLoading: map[fkKey]bool{},
 		changes:   db.NewChangeset(),
+		params:    newParamMemory(),
 		cfg:       cfg,
 		editor:    newQueryEditor(),
 		hl:        &editorCache{},

@@ -580,6 +580,11 @@ func (m Model) renderOptionsBar() string {
 			bindings = fm.bar(m.keys)
 		}
 	}
+	// A JSON cell popup is a tree, navigated rather than scrolled, so the
+	// bar offers its fold keys instead of grid verbs that could not act.
+	if cm, ok := m.modal.(*cellModal); ok && cm.tree != nil {
+		bindings = m.keys.jsonCellKeys()
+	}
 	// The engine picker (step one of the connection flow) has its own
 	// five-key contract, documented in `?` under the Connections panel.
 	if _, ok := m.modal.(*enginePickerModal); ok {

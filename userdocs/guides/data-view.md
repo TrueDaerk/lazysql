@@ -78,9 +78,9 @@ through typing.
 
 ## Looking at one value
 
-`v` opens the **cell detail popup**: the full value, JSON pretty-printed, a
-BLOB as a hex dump. The title names the column's type and the value's byte
-length.
+`v` opens the **cell detail popup**: the full value, JSON as a collapsible
+tree, a BLOB as a hex dump. The title names the column's type and the value's
+byte length.
 
 | Key | In the popup |
 |---|---|
@@ -88,6 +88,24 @@ length.
 | `ctrl+d` / `ctrl+u` | Scroll half a screen |
 | `y` | Copy the **raw** value — never the rendering |
 | ++esc++ | Close |
+
+A JSON or JSONB value is not a wall of indented text: it opens as a tree you
+fold and unfold, so a large document reads as an overview you drill into.
+
+```
+▾ {
+    "id": 4711
+  ▾ "customer": {
+      "name": "ACME GmbH"
+    ▸ "address": {…} 5 keys
+  ▸ "items": […] 40 items
+```
+
+The top two levels open, everything deeper starts folded, and a folded node
+says what it hides (`{…} 5 keys`, `[…] 40 items`). Navigation is the `[2]
+Objects` tree's: `j` / `k` between visible nodes, `enter` or `l` to expand
+(again to step into the node), `h` to collapse or step back out to the
+parent. `y` still copies the **raw** JSON, not the tree.
 
 ## Looking at one row
 

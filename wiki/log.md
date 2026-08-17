@@ -1624,3 +1624,14 @@ Chronological history of wiki changes, newest last.
   instead of cycling to the next — `↓`/`↑` is the way to preview more than one
   candidate before accepting. Footer hints updated to
   `enter accept & next` / `tab/enter accept & next · shift+tab back`.
+
+## 2026-08-17 — Add disconnect action to the connections panel (issue #172)
+
+- Added [design/disconnect-action](design/disconnect-action.md): panel [1]
+  gains `x` to close the active connection. Scoped to the active row (a
+  non-active selection just logs a line, no confirm modal — closing a
+  session loses nothing persistent). Reuses `closeSessionCmd` for the
+  off-update-loop driver/tunnel teardown and `resetBrowse` — the same
+  helper `quit()` and delete-while-connected already call — to put `[2]
+  Objects` and the main view back into their no-connection state, instead
+  of writing a second teardown path.

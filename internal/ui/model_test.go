@@ -618,6 +618,52 @@ func TestConnectSetsStatusAndListsDatabases(t *testing.T) {
 	}
 }
 
+// `x` on the active connection tears the session down and resets panel [2]
+// and the main view to their disconnected state.
+func TestDisconnectClosesActiveConnection(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.active != "local-sqlite" {
+		t.Fatalf("active = %q, want local-sqlite", m.active)
+	}
+	m = send(t, m, press('1')) // back to the connections panel
+	m = send(t, m, press('x'))
+	if m.active != "" {
+		t.Fatalf("active = %q, want empty after disconnect", m.active)
+	}
+	if m.driver != nil {
+		t.Fatal("driver still set after disconnect")
+	}
+	if got := m.connState["local-sqlite"].status; got != statusIdle {
+		t.Fatalf("status = %v, want statusIdle", got)
+	}
+	if len(m.panels[panelObjects].items) != 0 {
+		t.Fatalf("objects panel = %v, want empty", m.panels[panelObjects].items)
+	}
+	if !logContains(m, "-- disconnect local-sqlite") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// `x` on a connection that is not the active one is a no-op: nothing errors
+// and the live session survives untouched.
+func TestDisconnectOnInactiveConnectionIsNoop(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.active != "local-sqlite" {
+		t.Fatalf("active = %q, want local-sqlite", m.active)
+	}
+	m = send(t, m, press('1')) // back to the connections panel
+	m = send(t, m, press('j')) // move selection to the next connection
+	m = send(t, m, press('x'))
+	if m.active != "local-sqlite" {
+		t.Fatalf("active = %q, want local-sqlite to stay connected", m.active)
+	}
+	if m.driver == nil {
+		t.Fatal("driver was closed for a non-active disconnect")
+	}
+}
+
 // A dial that cannot succeed must not wedge the UI: it tints the row red and
 // surfaces the error.
 func TestFailedConnectMarksProfileRed(t *testing.T) {

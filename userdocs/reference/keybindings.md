@@ -56,6 +56,7 @@ mode it runs the statement the caret is in.
 | Keys | Action | Action name |
 |---|---|---|
 | `enter` · `space` | Connect | `connect` |
+| `x` | Disconnect (only the active connection) | `disconnect` |
 | `n` | New connection | `new-connection` |
 | `e` | Edit connection | `edit-connection` |
 | `d` | Remove connection | `drop-connection` |

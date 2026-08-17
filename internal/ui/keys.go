@@ -53,6 +53,9 @@ type keyMap struct {
 	TestConnection      key.Binding
 	SchemaDiff          key.Binding
 	Connect             key.Binding
+	// Disconnect closes the active connection from panel [1]. It only acts
+	// on the currently connected row — see actDisconnect.
+	Disconnect key.Binding
 	Refresh             key.Binding
 	Actions             key.Binding
 	Filter              key.Binding
@@ -328,6 +331,8 @@ func newKeyMap() keyMap {
 		TestConnection:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
 		SchemaDiff:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "schema diff vs…")),
 		Connect:             key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
+		// `x` is free in this panel — `d` already means remove connection.
+		Disconnect: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "disconnect")),
 		Refresh:             key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:             key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:              key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
@@ -733,6 +738,7 @@ const (
 	// pending" without a second bool next to it.
 	actNone actionID = iota
 	actConnect
+	actDisconnect
 	actNewConnection
 	actEditConnection
 	actDropConnection
@@ -830,6 +836,7 @@ func (k keyMap) panelActions(id panelID) []action {
 	case panelConnections:
 		return []action{
 			{actConnect, k.Connect},
+			{actDisconnect, k.Disconnect},
 			{actNewConnection, k.NewConnection},
 			{actEditConnection, k.EditConnection},
 			{actDropConnection, k.DropConnection},
@@ -1030,7 +1037,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"server-activity", &k.ServerActivity}, {"kill-process", &k.KillProcess},
 		{"activity-auto", &k.ActivityAuto},
 		{"move-conn-up", &k.MoveConnUp}, {"move-conn-down", &k.MoveConnDown},
-		{"connect", &k.Connect}, {"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
+		{"connect", &k.Connect}, {"disconnect", &k.Disconnect},
+		{"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},
 		{"expand-node", &k.ExpandNode}, {"collapse-node", &k.CollapseNode},
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},

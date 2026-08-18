@@ -696,6 +696,7 @@ func (k keyMap) activityActions() []action {
 		{actColRight, k.ColRight},
 		{actNextPage, k.NextPage},
 		{actPrevPage, k.PrevPage},
+		{actSortColumn, k.SortColumn},
 		{actSelectRows, k.SelectRows},
 		{actSelectColumns, k.SelectColumns},
 		{actExtendSelectionUp, k.ActivitySelectUp},

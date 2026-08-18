@@ -55,6 +55,51 @@ The tie-break matters more than it looks: the list is re-read whole on
 every refresh, so without a total order two equal rows could swap places
 between refreshes and move the row `K` is aimed at.
 
+> **Extended by issue #178.** `db.SortProcesses` is still the order the
+> driver hands back and still what "no active sort" means, but the report
+> now also lets `s` sort the client-side list by whichever column the
+> cursor is on — see [Column sorting](#column-sorting) below.
+
+## Column sorting
+
+`s` on the column under the cursor cycles ASC → DESC → the default
+`db.SortProcesses` order, the same three-state cycle `toggleSort` runs
+for the data grid (`internal/ui/data.go`). It is entirely client-side:
+the report already holds the whole list, there is nothing to re-query,
+and the sort has to survive auto-refresh without adding a round trip.
+
+`activityView.sort` (`internal/ui/activity.go`) holds the active column
+and direction; `nil` means "no active sort", which is the same state a
+fresh report or a third `s` press lands in. `setRows` — the one place
+that lands a list, whether from the initial read, `R`, or an
+auto-refresh beat — applies it before the cursor/selection is re-anchored
+by session id, so a re-sort and a refresh go through one path and cannot
+disagree about the order the cursor ends up looking at.
+
+Two rules the per-column comparators share with `db.SortProcesses`
+itself:
+
+- **Numeric columns sort numerically.** PID and Duration parse and
+  compare as numbers rather than as the formatted display text — sorting
+  "PID" lexically would put session `10` ahead of `9`, and Duration is
+  already rendered as `"1m 35s"`, which does not sort at all the way the
+  underlying seconds do.
+- **Unreported values sort last, in both directions.** An idle session's
+  Duration and an empty text column (no client address, no blocker) are
+  not "small" or "before everything else" — they are absent, so they stay
+  at the bottom whether the column reads ASC or DESC. `db.SortProcesses`
+  already makes this call for the default order (`HasDuration` last); the
+  column sort just applies the same convention everywhere else instead of
+  making it column by column.
+
+Reaching for `db.SortProcesses` directly happens in exactly one place:
+the third `s` press, which needs the default order to take effect
+immediately rather than waiting for the next refresh to happen to arrive
+in it. Every other landing of fresh rows leaves them as the driver
+returned them when no client sort is active — the report still does not
+re-order what it was handed, the rule the original decision above
+documents.
+
 ## Why it is not a fourth panel
 
 The side column is three numbered panels and a `1`–`3` jump; a fourth

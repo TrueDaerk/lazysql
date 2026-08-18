@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,6 +79,12 @@ type activityView struct {
 	gen  int
 
 	rows []db.Process
+	// sort is the client-side column sort `s` cycles through: ASC, DESC,
+	// then nil for the default db.SortProcesses order ListProcesses
+	// already returned. It survives a refresh — applyActivity re-applies
+	// it to every freshly read list, auto-refresh included — the way the
+	// data grid's own dataView.sort survives a page reload.
+	sort *activitySort
 	err  string
 	// unsupported marks an engine that has no server to ask — SQLite and
 	// DuckDB run in this process, so there is no session but ours.
@@ -91,6 +98,23 @@ type activityView struct {
 	// describe the same list — setRows is the only thing that replaces
 	// either.
 	grid roGrid
+}
+
+// activitySort is one active column sort: which of activityHeaders and
+// which direction. A nil *activitySort means the default order.
+type activitySort struct {
+	Column string
+	Desc   bool
+}
+
+// sortOn returns the sort direction for a header, if it is the one being
+// sorted on — the report's equivalent of dataView.sortOn, read by the
+// same header-marking code in gridHeader's roGrid callers.
+func (v *activityView) sortOn(name string) (desc, ok bool) {
+	if v == nil || v.sort == nil || v.sort.Column != name {
+		return false, false
+	}
+	return v.sort.Desc, true
 }
 
 // selected is the process under the cursor.
@@ -118,6 +142,7 @@ func (v *activityView) setRows(rows []db.Process) {
 		anchorID = v.rows[a].ID
 	}
 
+	applyActivitySort(rows, v.sort)
 	v.rows = rows
 	cells := make([][]string, len(rows))
 	kinds := make([]rowKind, len(rows))
@@ -130,7 +155,7 @@ func (v *activityView) setRows(rows []db.Process) {
 			kinds[i] = rowFaded
 		}
 	}
-	v.grid.setCells(activityHeaders, cells, kinds)
+	v.grid.setCells(v.headers(), cells, kinds)
 
 	cursorAt, cursorOK := indexOfProcess(rows, cursorID)
 	if cursorOK {
@@ -568,6 +593,8 @@ func (m Model) activityDispatch(id actionID) (Model, tea.Cmd, bool) {
 	case actColRight:
 		v.grid.col++
 		v.grid.clampCursor()
+	case actSortColumn:
+		return m, m.toggleActivitySort(), true
 	case actNextPage:
 		v.grid.row += activityPageStep
 		v.grid.clampCursor()
@@ -706,6 +733,142 @@ func (m *Model) clickActivity(row, col int) {
 		return
 	}
 	v.grid.clickRow(row, col)
+}
+
+// ---------- sorting ----------
+
+// toggleActivitySort is `s`: cycle the column under the cursor through
+// ASC, DESC and the default order, the way toggleSort does for the data
+// grid. Sorting is client-side — the rows are already on screen — so it
+// takes effect immediately rather than through a reload.
+func (m *Model) toggleActivitySort() tea.Cmd {
+	v := m.activity
+	if v == nil || v.grid.col < 0 || v.grid.col >= len(activityHeaders) {
+		return nil
+	}
+	name := activityHeaders[v.grid.col]
+	switch {
+	case v.sort == nil || v.sort.Column != name:
+		v.sort = &activitySort{Column: name}
+	case !v.sort.Desc:
+		v.sort = &activitySort{Column: name, Desc: true}
+	default:
+		// Back to the default order. applyActivitySort is a no-op with no
+		// sort active — a refresh trusts the driver's own SortProcesses
+		// order rather than re-imposing it — so leaving the rows as DESC
+		// left them would strand the list there until the next refresh.
+		// This is the one place that reaches for db.SortProcesses
+		// directly, to make "default" take effect immediately.
+		v.sort = nil
+		db.SortProcesses(v.rows)
+	}
+	// setRows re-sorts, rebuilds the marked headers and re-anchors the
+	// cursor/selection by session ID — the same path a refresh takes.
+	v.setRows(v.rows)
+	return nil
+}
+
+// headers is the report's columns with the active sort marked, the same
+// way buildGrid marks the data grid's own header.
+func (v *activityView) headers() []string {
+	headers := make([]string, len(activityHeaders))
+	for i, h := range activityHeaders {
+		headers[i] = h
+		if desc, ok := v.sortOn(h); ok {
+			if desc {
+				headers[i] += " ▼"
+			} else {
+				headers[i] += " ▲"
+			}
+		}
+	}
+	return headers
+}
+
+// applyActivitySort orders rows by the report's active client-side sort,
+// in place. It is a no-op with no sort active, which is what leaves the
+// default db.SortProcesses order — already applied by ListProcesses —
+// alone. It runs every time fresh rows land (the initial read, `R`, and
+// every auto-refresh tick), so the same key and direction survive a
+// refresh.
+func applyActivitySort(rows []db.Process, s *activitySort) {
+	if s == nil {
+		return
+	}
+	switch s.Column {
+	case "PID":
+		sortProcessesByID(rows, s.Desc)
+	case "User":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return p.User })
+	case "Database":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return p.Database })
+	case "Client":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return p.Client })
+	case "State":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return p.State })
+	case "Duration":
+		sortProcessesByDuration(rows, s.Desc)
+	case "Blocked by":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return p.BlockedByText() })
+	case "Query":
+		sortProcessesByText(rows, s.Desc, func(p db.Process) string { return flatten(p.Query) })
+	}
+}
+
+// sortProcessesByID orders by session ID numerically, ascending or
+// descending. Equal IDs cannot occur — a session's ID is unique — so
+// there is no further tie-break to keep.
+func sortProcessesByID(ps []db.Process, desc bool) {
+	sort.SliceStable(ps, func(i, j int) bool {
+		if desc {
+			return db.ProcessIDLess(ps[j].ID, ps[i].ID)
+		}
+		return db.ProcessIDLess(ps[i].ID, ps[j].ID)
+	})
+}
+
+// sortProcessesByDuration orders by runtime numerically. Idle sessions
+// (HasDuration false) sort last regardless of direction, the same
+// NULLS-LAST convention SortProcesses' default order uses — a direction
+// that buried the longest query would defeat the column's own point.
+func sortProcessesByDuration(ps []db.Process, desc bool) {
+	sort.SliceStable(ps, func(i, j int) bool {
+		a, b := ps[i], ps[j]
+		if a.HasDuration != b.HasDuration {
+			return a.HasDuration
+		}
+		if !a.HasDuration {
+			return db.ProcessIDLess(a.ID, b.ID)
+		}
+		if a.Duration != b.Duration {
+			if desc {
+				return a.Duration > b.Duration
+			}
+			return a.Duration < b.Duration
+		}
+		return db.ProcessIDLess(a.ID, b.ID)
+	})
+}
+
+// sortProcessesByText orders by a text column lexically, with the
+// session ID as the stable tie-break every column shares. An unreported
+// value (empty string) sorts last regardless of direction — the same
+// place a NULL would land — so asking for the busiest states or the
+// latest client address does not bury them under a page of blanks.
+func sortProcessesByText(ps []db.Process, desc bool, get func(db.Process) string) {
+	sort.SliceStable(ps, func(i, j int) bool {
+		a, b := get(ps[i]), get(ps[j])
+		if ea, eb := a == "", b == ""; ea != eb {
+			return eb
+		}
+		if a != b {
+			if desc {
+				return a > b
+			}
+			return a < b
+		}
+		return db.ProcessIDLess(ps[i].ID, ps[j].ID)
+	})
 }
 
 // ---------- rendering ----------
@@ -900,7 +1063,7 @@ func (m Model) activityFooter() string {
 	// has them: with a side panel focused the list is on display and the
 	// footer says how to get back to it instead.
 	if m.activityFocused() {
-		parts = append(parts, "j/k/h/l move · y copy · R refresh · t auto · K kill · esc close")
+		parts = append(parts, "j/k/h/l move · s sort · y copy · R refresh · t auto · K kill · esc close")
 	} else {
 		parts = append(parts, "tab focuses the report")
 	}

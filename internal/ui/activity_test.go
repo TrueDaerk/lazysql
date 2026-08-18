@@ -55,14 +55,16 @@ func openReport(t *testing.T, m Model, rows []db.Process) Model {
 	return send(t, m, activityLoadedMsg{id: m.activity.id, conn: m.active, rows: rows})
 }
 
-func TestActivityOpensFromTheConnectionsPanel(t *testing.T) {
+// `A` opens the report in the main view and hands it the focus there —
+// it is not an overlay on the panel that opened it.
+func TestActivityOpensFocusedInTheMainView(t *testing.T) {
 	m := serverModel(t, false)
 	m = send(t, m, press('1'), press('A'))
 	if m.activity == nil {
 		t.Fatal("`A` opened no activity report")
 	}
-	if m.focus != panelConnections {
-		t.Fatalf("focus = %v, want panel [1]", m.focus)
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the main view", m.focus)
 	}
 	if !strings.Contains(m.mainTitle(100), "Server activity") {
 		t.Fatalf("the main view is not titled for the report:\n%s", m.mainTitle(100))
@@ -338,6 +340,148 @@ func TestActivityOptionsBar(t *testing.T) {
 	}
 	if strings.Contains(bar, "move up") {
 		t.Errorf("the options bar still offers the panel's `K`:\n%s", bar)
+	}
+}
+
+// The report holds the keyboard in the main view, not over panel [1]:
+// `1` takes the focus back and the panel is a plain list again, while
+// the list stays on screen beside it. This is issue #174.
+func TestActivityReleasesTheKeysToTheFocusedPanel(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = send(t, m, press('1'))
+	if m.focus != panelConnections {
+		t.Fatalf("focus = %v, want panel [1]", m.focus)
+	}
+	if m.activity == nil {
+		t.Fatal("`1` closed the report instead of releasing its keys")
+	}
+
+	before := m.panels[panelConnections].cursor
+	m = send(t, m, press('j'))
+	if got := m.panels[panelConnections].cursor; got != before+1 {
+		t.Fatalf("connections cursor = %d, want %d — the report swallowed `j`", got, before+1)
+	}
+	if m.activity.cursor != 0 {
+		t.Fatalf("activity cursor = %d, want it untouched by the panel's `j`", m.activity.cursor)
+	}
+	// `enter` on panel [1] is connect, not a report key.
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if !logHas(m, "local-postgres") {
+		t.Fatalf("`enter` did not act on the connections panel:\n%v", m.commandLogEntries())
+	}
+
+	// The list is still what the main view draws, and it says how to get
+	// back to it rather than offering keys it no longer owns.
+	out := m.activityContent(120, 20)
+	if !strings.Contains(out, "4 sessions") {
+		t.Fatalf("the report left the main view:\n%s", out)
+	}
+	if strings.Contains(out, "K kill") {
+		t.Fatalf("the blurred report still offers its keys:\n%s", out)
+	}
+	// And the options bar is the panel's again.
+	bar := m.renderOptionsBar()
+	if strings.Contains(bar, "kill session") {
+		t.Fatalf("the blurred report still owns the options bar:\n%s", bar)
+	}
+	if !strings.Contains(bar, "new connection") {
+		t.Fatalf("the options bar is not panel [1]'s:\n%s", bar)
+	}
+}
+
+// tab reaches the report the same way it reaches the grid, and `A` from
+// the panel takes the focus back to a list it left open.
+func TestActivityIsInTheTabOrder(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = send(t, m, press('1'))
+	for i := 0; i < int(panelCount) && m.focus != panelMain; i++ {
+		m = send(t, m, special(tea.KeyTab, 0))
+	}
+	if m.focus != panelMain {
+		t.Fatalf("tab never reached the report: focus = %v", m.focus)
+	}
+	m = send(t, m, press('j'))
+	if m.activity.cursor != 1 {
+		t.Fatalf("cursor = %d, want the refocused report to take `j`", m.activity.cursor)
+	}
+
+	m = send(t, m, press('1'), press('A'))
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want `A` to take the keyboard back to the report", m.focus)
+	}
+}
+
+// While the report is focused `?` documents its keys, not the grid's.
+func TestActivityHelpFollowsTheFocus(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = send(t, m, press('?'))
+	if m.modal == nil {
+		t.Fatal("`?` opened no modal")
+	}
+	out := m.modal.view(m.style, 120, 40)
+	if !strings.Contains(out, "Server activity") {
+		t.Fatalf("the help is not the report's:\n%s", out)
+	}
+	for _, want := range []string{"kill session", "auto-refresh"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q is missing from the help:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "edit cell") {
+		t.Fatalf("the help still lists the grid's actions:\n%s", out)
+	}
+}
+
+// A click puts the cursor on the row that was clicked, and the wheel
+// walks the list the way j/k does. The main view of a 120x40 model
+// starts at x=40; its first content row is the column header.
+func TestActivityMouse(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	// The click is mapped through the window the last frame rendered.
+	m.activityContent(80, 28)
+
+	// y=1 is the column header and y=2 the first session, so y=4 is the
+	// third row of the list.
+	m = send(t, m, click(60, 4))
+	if m.activity.cursor != 2 {
+		t.Fatalf("cursor after the click = %d, want the clicked row", m.activity.cursor)
+	}
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the click to keep the report focused", m.focus)
+	}
+	// A click on the header row is not a row: it leaves the cursor alone.
+	m = send(t, m, click(60, 1))
+	if m.activity.cursor != 2 {
+		t.Fatalf("cursor after clicking the header = %d, want it unmoved", m.activity.cursor)
+	}
+	// The wheel walks rows, clamped to the list.
+	m = send(t, m, wheelUp(60, 5))
+	if m.activity.cursor != 0 {
+		t.Fatalf("cursor after a wheel notch up = %d, want 0", m.activity.cursor)
+	}
+	m = send(t, m, wheelDown(60, 5))
+	if m.activity.cursor != 3 {
+		t.Fatalf("cursor after a wheel notch down = %d, want the last row", m.activity.cursor)
+	}
+	// A click from a focused side panel focuses the report again.
+	m = send(t, m, press('1'), click(60, 3))
+	if m.focus != panelMain || m.activity.cursor != 1 {
+		t.Fatalf("focus = %v cursor = %d, want the click to refocus and select",
+			m.focus, m.activity.cursor)
+	}
+}
+
+// Opening a relation takes the main view back: the report and the grid
+// cannot both own the box.
+func TestActivityClosesWhenARelationOpens(t *testing.T) {
+	m := openReport(t, dataBrowsing(t), nil)
+	m = send(t, m, press('2'))
+	if !m.panels[panelObjects].selectByName("grid") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.activity != nil {
+		t.Fatal("the report survived a relation opening in the main view")
 	}
 }
 

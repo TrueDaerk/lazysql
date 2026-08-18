@@ -390,9 +390,11 @@ func countRowsCmd(drv db.Driver, d dataView, req int) tea.Cmd {
 // sort belong to the relation that was open, so they do not carry over.
 func (m *Model) openTable(name string) tea.Cmd {
 	m.table = name
-	// The relation replaces whatever the main view was showing, trigger
-	// definition included.
+	// The relation replaces whatever the main view was showing — trigger
+	// definition and server activity report included, both of which are
+	// focused in the box the grid is about to take.
 	m.trigger = nil
+	m.closeActivity()
 	// An inline filter line is labelled with the relation it was opened
 	// on, so it cannot follow the grid to another one.
 	m.closeFilterInput()
@@ -547,6 +549,14 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 // place of updateFocused, so navigation keys mean cells here.
 func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
+	// The server activity report owns the main view while it is up, so it
+	// gets every key first. A key it has no meaning for stops here rather
+	// than acting on the grid behind the list — the report is what the
+	// box shows, and a hidden cursor must not move.
+	if m.activity != nil {
+		mm, cmd, _ := m.updateActivityKeys(msg)
+		return mm, cmd
+	}
 	// A trigger definition owns the main view while it is up: it is a
 	// read-only text block, so only scrolling and esc mean anything.
 	if m.trigger != nil {

@@ -16,11 +16,17 @@ import (
 
 // `A` on panel [1] asks the server what it is doing: one row per
 // session, longest-running first, with the sessions that are waiting on
-// a lock marked with the ID of whoever holds it. The report takes over
-// the main view while panel [1] keeps the focus, exactly like the schema
-// diff — see wiki/design/server-activity-view.md.
+// a lock marked with the ID of whoever holds it. The report opens *in*
+// the main view and takes the focus there, the way a trigger definition
+// does — not as an overlay on a focused panel [1], which is what the
+// schema diff still is. See wiki/design/server-activity-focus.md.
 //
-// Three rules shape it:
+// Four rules shape it:
+//
+//   - The report is focused where it is drawn. Its keys act only while
+//     the main view has the focus; `1` or `tab` hands the keyboard back
+//     to a side panel, which then behaves exactly as it always does
+//     while the list stays readable beside it.
 //
 //   - Reading is free, killing is not. The listing is a plain SELECT and
 //     runs on read-only connections too; `K` never executes anything
@@ -137,16 +143,21 @@ func (m *Model) openActivity() tea.Cmd {
 		return logCmd("-- server activity skipped: not connected")
 	}
 	if m.activity != nil && m.activity.conn == m.active {
+		// A second `A` from the panel refreshes the list it left open and
+		// takes the keyboard back to it.
+		m.setFocus(panelMain)
 		return m.refreshActivity()
 	}
 	m.activity = &activityView{
 		conn:   m.active,
 		engine: m.driver.Dialect().DisplayName(),
 	}
-	// The two reports share the main view of panel [1]; opening one puts
-	// the other away rather than stacking behind it.
+	// The report owns the main view: whatever else was drawn there — the
+	// schema diff of panel [1], a trigger definition — is put away rather
+	// than stacked behind it, and the focus follows it into the box.
 	m.diff = nil
-	m.setFocus(panelConnections)
+	m.trigger = nil
+	m.setFocus(panelMain)
 	return tea.Batch(
 		logCmd("-- server activity on %s…", m.active),
 		m.refreshActivity(),
@@ -252,6 +263,35 @@ func (m *Model) activityTick(msg activityTickMsg) tea.Cmd {
 		return activityTickCmd(v.gen)
 	}
 	return tea.Batch(m.refreshActivity(), activityTickCmd(v.gen))
+}
+
+// activityFocused reports whether the report owns the keyboard: it is
+// open and the main view — where it is drawn — has the focus. Only then
+// do its keys, its options bar and its `?` group apply.
+func (m Model) activityFocused() bool {
+	return m.activity != nil && m.focus == panelMain
+}
+
+// activityOwnsMain reports whether the report is what the main view
+// draws. It keeps the box while a side panel is focused, so the list
+// stays readable while panel [1] is operated — but panel [3] edits in
+// the main view, so the editor wins there.
+func (m Model) activityOwnsMain() bool {
+	return m.activity != nil && m.focus != panelQuery
+}
+
+// activityHelpGroups is the `?` listing while the report has the focus:
+// its own keys where the grid's would be, plus the navigation and global
+// sets every panel lists. The same slice is documented under panel [1]
+// as well — `A` opens the report from there, and a key is worth finding
+// from the panel that puts it on screen.
+func (m Model) activityHelpGroups() []helpGroup {
+	k := m.keys
+	return []helpGroup{
+		{"", k.serverActivity()},
+		{"", k.navigationFor(panelMain)},
+		{"", k.global()},
+	}
 }
 
 // closeActivity is `esc` on the report.
@@ -363,16 +403,23 @@ func (m *Model) finishKill(msg activityKilledMsg) tea.Cmd {
 
 // ---------- keys ----------
 
-// updateActivityKeys owns the keyboard while the report is on screen
-// (panel [1] focused, activity open). Like the schema diff's handler it
-// returns handled=false for keys the report has no meaning for, which
-// then act on the panel as usual.
+// updateActivityKeys owns the keyboard while the report is focused in
+// the main view. Unlike the schema diff's handler there is no panel
+// behind it to fall through to: updateData hands it every key the
+// globals did not claim, and a key it has no meaning for is a no-op
+// rather than an action on the grid the report is covering.
 func (m Model) updateActivityKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	v := m.activity
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.Back):
 		m.closeActivity()
+		// The report was the main view's content; with it gone the box has
+		// nothing of its own to show, so the focus goes back where `A` came
+		// from rather than sitting on an empty grid.
+		if m.focus == panelMain && !m.data.open() && m.trigger == nil {
+			m.focusBack()
+		}
 		return m, nil, true
 	case key.Matches(msg, k.Down):
 		v.cursor++
@@ -429,6 +476,23 @@ func (m *Model) scrollActivity(delta int) {
 	m.activity.clampCursor()
 }
 
+// clickActivity moves the cursor onto the clicked row. row is a content
+// row of the main view box, and activityContent spends the first one on
+// the column header — everything under it is the window activityTable
+// last rendered, which is why the click is mapped through v.off rather
+// than through the cursor.
+func (m *Model) clickActivity(row int) {
+	v := m.activity
+	if v == nil || len(v.rows) == 0 || row < 1 {
+		return
+	}
+	idx := v.off + row - 1
+	if idx < 0 || idx >= len(v.rows) {
+		return
+	}
+	v.cursor = idx
+}
+
 // ---------- rendering ----------
 
 // activityHeaders are the report's columns. Query is last because it is
@@ -482,11 +546,17 @@ func formatProcessDuration(p db.Process) string {
 	}
 }
 
-// activityTitle is the main view's border title while the report is open.
+// activityTitle is the main view's border title while the report is
+// open. The name follows the box: green while the report has the focus,
+// muted while a side panel does and the list is only on display.
 func (m Model) activityTitle() string {
 	v := m.activity
 	s := m.style
-	title := s.titleFocused.Render("Server activity") + s.muted.Render(" — "+v.engine)
+	name := s.title
+	if m.mainFocused() {
+		name = s.titleFocused
+	}
+	title := name.Render("Server activity") + s.muted.Render(" — "+v.engine)
 	if v.conn != "" {
 		title += s.muted.Render(" · "+m.tagMarkerFor(v.conn)) + s.muted.Render(v.conn)
 	}
@@ -628,7 +698,14 @@ func (m Model) activityFooter() string {
 	} else {
 		parts = append(parts, "auto-refresh off")
 	}
-	parts = append(parts, "j/k move · R refresh · t auto · K kill · v query · esc close")
+	// The keys are the report's own, so they are only offered while it
+	// has them: with a side panel focused the list is on display and the
+	// footer says how to get back to it instead.
+	if m.activityFocused() {
+		parts = append(parts, "j/k move · R refresh · t auto · K kill · v query · esc close")
+	} else {
+		parts = append(parts, "tab focuses the report")
+	}
 	return strings.Join(parts, " · ")
 }
 

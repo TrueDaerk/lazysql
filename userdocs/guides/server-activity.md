@@ -16,14 +16,16 @@ to `psql` for `pg_stat_activity` or to `mysql` for `SHOW PROCESSLIST`.
 
 ## The report
 
-It opens in the main view and takes the focus there — the list is navigated
-where it is drawn, like a data grid.
+It opens in the main view and takes the focus there. The list **is** a data
+grid — the read-only one: the same cell cursor, the same sideways scrolling,
+the same multi-row selection and the same copy menu you use on a query result.
 
 | Column | What it holds |
 |---|---|
 | `PID` | The engine's session id — MySQL's connection id, PostgreSQL's backend pid |
 | `User` | The role the session connected as |
 | `Database` | The database (MySQL) or the one the backend is attached to (PostgreSQL) |
+| `Client` | The address the session connected from |
 | `State` | The engine's own wording: `Query: Sending data`, `active`, `idle in transaction (Lock: transactionid)` |
 | `Duration` | How long the session has been doing that — a dash for an idle one |
 | `Blocked by` | The sessions this one is waiting for, empty when it runs freely |
@@ -42,12 +44,43 @@ rule — it holds locks, so it keeps its duration and stays near the top.
 | Key | Action |
 |---|---|
 | `j` / `k` | Move between sessions |
+| `h` / `l` | Move between columns — the table scrolls sideways when it does not fit |
 | `g` / `G` | First / last session |
 | `R` | Re-read the list now |
 | `t` | Auto-refresh every 5 seconds, on or off |
 | `K` | Kill the session under the cursor |
-| `v` | Show that session's statement in full |
-| ++esc++ | Close the report |
+| `ctrl+v` · `V` | Start (or end) a selection of several sessions |
+| `C` | Anchor a column span — `h`/`l` then narrow the selection to a block |
+| `y` | Copy: the cell, the row, the selection, or the whole list |
+| `ctrl+c` | The copy menu for the selection, while one is up |
+| `v` | Show the cell under the cursor in full |
+| `x` | Show the whole session as a field list |
+| ++esc++ | Clear the selection, then close the report |
+
+The report is strictly **read-only**: there is no edit, insert, delete or
+commit key here at all — not disabled ones, none. `K` is the one thing that
+changes anything on the server, and it always asks first.
+
+## Copying sessions out
+
+`y` opens the same copy menu the data grid uses, with the scopes that make
+sense without a table behind them: the **cell** under the cursor, the **row**
+as a CSV line or a JSON object, and the whole **session list** as CSV or JSON.
+
+Mark several sessions with `ctrl+v` (then `j`/`k`, or `shift+↑`/`shift+↓`) and
+the menu leads with the selection instead: those sessions as CSV or JSON, or
+just the cursor column's value in each of them, one per line — which is how you
+get a list of pids to paste into a script.
+
+A copy carries the values, not the rendering: a column the server reported
+nothing for copies as empty rather than as the table's `—`, and a statement
+copies with its line breaks intact.
+
+!!! note "`K`/`J` do not extend the selection here"
+
+    In the data grid they are the fallbacks for `shift+↑`/`shift+↓`. Here `K`
+    kills a session, so if your terminal cannot send shifted arrows, anchor
+    with `ctrl+v` (or `V`) and extend with plain `j`/`k`.
 
 `A` again on an open report refreshes it without losing the cursor — and,
 if you had moved the focus back to panel `[1]`, hands the keyboard back to
@@ -69,15 +102,21 @@ is focused.
 
 ## Mouse
 
-Left-clicking a row puts the cursor on it (and focuses the report if a side
-panel had the focus). The wheel walks the list one notch at a time, from
-whichever panel is focused.
+Left-clicking puts the cell cursor on the cell you clicked (and focuses the
+report if a side panel had the focus). The wheel walks the list one notch at a
+time, from whichever panel is focused.
 
 ## Refreshing
 
 The list is a snapshot. `R` re-reads it, and `t` turns on a 5-second
 auto-refresh — the footer always says which of the two you are looking at,
 next to the time the list on screen was read at.
+
+A refresh replaces the whole list, so the cursor **follows its session** rather
+than its row number: sessions ending above it will not slide a different one
+under `K`. If the session the cursor was on has ended, the cursor stays where
+it was in the list. A selection is kept the same way, by session id — and is
+dropped rather than silently re-cut when one of its ends is no longer listed.
 
 Auto-refresh is **off** until you ask for it, on purpose: every refresh is a
 real statement, and every statement goes into the command log. A view left

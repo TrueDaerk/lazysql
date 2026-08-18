@@ -48,6 +48,12 @@ type copiedMsg struct {
 // depends on where the cursor is — the cell and row scopes need a real
 // row under it, and the metadata tabs have no row at all.
 func (m *Model) copyMenu() tea.Cmd {
+	// The activity report owns the main view where the grid would be, so
+	// `y` there copies its sessions. It has no relation behind it, so it
+	// offers the scopes that need none and leaves the rest out.
+	if m.activityFocused() {
+		return m.activityCopyMenu()
+	}
 	if !m.data.open() {
 		return logCmd("-- copy skipped: nothing open")
 	}
@@ -159,22 +165,102 @@ func (m Model) rowValues(row int) ([]any, bool) {
 	return out, true
 }
 
-// copyCell copies the raw value under the cursor. A NULL copies as an
-// empty string: the cell holds no text, and pasting the four letters
-// "NULL" into a form would be a silent lie. The log says which it was.
+// ---------- the scopes, as plain values ----------
+//
+// The four functions below are the cell, row, selection and column
+// scopes with no grid behind them: a set of columns, the values under
+// them, and a subject to name the copy by. The Data tab feeds them the
+// page plus its staged edits; the server activity report feeds them its
+// own list. Written once, so a scope cannot mean two things — see
+// wiki/design/read-only-grid.md.
+
+// copyCellValue copies one raw value. A NULL copies as an empty string:
+// the cell holds no text, and pasting the four letters "NULL" into a
+// form would be a silent lie. The log says which it was.
+func copyCellValue(subject, name string, v any) tea.Cmd {
+	label := fmt.Sprintf("cell %s.%s", subject, name)
+	if v == nil {
+		label += " (NULL → empty)"
+	}
+	return copyTextCmd(label, subject+"-"+name+".txt", db.FormatValue(v, ""))
+}
+
+// copyRowValues copies one row in one of the row formats.
+func copyRowValues(f export.Format, opts export.Options, subject string, cols []db.Column, values []any) tea.Cmd {
+	text, err := export.Row(f, opts, cols, values)
+	if err != nil {
+		return logCmd("-- copy row FAILED: %v", err)
+	}
+	return copyTextCmd(
+		fmt.Sprintf("row of %s as %s", subject, strings.ToUpper(string(f))),
+		fmt.Sprintf("%s-row.%s", subject, f),
+		text,
+	)
+}
+
+// copyRowBlock copies a block of rows through export.Rows, so a CSV copy
+// carries its header and a JSON copy is one array — a multi-row copy is
+// a small table, not a stack of single-row copies glued together. scope
+// names it in the log line, file in the clipboard-less fallback.
+func copyRowBlock(f export.Format, opts export.Options, scope, file string, cols []db.Column, rows [][]any) tea.Cmd {
+	text, err := export.Rows(f, opts, cols, rows)
+	if err != nil {
+		return logCmd("-- copy selection FAILED: %v", err)
+	}
+	return copyTextCmd(
+		fmt.Sprintf("%s as %s", scope, strings.ToUpper(string(f))),
+		fmt.Sprintf("%s.%s", file, f),
+		text,
+	)
+}
+
+// copyColumnValues copies one column's value in every given row, one per
+// line. NULL copies as an empty line for the same reason copyCellValue
+// copies it as an empty string. The log says how many of them there were.
+func copyColumnValues(subject, name string, values []any) tea.Cmd {
+	var b strings.Builder
+	nulls := 0
+	for _, v := range values {
+		if v == nil {
+			nulls++
+		}
+		b.WriteString(db.FormatValue(v, ""))
+		b.WriteString("\n")
+	}
+	label := fmt.Sprintf("%s.%s of %d selected rows", subject, name, len(values))
+	if nulls > 0 {
+		label += fmt.Sprintf(" (%d NULL → empty)", nulls)
+	}
+	return copyTextCmd(label, fmt.Sprintf("%s-%s-selection.txt", subject, name), b.String())
+}
+
+// cutColumns narrows every row to the given column indices, which is what
+// turns a full-width selection into the block `shift+←`/`shift+→` marked.
+func cutColumns(rows [][]any, idx []int) [][]any {
+	out := make([][]any, 0, len(rows))
+	for _, values := range rows {
+		row := make([]any, 0, len(idx))
+		for _, c := range idx {
+			var v any
+			if c >= 0 && c < len(values) {
+				v = values[c]
+			}
+			row = append(row, v)
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// ---------- the Data tab's scopes ----------
+
+// copyCell copies the raw value under the cursor.
 func (m Model) copyCell() tea.Cmd {
 	values, ok := m.rowValues(m.data.row)
 	if !ok || m.data.col < 0 || m.data.col >= len(values) {
 		return logCmd("-- copy cell skipped: no cell under the cursor")
 	}
-	name := m.data.cols[m.data.col].Name
-	v := values[m.data.col]
-	subject := fmt.Sprintf("cell %s.%s", m.dataSubject(), name)
-	if v == nil {
-		subject += " (NULL → empty)"
-	}
-	text := db.FormatValue(v, "")
-	return copyTextCmd(subject, m.dataSubject()+"-"+name+".txt", text)
+	return copyCellValue(m.dataSubject(), m.data.cols[m.data.col].Name, values[m.data.col])
 }
 
 // copyRow copies the row under the cursor in one of the three row
@@ -184,15 +270,7 @@ func (m Model) copyRow(f export.Format) tea.Cmd {
 	if !ok {
 		return logCmd("-- copy row skipped: no row under the cursor")
 	}
-	text, err := export.Row(f, m.exportOptions(""), m.data.cols, values)
-	if err != nil {
-		return logCmd("-- copy row FAILED: %v", err)
-	}
-	return copyTextCmd(
-		fmt.Sprintf("row of %s as %s", m.dataSubject(), strings.ToUpper(string(f))),
-		fmt.Sprintf("%s-row.%s", m.dataSubject(), f),
-		text,
-	)
+	return copyRowValues(f, m.exportOptions(""), m.dataSubject(), m.data.cols, values)
 }
 
 // ---------- the multi-row selection ----------
@@ -203,7 +281,11 @@ func (m Model) copyRow(f export.Format) tea.Cmd {
 // apart. The key only exists because `ctrl+c` is what a terminal user
 // reaches for to copy — see wiki/design/grid-multi-row-selection.md.
 func (m *Model) copySelectionMenu() tea.Cmd {
-	if len(m.data.selectedRows()) == 0 {
+	sel := m.data.selectedRows()
+	if m.activityFocused() {
+		sel = m.activity.grid.selectedRows()
+	}
+	if len(sel) == 0 {
 		return logCmd("-- copy selection skipped: nothing selected")
 	}
 	return m.copyMenu()
@@ -248,11 +330,9 @@ func (m Model) selectionColumns() ([]db.Column, []int) {
 }
 
 // copySelectionRows copies the whole selection in one of the row
-// formats. It goes through export.Rows, so a CSV copy carries its header
-// and a JSON copy is one array — a multi-row copy is a small table, not
-// a stack of single-row copies glued together. A selection narrowed to a
-// block copies only its columns: the CSV header, the JSON keys and the
-// INSERT column list all shrink with it.
+// formats. A selection narrowed to a block copies only its columns: the
+// CSV header, the JSON keys and the INSERT column list all shrink with
+// it.
 func (m Model) copySelectionRows(f export.Format) tea.Cmd {
 	rows := m.selectionValues()
 	if len(rows) == 0 {
@@ -262,40 +342,17 @@ func (m Model) copySelectionRows(f export.Format) tea.Cmd {
 	if len(cols) == 0 {
 		return logCmd("-- copy selection skipped: no columns selected")
 	}
-	block := make([][]any, 0, len(rows))
-	for _, values := range rows {
-		out := make([]any, 0, len(idx))
-		for _, c := range idx {
-			var v any
-			if c < len(values) {
-				v = values[c]
-			}
-			out = append(out, v)
-		}
-		block = append(block, out)
-	}
-	text, err := export.Rows(f, m.exportOptions(""), cols, block)
-	if err != nil {
-		return logCmd("-- copy selection FAILED: %v", err)
-	}
-	subject := fmt.Sprintf("%d selected rows of %s as %s",
-		len(rows), m.dataSubject(), strings.ToUpper(string(f)))
+	scope := fmt.Sprintf("%d selected rows of %s", len(rows), m.dataSubject())
 	if m.data.narrowedToCols() {
-		subject = fmt.Sprintf("%d selected rows × %d columns of %s as %s",
-			len(rows), len(cols), m.dataSubject(), strings.ToUpper(string(f)))
+		scope = fmt.Sprintf("%d selected rows × %d columns of %s",
+			len(rows), len(cols), m.dataSubject())
 	}
-	return copyTextCmd(
-		subject,
-		fmt.Sprintf("%s-selection.%s", m.dataSubject(), f),
-		text,
-	)
+	return copyRowBlock(f, m.exportOptions(""), scope, m.dataSubject()+"-selection",
+		cols, cutColumns(rows, idx))
 }
 
 // copySelectionColumn copies the cursor column's value in every selected
-// row, one per line. NULL copies as an empty line for the same reason
-// copyCell copies it as an empty string: the cell holds no text, and the
-// four letters "NULL" pasted into a list would be a silent lie. The log
-// says how many of them there were.
+// row, one per line.
 func (m Model) copySelectionColumn() tea.Cmd {
 	rows := m.selectionValues()
 	if len(rows) == 0 {
@@ -305,25 +362,11 @@ func (m Model) copySelectionColumn() tea.Cmd {
 	if col < 0 || col >= len(m.data.cols) {
 		return logCmd("-- copy selection skipped: no column under the cursor")
 	}
-	name := m.data.cols[col].Name
-	var b strings.Builder
-	nulls := 0
-	for _, values := range rows {
-		var v any
-		if col < len(values) {
-			v = values[col]
-		}
-		if v == nil {
-			nulls++
-		}
-		b.WriteString(db.FormatValue(v, ""))
-		b.WriteString("\n")
+	values := make([]any, 0, len(rows))
+	for _, r := range cutColumns(rows, []int{col}) {
+		values = append(values, r[0])
 	}
-	subject := fmt.Sprintf("%s.%s of %d selected rows", m.dataSubject(), name, len(rows))
-	if nulls > 0 {
-		subject += fmt.Sprintf(" (%d NULL → empty)", nulls)
-	}
-	return copyTextCmd(subject, fmt.Sprintf("%s-%s-selection.txt", m.dataSubject(), name), b.String())
+	return copyColumnValues(m.dataSubject(), m.data.cols[col].Name, values)
 }
 
 // dataSubject names what the Data tab is showing, for log lines, copy
@@ -468,6 +511,15 @@ func queryRunnerFor(drv db.Driver, d dataView) export.QueryRunner {
 // it runs from runAction, so a key press, the `a` menu and the copy
 // menu all reach the same code.
 func (m Model) copyActions(id actionID) (Model, tea.Cmd, bool) {
+	// The activity report's rows are not the Data tab's: while it has the
+	// main view the cell, row, selection and list scopes read its grid.
+	// Everything it does not answer — the menu keys themselves, the
+	// export flow — falls through to the shared handling below.
+	if m.activityFocused() {
+		if cmd, ok := m.activityCopy(id); ok {
+			return m, cmd, true
+		}
+	}
 	switch id {
 	case actCopyMenu:
 		cmd := m.copyMenu()

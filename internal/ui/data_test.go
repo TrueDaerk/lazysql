@@ -369,7 +369,7 @@ func TestViewCellShowsNull(t *testing.T) {
 func TestGridHeaderRuleAndSeparators(t *testing.T) {
 	m := dataBrowsing(t)
 	cols, _ := m.buildGrid()
-	header := m.gridHeader(cols, 0, 200)
+	header := m.gridHeader(cols, 0, m.dataCursor(), 200)
 	lines := strings.Split(header, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("header = %d lines, want name/type/rule", len(lines))
@@ -393,7 +393,7 @@ func TestGridHeaderRuleAndSeparators(t *testing.T) {
 func TestGridRowHasColumnSeparators(t *testing.T) {
 	m := dataBrowsing(t)
 	cols, kinds := m.buildGrid()
-	row := m.gridRow(cols, 0, 0, kinds[0], 200)
+	row := m.gridRow(cols, 0, 0, m.dataCursor(), kinds[0], 200)
 	if want := len(cols) - 1; strings.Count(row, colSepChar) != want {
 		t.Fatalf("row has %d separators, want %d", strings.Count(row, colSepChar), want)
 	}

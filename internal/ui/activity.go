@@ -9,9 +9,9 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/db"
+	"lazysql/internal/export"
 )
 
 // `A` on panel [1] asks the server what it is doing: one row per
@@ -21,12 +21,19 @@ import (
 // does — not as an overlay on a focused panel [1], which is what the
 // schema diff still is. See wiki/design/server-activity-focus.md.
 //
-// Four rules shape it:
+// Five rules shape it:
 //
 //   - The report is focused where it is drawn. Its keys act only while
 //     the main view has the focus; `1` or `tab` hands the keyboard back
 //     to a side panel, which then behaves exactly as it always does
 //     while the list stays readable beside it.
+//
+//   - It is the data grid, read-only. The list is an roGrid, so the cell
+//     cursor, the sliding column window, the multi-row and block
+//     selection and the copy scopes are the grid's own code rather than
+//     a second implementation — and everything that would stage or apply
+//     a change is absent from its key table rather than inert. See
+//     wiki/design/read-only-grid.md.
 //
 //   - Reading is free, killing is not. The listing is a plain SELECT and
 //     runs on read-only connections too; `K` never executes anything
@@ -79,26 +86,80 @@ type activityView struct {
 	// stale list cannot be mistaken for a live one.
 	at time.Time
 
-	// cursor is the row `K` acts on; off is the first rendered row.
-	cursor int
-	off    int
+	// grid is the list on screen: the cell cursor `K` and the copy scopes
+	// read, its scroll windows and its selection. rows and grid always
+	// describe the same list — setRows is the only thing that replaces
+	// either.
+	grid roGrid
 }
 
 // selected is the process under the cursor.
 func (v *activityView) selected() (db.Process, bool) {
-	if v == nil || v.cursor < 0 || v.cursor >= len(v.rows) {
+	if v == nil || v.grid.row < 0 || v.grid.row >= len(v.rows) {
 		return db.Process{}, false
 	}
-	return v.rows[v.cursor], true
+	return v.rows[v.grid.row], true
 }
 
-func (v *activityView) clampCursor() {
-	if v.cursor >= len(v.rows) {
-		v.cursor = len(v.rows) - 1
+// setRows lands a freshly read list. The cursor and the selection are
+// re-anchored by session ID rather than kept by index: an auto-refresh
+// re-reads the list whole, and a session that ended above the cursor
+// would otherwise slide a different one under it — with `K` pointing at
+// it. A session that is no longer listed cannot be re-anchored: the
+// cursor then stays at the index it had (clamped into the new list), and
+// a selection whose anchor or whose cursor row is gone is dropped rather
+// than silently re-cut over different sessions.
+func (v *activityView) setRows(rows []db.Process) {
+	cursorID, anchorID := "", ""
+	if p, ok := v.selected(); ok {
+		cursorID = p.ID
 	}
-	if v.cursor < 0 {
-		v.cursor = 0
+	if a := v.grid.sel.anchor; v.grid.sel.active && a >= 0 && a < len(v.rows) {
+		anchorID = v.rows[a].ID
 	}
+
+	v.rows = rows
+	cells := make([][]string, len(rows))
+	kinds := make([]rowKind, len(rows))
+	for i, p := range rows {
+		cells[i] = activityCells(p)
+		switch {
+		case p.Blocked():
+			kinds[i] = rowAlert
+		case p.Self:
+			kinds[i] = rowFaded
+		}
+	}
+	v.grid.setCells(activityHeaders, cells, kinds)
+
+	cursorAt, cursorOK := indexOfProcess(rows, cursorID)
+	if cursorOK {
+		v.grid.row = cursorAt
+	}
+	if v.grid.sel.active {
+		anchorAt, anchorOK := indexOfProcess(rows, anchorID)
+		if anchorOK && cursorOK {
+			v.grid.sel.anchor = anchorAt
+		} else {
+			v.grid.clearSelection()
+		}
+	}
+	v.grid.clampCursor()
+}
+
+// indexOfProcess finds a session by ID. An empty ID matches nothing, so
+// a caller that had no cursor row to remember gets the same answer as one
+// whose session has ended.
+func indexOfProcess(rows []db.Process, id string) (int, bool) {
+	if id == "" {
+		return 0, false
+	}
+	for i, p := range rows {
+		if p.ID == id {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // blockedCount is how many of the listed sessions are waiting on another
@@ -206,7 +267,8 @@ func (m *Model) applyActivity(msg activityLoadedMsg) tea.Cmd {
 		// An engine without a server is not a failure to report: the view
 		// says so and stops asking.
 		if errors.Is(msg.err, db.ErrUnsupported) {
-			v.unsupported, v.err, v.rows = true, "", nil
+			v.unsupported, v.err = true, ""
+			m.setActivityRows(nil)
 			v.auto = false
 			v.gen++
 			return logCmd("-- server activity: %s has no server sessions to list", v.engine)
@@ -215,9 +277,33 @@ func (m *Model) applyActivity(msg activityLoadedMsg) tea.Cmd {
 		return logCmd("-- server activity FAILED: %v", msg.err)
 	}
 	v.unsupported, v.err = false, ""
-	v.rows = msg.rows
-	v.clampCursor()
+	m.setActivityRows(msg.rows)
 	return nil
+}
+
+// setActivityRows lands a list in the view and keeps the `ctrl+c` binding
+// in step with the selection that survived it — the binding is the single
+// source the options bar and `?` read, so enabling it is what shows the
+// key and disabling it is what gives `ctrl+c` back to quit.
+func (m *Model) setActivityRows(rows []db.Process) {
+	v := m.activity
+	if v == nil {
+		return
+	}
+	v.setRows(rows)
+	m.syncCopySelectionKey()
+}
+
+// syncCopySelectionKey enables `ctrl+c` exactly while the grid that owns
+// the main view holds a selection, and disables it otherwise so the key
+// means quit again the moment the selection is gone. The report's grid
+// wins whenever it is open, because it is what the box is showing.
+func (m *Model) syncCopySelectionKey() {
+	sel := len(m.data.selectedRows()) > 0
+	if m.activity != nil {
+		sel = m.activity.grid.selecting()
+	}
+	m.keys.CopySelection.SetEnabled(sel)
 }
 
 // toggleActivityAuto is `t`: the periodic refresh on or off. Turning it
@@ -302,6 +388,9 @@ func (m *Model) closeActivity() {
 		m.activity.gen++
 	}
 	m.activity = nil
+	// The report took `ctrl+c` over from the grid while it was open; with
+	// it gone the key belongs to whatever the grid's own selection says.
+	m.syncCopySelectionKey()
 }
 
 // ---------- kill ----------
@@ -362,9 +451,9 @@ func (m Model) killConfirmBody(p db.Process, sql string) string {
 	if strings.TrimSpace(who) != "" {
 		lines = append(lines, "", "user: "+who)
 	}
-	// The client address is not in the table — there is no room for it —
-	// and this is the one moment it matters: it says which machine is
-	// about to lose its connection.
+	// The client address is a column of the table now, but it is easy to
+	// have scrolled past and this is the moment it matters most: it says
+	// which machine is about to lose its connection.
 	if p.Client != "" {
 		lines = append(lines, "client: "+p.Client)
 	}
@@ -413,6 +502,13 @@ func (m Model) updateActivityKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.Back):
+		// esc leaves selection mode before anything else, exactly as it
+		// does in the grid: while a selection is up it is the mode the
+		// user is in, and leaving it must not also close the report.
+		if v.grid.selecting() {
+			m.clearActivitySelection()
+			return m, logCmd("-- selection cleared"), true
+		}
 		m.closeActivity()
 		// The report was the main view's content; with it gone the box has
 		// nothing of its own to show, so the focus goes back where `A` came
@@ -422,48 +518,172 @@ func (m Model) updateActivityKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case key.Matches(msg, k.Down):
-		v.cursor++
-		v.clampCursor()
+		v.grid.row++
+		v.grid.clampCursor()
 		return m, nil, true
 	case key.Matches(msg, k.Up):
-		v.cursor--
-		v.clampCursor()
+		v.grid.row--
+		v.grid.clampCursor()
 		return m, nil, true
-	case key.Matches(msg, k.NextPage):
-		v.cursor += 10
-		v.clampCursor()
-		return m, nil, true
-	case key.Matches(msg, k.PrevPage):
-		v.cursor -= 10
-		v.clampCursor()
-		return m, nil, true
-	case key.Matches(msg, k.Refresh):
-		cmd := m.refreshActivity()
-		return m, cmd, true
-	case key.Matches(msg, k.KillProcess):
-		cmd := m.killSelectedProcess()
-		return m, cmd, true
-	case key.Matches(msg, k.ActivityAuto):
-		cmd := m.toggleActivityAuto()
-		return m, cmd, true
-	case key.Matches(msg, k.ViewCell):
-		// The grid's "show me this value in full" key: a server-truncated
-		// statement is exactly the cell the list cannot show whole.
-		if p, ok := v.selected(); ok {
-			m.modal = newCellModal("session "+p.ID, "query", "", p.Query)
+	}
+	// Everything else the report binds goes through its own action table,
+	// so a key press, the options bar and `?` cannot describe different
+	// sets. Order matters: `K` is the kill, and activityActions lists it
+	// ahead of anything else that could match.
+	for _, a := range k.activityActions() {
+		if key.Matches(msg, a.binding) {
+			mm, cmd := m.runAction(a.id)
+			return mm, cmd, true
 		}
-		return m, nil, true
 	}
 	switch msg.String() {
 	case "g", "home":
-		v.cursor = 0
+		v.grid.row = 0
 		return m, nil, true
 	case "G", "end":
-		v.cursor = len(v.rows) - 1
-		v.clampCursor()
+		v.grid.row = len(v.rows) - 1
+		v.grid.clampCursor()
 		return m, nil, true
 	}
 	return m, nil, false
+}
+
+// activityDispatch is the report's half of runAction: the grid actions it
+// shares with the main view, answered against its own read-only grid
+// instead of the Data tab's page. It runs ahead of dataActions whenever
+// the report has the focus, and reports handled=false for everything it
+// does not claim — the kill, the auto-refresh toggle and the copy scopes
+// are dispatched elsewhere.
+func (m Model) activityDispatch(id actionID) (Model, tea.Cmd, bool) {
+	v := m.activity
+	switch id {
+	case actRefresh:
+		// `R` means "read it again from the server" here too — but from
+		// the report's own read, not the page of a relation the main view
+		// is not currently showing.
+		return m, m.refreshActivity(), true
+	case actColLeft:
+		v.grid.col--
+		v.grid.clampCursor()
+	case actColRight:
+		v.grid.col++
+		v.grid.clampCursor()
+	case actNextPage:
+		v.grid.row += activityPageStep
+		v.grid.clampCursor()
+	case actPrevPage:
+		v.grid.row -= activityPageStep
+		v.grid.clampCursor()
+	case actSelectRows:
+		return m, m.toggleActivitySelection(), true
+	case actSelectColumns:
+		return m, m.toggleActivityColumnSelection(), true
+	case actExtendSelectionUp:
+		return m, m.extendActivitySelection(-1), true
+	case actExtendSelectionDown:
+		return m, m.extendActivitySelection(1), true
+	case actExtendSelectionLeft:
+		return m, m.extendActivityColumnSelection(-1), true
+	case actExtendSelectionRight:
+		return m, m.extendActivityColumnSelection(1), true
+	case actViewCell:
+		// The grid's "show me this value in full" key: a server-truncated
+		// statement is exactly the cell the list cannot show whole.
+		if p, ok := v.selected(); ok {
+			name := v.grid.header(v.grid.col)
+			text, _ := v.grid.cellAt(v.grid.row, v.grid.col)
+			m.modal = newCellModal("session "+p.ID, name, "", text)
+		}
+	case actRowDetail:
+		if p, ok := v.selected(); ok {
+			m.modal = newProcessDetailModal(p)
+		}
+	default:
+		return m, nil, false
+	}
+	return m, nil, true
+}
+
+// activityPageStep is how far ctrl+f/ctrl+b jump. The report is one list
+// rather than a paged relation, so its page keys move the cursor a screen
+// at a time instead of turning anything.
+const activityPageStep = 10
+
+// ---------- selection ----------
+
+// toggleActivitySelection is `ctrl+v`: it starts a selection anchored at
+// the cursor row, or ends the one that is running.
+func (m *Model) toggleActivitySelection() tea.Cmd {
+	v := m.activity
+	if v.grid.selecting() {
+		m.clearActivitySelection()
+		return logCmd("-- selection cleared")
+	}
+	if !v.grid.startSelection() {
+		return logCmd("-- selection skipped: no session under the cursor")
+	}
+	m.syncCopySelectionKey()
+	p, _ := v.selected()
+	return logCmd(
+		"-- selection started at session %s (j/k extend, shift+←/→ narrows it to columns, ctrl+c copies, esc clears)",
+		p.ID)
+}
+
+// extendActivitySelection is `shift+up`/`shift+down`: it anchors a
+// selection at the cursor row if none is up and then moves the cursor,
+// which is the selection's other edge.
+func (m *Model) extendActivitySelection(delta int) tea.Cmd {
+	v := m.activity
+	if !v.grid.startSelection() {
+		return nil
+	}
+	m.syncCopySelectionKey()
+	v.grid.row += delta
+	v.grid.clampCursor()
+	return nil
+}
+
+// extendActivityColumnSelection is `shift+left`/`shift+right`, the
+// sideways half of the same gesture: it anchors the column span at the
+// cursor column the first time it runs and then moves the cell cursor.
+func (m *Model) extendActivityColumnSelection(delta int) tea.Cmd {
+	v := m.activity
+	if !v.grid.startSelection() {
+		return nil
+	}
+	m.syncCopySelectionKey()
+	if !v.grid.sel.cols {
+		v.grid.sel.cols = true
+		v.grid.sel.colAnchor = v.grid.col
+	}
+	v.grid.col += delta
+	v.grid.clampCursor()
+	return nil
+}
+
+// toggleActivityColumnSelection is `C`: it anchors the column span at the
+// cursor column without moving anything, or drops it again — the way in
+// for terminals that never report shift+arrows, since plain `h`/`l` then
+// move the span's open edge.
+func (m *Model) toggleActivityColumnSelection() tea.Cmd {
+	v := m.activity
+	if v.grid.selecting() && v.grid.sel.cols {
+		v.grid.sel.cols = false
+		return logCmd("-- column selection cleared (the sessions stay selected)")
+	}
+	if !v.grid.startSelection() {
+		return logCmd("-- column selection skipped: no session under the cursor")
+	}
+	m.syncCopySelectionKey()
+	v.grid.sel.cols = true
+	v.grid.sel.colAnchor = v.grid.col
+	return logCmd("-- column selection anchored at %s (h/l extend, C clears it)",
+		v.grid.header(v.grid.col))
+}
+
+func (m *Model) clearActivitySelection() {
+	m.activity.grid.clearSelection()
+	m.syncCopySelectionKey()
 }
 
 // scrollActivity is the wheel: the report has a cursor rather than a
@@ -472,50 +692,75 @@ func (m *Model) scrollActivity(delta int) {
 	if m.activity == nil {
 		return
 	}
-	m.activity.cursor += delta
-	m.activity.clampCursor()
+	m.activity.grid.row += delta
+	m.activity.grid.clampCursor()
 }
 
-// clickActivity moves the cursor onto the clicked row. row is a content
-// row of the main view box, and activityContent spends the first one on
-// the column header — everything under it is the window activityTable
-// last rendered, which is why the click is mapped through v.off rather
-// than through the cursor.
-func (m *Model) clickActivity(row int) {
+// clickActivity moves the cell cursor onto the clicked cell. row and col
+// are content coordinates of the main view box, mapped back through the
+// windows the last frame settled — the grid's own click hit test, so what
+// is drawn and what a click selects cannot drift apart.
+func (m *Model) clickActivity(row, col int) {
 	v := m.activity
-	if v == nil || len(v.rows) == 0 || row < 1 {
+	if v == nil || len(v.rows) == 0 {
 		return
 	}
-	idx := v.off + row - 1
-	if idx < 0 || idx >= len(v.rows) {
-		return
-	}
-	v.cursor = idx
+	v.grid.clickRow(row, col)
 }
 
 // ---------- rendering ----------
 
 // activityHeaders are the report's columns. Query is last because it is
-// the one that gets whatever width is left.
-var activityHeaders = []string{"PID", "User", "Database", "State", "Duration", "Blocked by", "Query"}
+// the widest and the least often compared across rows; Client is a column
+// of its own now that the grid scrolls sideways, where it used to only
+// reach the kill confirmation.
+var activityHeaders = []string{
+	"PID", "User", "Database", "Client", "State", "Duration", "Blocked by", "Query"}
 
-// activityWidths caps each column except the last, which takes the rest
-// of the box. The caps are generous enough for real values (a pid, a
-// role name, "idle in transaction (Lock: transactionid)") and small
-// enough to leave the statement room on an 80-column terminal.
-var activityWidths = []int{7, 12, 14, 24, 9, 11}
-
-// activityCells renders one process as the report's columns.
+// activityCells renders one process as the report's columns. A column the
+// engine reported nothing for shows a dash rather than an empty cell, so
+// an unreported value and an empty string do not look the same — that is
+// a rendering choice, and activityValues is what a copy carries instead.
 func activityCells(p db.Process) []string {
 	return []string{
 		p.ID,
 		orNone(p.User),
 		orNone(p.Database),
+		orNone(p.Client),
 		orNone(p.State),
 		formatProcessDuration(p),
 		orDash(p.BlockedByText()),
 		orNone(flatten(p.Query)),
 	}
+}
+
+// activityValues is one process as a copy carries it: the same columns,
+// but the values themselves. The dash of an unreported column copies as
+// an empty string — it is a placeholder in the table, not something the
+// server said — and the statement copies unflattened, because a copied
+// query is meant to be read and run, not to fit on one line.
+func activityValues(p db.Process) []any {
+	return []any{
+		p.ID,
+		p.User,
+		p.Database,
+		p.Client,
+		p.State,
+		formatProcessDuration(p),
+		p.BlockedByText(),
+		p.Query,
+	}
+}
+
+// activityColumns are the report's columns as the copy scopes name them:
+// the header row, with no declared types behind it — the server hands
+// these out as text.
+func activityColumns() []db.Column {
+	cols := make([]db.Column, len(activityHeaders))
+	for i, h := range activityHeaders {
+		cols[i] = db.Column{Name: h}
+	}
+	return cols
 }
 
 // orNone is the placeholder for a column the engine reported nothing
@@ -596,88 +841,32 @@ func (m Model) activityContent(w, h int) string {
 	return joinTruncated(lines, w, h)
 }
 
-// activityTable renders the header row and the visible window of the
-// list. The cursor row is tinted the way the data grid tints its own, so
-// what `K` would act on is never in doubt.
+// activityTable renders the list through the shared read-only grid: the
+// same header, the same column and row windows, the same cursor and
+// selection tints the Data tab draws. The cursor row's tint wins over the
+// row's own colour, or the session `K` acts on would be the one that
+// stands out least.
 func (m Model) activityTable(w, h int) []string {
 	v := m.activity
-	s := m.style
 	if h <= 0 {
 		return nil
 	}
 	if len(v.rows) == 0 {
-		return []string{"", s.muted.Render("no sessions — the server reports nothing running")}
+		return []string{"", m.style.muted.Render("no sessions — the server reports nothing running")}
 	}
-
-	rows := make([][]string, len(v.rows))
-	for i, p := range v.rows {
-		rows[i] = activityCells(p)
-	}
-	widths := activityColumnWidths(rows, w)
-
-	out := []string{s.gridHeader.Render(truncate(activityRowText(activityHeaders, widths), w))}
-	start, end := rowWindow(len(rows), v.cursor, maxInt(h-1, 1), v.off)
-	v.off = start
-	for i := start; i < end; i++ {
-		line := truncate(activityRowText(rows[i], widths), w)
-		style := m.style.plain
-		switch {
-		case v.rows[i].Blocked():
-			style = s.danger
-		case v.rows[i].Self:
-			style = s.muted
-		}
-		if i == v.cursor {
-			// The cursor tint has to win over the row's own colour, or the
-			// row `K` acts on would be the one that stands out least.
-			line = s.rowCursor.Render(pad(line, w))
-		} else {
-			line = style.Render(line)
-		}
-		out = append(out, line)
-	}
-	return out
+	return m.roGridLines(&v.grid, m.activityCursor(), w, h)
 }
 
-// activityColumnWidths sizes the fixed columns to their content within
-// their caps and hands the rest of the box to the statement.
-func activityColumnWidths(rows [][]string, w int) []int {
-	widths := make([]int, len(activityHeaders))
-	for i := range widths {
-		widths[i] = len(activityHeaders[i])
+// activityCursor is the report's cursor as the shared renderers want it.
+// Like the grid's own, it is only drawn as a cursor while the box it
+// lives in has the keyboard.
+func (m Model) activityCursor() gridCursor {
+	v := m.activity
+	return gridCursor{
+		row: v.grid.row, col: v.grid.col,
+		focused:  m.activityFocused(),
+		selected: v.grid.cellSelected,
 	}
-	for _, r := range rows {
-		for i, cell := range r {
-			if n := lipgloss.Width(cell); n > widths[i] {
-				widths[i] = n
-			}
-		}
-	}
-	used := 0
-	for i, max := range activityWidths {
-		if widths[i] > max {
-			widths[i] = max
-		}
-		used += widths[i] + colGap
-	}
-	widths[len(widths)-1] = maxInt(w-used, minColWidth)
-	return widths
-}
-
-// activityRowText joins one row's cells, padded to their columns.
-func activityRowText(cells []string, widths []int) string {
-	var b strings.Builder
-	for i, cell := range cells {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-		text := truncate(cell, widths[i])
-		if i < len(cells)-1 {
-			text = pad(text, widths[i])
-		}
-		b.WriteString(text)
-	}
-	return b.String()
 }
 
 // activityFooter is the line under the table: what the list holds, how
@@ -698,15 +887,210 @@ func (m Model) activityFooter() string {
 	} else {
 		parts = append(parts, "auto-refresh off")
 	}
+	// Selection mode is a mode: the footer says so, exactly as the grid's
+	// status line does, so it is never on without being visible.
+	if n := len(v.grid.selectedRows()); n > 0 {
+		sel := fmt.Sprintf("%d sessions selected", n)
+		if v.grid.narrowedToCols() {
+			sel = fmt.Sprintf("%d sessions × %d columns selected", n, len(v.grid.selectedCols()))
+		}
+		parts = append(parts, sel)
+	}
 	// The keys are the report's own, so they are only offered while it
 	// has them: with a side panel focused the list is on display and the
 	// footer says how to get back to it instead.
 	if m.activityFocused() {
-		parts = append(parts, "j/k move · R refresh · t auto · K kill · v query · esc close")
+		parts = append(parts, "j/k/h/l move · y copy · R refresh · t auto · K kill · esc close")
 	} else {
 		parts = append(parts, "tab focuses the report")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// ---------- copy ----------
+
+// activityCopyMenu is `y` (and `ctrl+c` with a selection up) on the
+// report. It is the grid's copy menu with the scopes that need a relation
+// left out: an INSERT statement has no table to insert into and a
+// whole-table copy has nothing to re-read, so the report offers the cell,
+// the row, the selection and the list it already holds. The keys are the
+// grid's own, so `r`, `o`, `c` and `C` mean the same thing in both.
+func (m *Model) activityCopyMenu() tea.Cmd {
+	v := m.activity
+	if v == nil || len(v.rows) == 0 {
+		return logCmd("-- copy skipped: no sessions listed")
+	}
+	var entries []menuEntry
+	add := func(k, label string, id actionID) {
+		entries = append(entries, menuEntry{key: k, label: label, action: func(mm *Model) tea.Cmd {
+			next, cmd := mm.runAction(id)
+			*mm = next
+			return cmd
+		}})
+	}
+
+	// A selection outranks the cursor row, exactly as in the grid: with N
+	// sessions marked, "row" is no longer what a copy means.
+	sel := v.grid.selectedRows()
+	scope := fmt.Sprintf("%d selected sessions", len(sel))
+	if v.grid.narrowedToCols() {
+		scope = fmt.Sprintf("%d selected sessions × %d columns", len(sel), len(v.grid.selectedCols()))
+	}
+	if len(sel) > 0 {
+		add("r", scope+" — CSV", actCopySelectionCSV)
+		add("o", scope+" — JSON array", actCopySelectionJSON)
+		add("c", "column values of selection — "+v.grid.header(v.grid.col), actCopySelectionColumn)
+	} else {
+		add("c", "cell — raw value", actCopyCell)
+		add("r", "row — CSV line", actCopyRowCSV)
+		add("o", "row — JSON object", actCopyRowJSON)
+	}
+	add("C", "session list — CSV", actCopyPageCSV)
+	add("O", "session list — JSON array", actCopyPageJSON)
+	entries = append(entries, menuEntry{key: "esc", label: "cancel"})
+
+	title := "Copy — server activity"
+	if len(sel) > 0 {
+		title = fmt.Sprintf("Copy — server activity (%s)", scope)
+	}
+	m.modal = &menuModal{title: title, entries: entries}
+	return nil
+}
+
+// activityCopy answers the copy scopes against the report's own rows. It
+// runs ahead of the Data tab's while the report has the focus; ok is
+// false for everything it does not claim, which keeps the menu key, the
+// export flow and the rest on their shared path.
+func (m Model) activityCopy(id actionID) (tea.Cmd, bool) {
+	v := m.activity
+	opts := export.Options{Table: activitySubject}
+	if m.driver != nil {
+		opts.Dialect = m.driver.Dialect()
+	}
+	cols := activityColumns()
+
+	switch id {
+	case actCopyCell:
+		p, ok := v.selected()
+		if !ok || v.grid.col < 0 || v.grid.col >= len(cols) {
+			return logCmd("-- copy cell skipped: no cell under the cursor"), true
+		}
+		return copyCellValue(activitySubject, cols[v.grid.col].Name,
+			activityValues(p)[v.grid.col]), true
+
+	case actCopyRowCSV, actCopyRowJSON:
+		p, ok := v.selected()
+		if !ok {
+			return logCmd("-- copy row skipped: no session under the cursor"), true
+		}
+		return copyRowValues(activityCopyFormat(id), opts, activitySubject, cols, activityValues(p)), true
+
+	case actCopySelectionCSV, actCopySelectionJSON:
+		rows, block, ok := m.activitySelectionValues()
+		if !ok {
+			return logCmd("-- copy selection skipped: nothing selected"), true
+		}
+		idx := v.grid.selectedCols()
+		scope := fmt.Sprintf("%d selected sessions", len(rows))
+		if v.grid.narrowedToCols() {
+			scope = fmt.Sprintf("%d selected sessions × %d columns", len(rows), len(idx))
+		}
+		return copyRowBlock(activityCopyFormat(id), opts, scope, activitySubject+"-selection",
+			cutColumnHeaders(cols, idx), block), true
+
+	case actCopySelectionColumn:
+		rows, _, ok := m.activitySelectionValues()
+		if !ok {
+			return logCmd("-- copy selection skipped: nothing selected"), true
+		}
+		if v.grid.col < 0 || v.grid.col >= len(cols) {
+			return logCmd("-- copy selection skipped: no column under the cursor"), true
+		}
+		values := make([]any, 0, len(rows))
+		for _, r := range cutColumns(rows, []int{v.grid.col}) {
+			values = append(values, r[0])
+		}
+		return copyColumnValues(activitySubject, cols[v.grid.col].Name, values), true
+
+	case actCopyPageCSV, actCopyPageJSON:
+		if len(v.rows) == 0 {
+			return logCmd("-- copy skipped: no sessions listed"), true
+		}
+		all := make([][]any, 0, len(v.rows))
+		for _, p := range v.rows {
+			all = append(all, activityValues(p))
+		}
+		scope := fmt.Sprintf("%s of %s", countSessions(len(all)), v.conn)
+		return copyRowBlock(activityCopyFormat(id), opts, scope, activitySubject, cols, all), true
+	}
+	return nil, false
+}
+
+// activitySubject names the report in log lines, copy labels and file
+// names, the way dataSubject names the open relation.
+const activitySubject = "sessions"
+
+// activitySelectionValues is the selected sessions, both whole and cut to
+// the columns the selection covers.
+func (m Model) activitySelectionValues() (rows, block [][]any, ok bool) {
+	v := m.activity
+	sel := v.grid.selectedRows()
+	if len(sel) == 0 {
+		return nil, nil, false
+	}
+	for _, r := range sel {
+		if r >= 0 && r < len(v.rows) {
+			rows = append(rows, activityValues(v.rows[r]))
+		}
+	}
+	if len(rows) == 0 {
+		return nil, nil, false
+	}
+	return rows, cutColumns(rows, v.grid.selectedCols()), true
+}
+
+// activityCopyFormat is which serializer a copy action asks for. The
+// report offers no SQL scope — there is no table to INSERT into.
+func activityCopyFormat(id actionID) export.Format {
+	switch id {
+	case actCopyRowJSON, actCopySelectionJSON, actCopyPageJSON:
+		return export.FormatJSON
+	}
+	return export.FormatCSV
+}
+
+// cutColumnHeaders narrows a column list to the indices a block covers,
+// so the CSV header and the JSON keys shrink with the values.
+func cutColumnHeaders(cols []db.Column, idx []int) []db.Column {
+	out := make([]db.Column, 0, len(idx))
+	for _, c := range idx {
+		if c >= 0 && c < len(cols) {
+			out = append(out, cols[c])
+		}
+	}
+	return out
+}
+
+// ---------- the session detail ----------
+
+// newProcessDetailModal is `x` on the report: one session as a
+// name/value list, in the same popup the grid opens for a row too wide to
+// read across. It carries every column the table has plus nothing it
+// leaves out — the client address is a column now — so the popup and the
+// grid cannot disagree about what a session is.
+func newProcessDetailModal(p db.Process) *rowDetailModal {
+	rd := &rowDetailModal{subject: "session " + p.ID}
+	values := activityValues(p)
+	rd.fields = make([]rowDetailField, len(activityHeaders))
+	for i, name := range activityHeaders {
+		text, _ := values[i].(string)
+		rd.fields[i] = rowDetailField{
+			name:  name,
+			value: values[i],
+			text:  flatten(text),
+		}
+	}
+	return rd
 }
 
 func countSessions(n int) string {

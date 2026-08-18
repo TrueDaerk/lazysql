@@ -107,25 +107,25 @@ func TestActivityKeepsTheDriversOrder(t *testing.T) {
 func TestActivityCursorMoves(t *testing.T) {
 	m := openReport(t, serverModel(t, false), fixtureProcesses())
 	m = send(t, m, press('j'))
-	if m.activity.cursor != 1 {
-		t.Fatalf("cursor after j = %d, want 1", m.activity.cursor)
+	if m.activity.grid.row != 1 {
+		t.Fatalf("cursor after j = %d, want 1", m.activity.grid.row)
 	}
 	m = send(t, m, press('k'))
-	if m.activity.cursor != 0 {
-		t.Fatalf("cursor after k = %d, want 0", m.activity.cursor)
+	if m.activity.grid.row != 0 {
+		t.Fatalf("cursor after k = %d, want 0", m.activity.grid.row)
 	}
 	m = send(t, m, press('G'))
-	if m.activity.cursor != 3 {
-		t.Fatalf("cursor after G = %d, want the last row", m.activity.cursor)
+	if m.activity.grid.row != 3 {
+		t.Fatalf("cursor after G = %d, want the last row", m.activity.grid.row)
 	}
 	// The cursor never leaves the list, however hard the key is held.
 	m = send(t, m, press('j'), press('j'))
-	if m.activity.cursor != 3 {
-		t.Fatalf("cursor = %d, want it clamped to the last row", m.activity.cursor)
+	if m.activity.grid.row != 3 {
+		t.Fatalf("cursor = %d, want it clamped to the last row", m.activity.grid.row)
 	}
 	m = send(t, m, press('g'))
-	if m.activity.cursor != 0 {
-		t.Fatalf("cursor after g = %d, want 0", m.activity.cursor)
+	if m.activity.grid.row != 0 {
+		t.Fatalf("cursor after g = %d, want 0", m.activity.grid.row)
 	}
 }
 
@@ -298,10 +298,11 @@ func TestActivityClosesWithTheConnection(t *testing.T) {
 	}
 }
 
-// `v` shows a server-truncated statement in full — the one thing the
-// table cannot render whole.
+// `v` shows the cell under the cursor in full — on the Query column,
+// that is the server-truncated statement the table cannot render whole.
 func TestActivityViewsTheStatement(t *testing.T) {
 	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = toColumn(t, m, "Query")
 	m = send(t, m, press('v'))
 	cm, ok := m.modal.(*cellModal)
 	if !ok {
@@ -310,6 +311,43 @@ func TestActivityViewsTheStatement(t *testing.T) {
 	if cm.rawText != "SELECT * FROM orders" {
 		t.Fatalf("the popup shows %q, want the session's statement", cm.rawText)
 	}
+}
+
+// `x` opens the whole session as a field list, the way it does for a
+// grid row too wide to read across.
+func TestActivitySessionDetail(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = send(t, m, press('x'))
+	rd, ok := m.modal.(*rowDetailModal)
+	if !ok {
+		t.Fatalf("`x` opened %T, want the row detail popup", m.modal)
+	}
+	if rd.subject != "session 42" {
+		t.Fatalf("detail subject = %q, want the session under the cursor", rd.subject)
+	}
+	if len(rd.fields) != len(activityHeaders) {
+		t.Fatalf("detail has %d fields, want one per column", len(rd.fields))
+	}
+	if rd.fields[len(rd.fields)-1].text != "SELECT * FROM orders" {
+		t.Fatalf("the last field is %q, want the statement", rd.fields[len(rd.fields)-1].text)
+	}
+}
+
+// toColumn walks the cell cursor onto a named column with `l`, the way a
+// user would.
+func toColumn(t *testing.T, m Model, header string) Model {
+	t.Helper()
+	for i, h := range activityHeaders {
+		if h != header {
+			continue
+		}
+		for m.activity.grid.col < i {
+			m = send(t, m, press('l'))
+		}
+		return m
+	}
+	t.Fatalf("no column named %q", header)
+	return m
 }
 
 // Every key the report claims is in `?` under panel [1], including the
@@ -361,8 +399,8 @@ func TestActivityReleasesTheKeysToTheFocusedPanel(t *testing.T) {
 	if got := m.panels[panelConnections].cursor; got != before+1 {
 		t.Fatalf("connections cursor = %d, want %d — the report swallowed `j`", got, before+1)
 	}
-	if m.activity.cursor != 0 {
-		t.Fatalf("activity cursor = %d, want it untouched by the panel's `j`", m.activity.cursor)
+	if m.activity.grid.row != 0 {
+		t.Fatalf("activity cursor = %d, want it untouched by the panel's `j`", m.activity.grid.row)
 	}
 	// `enter` on panel [1] is connect, not a report key.
 	m = send(t, m, special(tea.KeyEnter, 0))
@@ -401,8 +439,8 @@ func TestActivityIsInTheTabOrder(t *testing.T) {
 		t.Fatalf("tab never reached the report: focus = %v", m.focus)
 	}
 	m = send(t, m, press('j'))
-	if m.activity.cursor != 1 {
-		t.Fatalf("cursor = %d, want the refocused report to take `j`", m.activity.cursor)
+	if m.activity.grid.row != 1 {
+		t.Fatalf("cursor = %d, want the refocused report to take `j`", m.activity.grid.row)
 	}
 
 	m = send(t, m, press('1'), press('A'))
@@ -434,40 +472,55 @@ func TestActivityHelpFollowsTheFocus(t *testing.T) {
 
 // A click puts the cursor on the row that was clicked, and the wheel
 // walks the list the way j/k does. The main view of a 120x40 model
-// starts at x=40; its first content row is the column header.
+// starts at x=40; the grid spends its first two content rows on the
+// column names and the rule under them.
 func TestActivityMouse(t *testing.T) {
 	m := openReport(t, serverModel(t, false), fixtureProcesses())
 	// The click is mapped through the window the last frame rendered.
 	m.activityContent(80, 28)
 
-	// y=1 is the column header and y=2 the first session, so y=4 is the
-	// third row of the list.
-	m = send(t, m, click(60, 4))
-	if m.activity.cursor != 2 {
-		t.Fatalf("cursor after the click = %d, want the clicked row", m.activity.cursor)
+	// y=1 is the column names, y=2 the rule and y=3 the first session, so
+	// y=5 is the third row of the list.
+	m = send(t, m, click(60, 5))
+	if m.activity.grid.row != 2 {
+		t.Fatalf("cursor after the click = %d, want the clicked row", m.activity.grid.row)
 	}
 	if m.focus != panelMain {
 		t.Fatalf("focus = %v, want the click to keep the report focused", m.focus)
 	}
 	// A click on the header row is not a row: it leaves the cursor alone.
 	m = send(t, m, click(60, 1))
-	if m.activity.cursor != 2 {
-		t.Fatalf("cursor after clicking the header = %d, want it unmoved", m.activity.cursor)
+	if m.activity.grid.row != 2 {
+		t.Fatalf("cursor after clicking the header = %d, want it unmoved", m.activity.grid.row)
 	}
 	// The wheel walks rows, clamped to the list.
 	m = send(t, m, wheelUp(60, 5))
-	if m.activity.cursor != 0 {
-		t.Fatalf("cursor after a wheel notch up = %d, want 0", m.activity.cursor)
+	if m.activity.grid.row != 0 {
+		t.Fatalf("cursor after a wheel notch up = %d, want 0", m.activity.grid.row)
 	}
 	m = send(t, m, wheelDown(60, 5))
-	if m.activity.cursor != 3 {
-		t.Fatalf("cursor after a wheel notch down = %d, want the last row", m.activity.cursor)
+	if m.activity.grid.row != 3 {
+		t.Fatalf("cursor after a wheel notch down = %d, want the last row", m.activity.grid.row)
 	}
 	// A click from a focused side panel focuses the report again.
-	m = send(t, m, press('1'), click(60, 3))
-	if m.focus != panelMain || m.activity.cursor != 1 {
+	m = send(t, m, press('1'), click(60, 4))
+	if m.focus != panelMain || m.activity.grid.row != 1 {
 		t.Fatalf("focus = %v cursor = %d, want the click to refocus and select",
-			m.focus, m.activity.cursor)
+			m.focus, m.activity.grid.row)
+	}
+}
+
+// A click lands on a cell, not just a row: the column under the pointer
+// becomes the cursor column, so `y` copies what was clicked.
+func TestActivityClickPicksAColumn(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m.activityContent(80, 28)
+
+	// The first column is "PID"; the second starts one separator past it.
+	x := 40 + 1 + m.activity.grid.cols[0].width + colGap
+	m = send(t, m, click(x, 3))
+	if m.activity.grid.col != 1 {
+		t.Fatalf("column after the click = %d, want the second column", m.activity.grid.col)
 	}
 }
 

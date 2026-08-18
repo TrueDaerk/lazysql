@@ -69,6 +69,14 @@ type keyMap struct {
 	ServerActivity key.Binding
 	KillProcess    key.Binding
 	ActivityAuto   key.Binding
+	// ActivitySelectUp/ActivitySelectDown are the report's own
+	// extend-the-selection keys. They are ShiftUp/ShiftDown minus the
+	// `K`/`J` fallbacks: `K` kills a session in the report, and one key
+	// cannot mean two things in one context. Terminals that cannot report
+	// shift+arrows still get there the way the grid's own fallback does —
+	// `ctrl+v`/`V` anchors and plain `j`/`k` extend.
+	ActivitySelectUp   key.Binding
+	ActivitySelectDown key.Binding
 
 	// MoveConnUp/MoveConnDown reorder the selected row of the [1] Connections
 	// panel, persisting the new order to config.toml immediately. `K`/`J`
@@ -345,6 +353,10 @@ func newKeyMap() keyMap {
 		// asked for keys first — and nothing in it moves a connection.
 		KillProcess:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "kill session")),
 		ActivityAuto: key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "auto-refresh")),
+		ActivitySelectUp: key.NewBinding(
+			key.WithKeys("shift+up"), key.WithHelp("shift+↑", "extend selection up")),
+		ActivitySelectDown: key.NewBinding(
+			key.WithKeys("shift+down"), key.WithHelp("shift+↓", "extend selection down")),
 
 		MoveConnUp:   key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "move up")),
 		MoveConnDown: key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "move down")),
@@ -661,15 +673,51 @@ func (k keyMap) connFormKeys() []key.Binding {
 		k.NextField, k.PrevField, k.FormChange, k.FormTest, k.FormEngine, k.FormSave, k.Back}
 }
 
-// serverActivity are the keys the activity report owns while it is on
-// screen (panel [1] focused). updateActivityKeys dispatches them ahead of
-// the panel's own actions — `K` means kill there, not move a connection —
-// so this slice is what documents them in `?` and what the options bar
-// renders while the report is up.
-func (k keyMap) serverActivity() []key.Binding {
-	return []key.Binding{
-		k.Up, k.Down, k.Refresh, k.KillProcess, k.ActivityAuto, k.ViewCell, k.Back,
+// activityActions is the single source of truth for the server activity
+// report, the way panelActions is for a panel: updateActivityKeys
+// dispatches it, the options bar and `?` render it, and runAction reaches
+// the same handlers from either end.
+//
+// It is deliberately the read-only half of the main view's own list.
+// Everything that stages or applies a change — edit, delete, insert,
+// duplicate, commit, unstage, discard — is absent rather than inert, so
+// there is no key to press and nothing to read in `?` that would answer
+// "not here". The kill is not an exception to that: it acts on a server
+// session, not on a row of data, and never runs without a confirm modal.
+func (k keyMap) activityActions() []action {
+	return []action{
+		// The report's own actions come first: `K` means kill a session
+		// here, so nothing that also binds it may match ahead of it.
+		{actKillProcess, k.KillProcess},
+		{actActivityAuto, k.ActivityAuto},
+		{actRefresh, k.Refresh},
+		// The grid's navigation, selection and copy, unchanged.
+		{actColLeft, k.ColLeft},
+		{actColRight, k.ColRight},
+		{actNextPage, k.NextPage},
+		{actPrevPage, k.PrevPage},
+		{actSelectRows, k.SelectRows},
+		{actSelectColumns, k.SelectColumns},
+		{actExtendSelectionUp, k.ActivitySelectUp},
+		{actExtendSelectionDown, k.ActivitySelectDown},
+		{actExtendSelectionLeft, k.ShiftLeft},
+		{actExtendSelectionRight, k.ShiftRight},
+		{actCopyMenu, k.CopyMenu},
+		{actCopySelectionMenu, k.CopySelection},
+		{actViewCell, k.ViewCell},
+		{actRowDetail, k.RowDetail},
 	}
+}
+
+// serverActivity is activityActions plus the movement keys around it:
+// what `?` lists for the report and what the options bar renders while it
+// has the focus.
+func (k keyMap) serverActivity() []key.Binding {
+	out := []key.Binding{k.Up, k.Down}
+	for _, a := range k.activityActions() {
+		out = append(out, a.binding)
+	}
+	return append(out, k.Back)
 }
 
 // enginePickerKeys is the engine picker's contract: what the options bar
@@ -1036,6 +1084,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"schema-diff", &k.SchemaDiff},
 		{"server-activity", &k.ServerActivity}, {"kill-process", &k.KillProcess},
 		{"activity-auto", &k.ActivityAuto},
+		{"activity-select-up", &k.ActivitySelectUp},
+		{"activity-select-down", &k.ActivitySelectDown},
 		{"move-conn-up", &k.MoveConnUp}, {"move-conn-down", &k.MoveConnDown},
 		{"connect", &k.Connect}, {"disconnect", &k.Disconnect},
 		{"refresh", &k.Refresh}, {"actions", &k.Actions}, {"filter", &k.Filter},

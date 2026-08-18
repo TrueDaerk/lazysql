@@ -79,15 +79,33 @@ to a side panel, which then works exactly as it always does while the list
 stays on screen; `A` from `[1] Connections` refreshes it and focuses it again.
 `esc` closes the report.
 
+The list is the data grid, read-only: the cell cursor, the sliding column
+window, the multi-row and block selection and the copy scopes all work exactly
+as they do on a query result. Nothing that stages or applies a change is bound
+here at all — there is no edit, insert, delete or commit key to press.
+
 | Keys | Action | Action name |
 |---|---|---|
 | `k` · `↑` / `j` · `↓` | Move between sessions | `up` / `down` |
+| `h` · `←` / `l` · `→` | Previous / next column | `col-left` / `col-right` |
+| `ctrl+b` / `ctrl+f` | Move a screen up / down | `prev-page` / `next-page` |
 | `R` · `r` | Re-read the process list | `refresh` |
 | `t` | Auto-refresh every 5s, on or off | `activity-auto` |
 | `K` | Kill the session under the cursor (asks first) | `kill-process` |
-| `v` | Show the session's statement in full | `view-cell` |
+| `ctrl+v` · `V` | Start / end a multi-session selection | `select-rows` |
+| `shift+↑` / `shift+↓` | Extend the selection up / down | `activity-select-up` / `activity-select-down` |
+| `C` | Anchor a column span (`h`/`l` extend it) | `select-columns` |
+| `shift+←` / `shift+→` | Narrow the selection a column left / right | `shift-left` / `shift-right` |
+| `y` | Copy menu — cell, row, selection, whole list | `copy-menu` |
+| `ctrl+c` | Copy menu for the selection (while one is up) | `copy-selection` |
+| `v` | Show the cell under the cursor in full | `view-cell` |
+| `x` | Show the whole session as a field list | `row-detail` |
 | `g` / `G` | First / last session | — |
-| `esc` | Close the report | `back` |
+| `esc` | Clear the selection, then close the report | `back` |
+
+`K`/`J` extend the selection in the data grid, but not here — `K` kills a
+session. Terminals that cannot report `shift+↑`/`shift+↓` use `ctrl+v` (or `V`)
+to anchor and then plain `j`/`k`.
 
 ### In the engine picker
 

@@ -1445,6 +1445,14 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 // runAction performs a context action. Both a key press and an entry in the
 // `a` actions menu reach the panel behaviour through here.
 func (m Model) runAction(id actionID) (Model, tea.Cmd) {
+	// The server activity report owns the main view while it is focused
+	// there, so the grid actions it shares with the Data tab act on its
+	// own read-only grid rather than on the page behind it.
+	if m.activityFocused() {
+		if mm, cmd, handled := m.activityDispatch(id); handled {
+			return mm, cmd
+		}
+	}
 	// The main view's tab actions run first: they mean the same thing
 	// on every tab. The data grid's own actions live with the grid.
 	if mm, cmd, handled := m.metaActions(id); handled {

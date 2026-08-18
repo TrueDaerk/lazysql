@@ -105,31 +105,6 @@ type dataView struct {
 	req int
 }
 
-// gridSelection is the data grid's selection: an anchor row and the
-// cursor, with everything between them selected. Only the anchor is
-// stored — the other end is the cell cursor itself, which is what makes
-// `j`/`k` extend the selection without a second movement path.
-//
-// A selection starts out full-width — every column of the marked rows —
-// and narrows to a block only once `shift+←`/`shift+→` anchors a column
-// too (cols). The same anchor-plus-cursor trick applies sideways:
-// colAnchor is one edge and the cell cursor's column is the other.
-//
-// Both anchors are indices into the page that was on screen when the
-// selection started, so every reload, sort, filter and page turn drops it
-// (see clearSelection) rather than risk a stale index pointing at a
-// different row.
-type gridSelection struct {
-	active bool
-	anchor int
-
-	// cols reports whether the column span is part of the selection. A
-	// selection without one covers every column, which is what a
-	// row-wise selection has always meant.
-	cols      bool
-	colAnchor int
-}
-
 // selecting reports whether a multi-row selection is up.
 func (d dataView) selecting() bool { return d.sel.active }
 
@@ -137,23 +112,7 @@ func (d dataView) selecting() bool { return d.sel.active }
 // covers, clamped to the rows actually fetched — the phantom rows of
 // staged inserts have no values behind them, so they never take part.
 func (d dataView) selectionRange() (start, end int) {
-	if !d.sel.active || len(d.rows) == 0 {
-		return 0, 0
-	}
-	start, end = d.sel.anchor, d.row
-	if start > end {
-		start, end = end, start
-	}
-	if start < 0 {
-		start = 0
-	}
-	if end >= len(d.rows) {
-		end = len(d.rows) - 1
-	}
-	if start > end {
-		return 0, 0
-	}
-	return start, end + 1
+	return d.sel.rowRange(d.row, len(d.rows))
 }
 
 // selectedRows lists the page rows of the selection, in page order.
@@ -182,26 +141,7 @@ func (d dataView) inSelection(r int) bool {
 // row-wise scopes keep reading the full width without asking whether a
 // block is up.
 func (d dataView) columnRange() (start, end int) {
-	if !d.sel.active || len(d.cols) == 0 {
-		return 0, 0
-	}
-	if !d.sel.cols {
-		return 0, len(d.cols)
-	}
-	start, end = d.sel.colAnchor, d.col
-	if start > end {
-		start, end = end, start
-	}
-	if start < 0 {
-		start = 0
-	}
-	if end >= len(d.cols) {
-		end = len(d.cols) - 1
-	}
-	if start > end {
-		return 0, 0
-	}
-	return start, end + 1
+	return d.sel.colRange(d.col, len(d.cols))
 }
 
 // selectedCols lists the columns of the selection, in column order.

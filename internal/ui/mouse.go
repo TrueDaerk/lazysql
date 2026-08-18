@@ -505,7 +505,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		}
 		m.setFocus(panelMain)
 		if h.row >= 0 {
-			m.clickActivity(h.row)
+			m.clickActivity(h.row, h.col)
 		}
 		return m, nil
 	}

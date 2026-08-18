@@ -1656,3 +1656,31 @@ Chronological history of wiki changes, newest last.
   the header row; the wheel now works from any focus.
 - The schema diff stays an overlay on panel [1] on purpose — it is a scroll
   offset over text, with no selection to act on — and both sites say so.
+
+## 2026-08-18 — The activity report is the data grid, read-only (issue #176)
+
+- Added [design/read-only-grid](design/read-only-grid.md): the split line
+  between what a grid does with values it was handed (shared) and what it
+  does because there is a table behind it (not shared).
+- New `internal/ui/rogrid.go`: `roGrid` (formatted columns, cell cursor,
+  clamped scroll windows, selection), with `gridSelection` and its range math
+  moved there so both grids call one implementation. `gridHeader`, `gridRow`
+  and `cellStyle` now read a `gridCursor` instead of `m.data`/`m.focus`;
+  `rowKind` gained `rowAlert`/`rowFaded` for grids with no changeset.
+- `copy.go` grew four value-level scopes — `copyCellValue`, `copyRowValues`,
+  `copyRowBlock`, `copyColumnValues` — that the Data tab and the report both
+  feed. `buildGrid`/`gridLayout` stayed page-specific on purpose.
+- The server activity report is the first user: `h`/`l` move a column cursor,
+  wide tables scroll with the same hint line, `ctrl+v`/`V`/`C`/shift-arrows
+  select rows and blocks, `y`/`ctrl+c` copy cell, row, selection (CSV/JSON,
+  cursor-column values) and the whole list. Client became a real column;
+  `v` shows the cell under the cursor and `x` the whole session.
+- Read-only is enforced by absence: `keyMap.activityActions()` is the single
+  source for dispatch, the options bar and `?`, and it contains no edit,
+  delete, insert, duplicate, commit, unstage or discard. `K` still kills a
+  session behind its confirm modal, which is why the report binds
+  `activity-select-up`/`activity-select-down` rather than reusing the grid's
+  `K`/`J` fallbacks.
+- Auto-refresh behaviour is now defined and tested: the cursor re-anchors by
+  session ID, falls back to its index when that session has ended, and a
+  selection is kept only while both of its ends are still listed.

@@ -140,6 +140,11 @@ func processIDLess(a, b string) bool {
 	return a < b
 }
 
+// ProcessIDLess is processIDLess, exported for the activity view's own
+// column sort: its PID column and its tie-break for every other column
+// order sessions the same way SortProcesses does.
+func ProcessIDLess(a, b string) bool { return processIDLess(a, b) }
+
 // scanProcesses runs a process-list query and reads its fixed column
 // contract, which every dialect's processListSQL produces in this order:
 //

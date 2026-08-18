@@ -104,6 +104,100 @@ func TestActivityKeepsTheDriversOrder(t *testing.T) {
 	}
 }
 
+// `s` cycles the column under the cursor through ASC, DESC and back to
+// the driver's default order, and marks the header the way the data
+// grid does. Duration is used because it must sort numerically rather
+// than by the formatted "1m 35s" text.
+func TestActivitySortCyclesAscDescDefault(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	// Move the column cursor onto Duration (PID, User, Database, Client,
+	// State, Duration).
+	m = send(t, m, press('l'), press('l'), press('l'), press('l'), press('l'))
+	if got := m.activity.grid.header(m.activity.grid.col); got != "Duration" {
+		t.Fatalf("column cursor is on %q, want Duration", got)
+	}
+
+	m = send(t, m, press('s'))
+	if ids := rowIDs(m); !equalStrings(ids, []string{"45", "43", "42", "44"}) {
+		t.Fatalf("ASC duration order = %v, want [45 43 42 44] (idle last)", ids)
+	}
+	if !strings.Contains(m.activityContent(120, 20), "Duration ▲") {
+		t.Errorf("the header does not mark the ascending sort:\n%s", m.activityContent(120, 20))
+	}
+
+	m = send(t, m, press('s'))
+	if ids := rowIDs(m); !equalStrings(ids, []string{"42", "43", "45", "44"}) {
+		t.Fatalf("DESC duration order = %v, want [42 43 45 44] (idle last)", ids)
+	}
+	if !strings.Contains(m.activityContent(120, 20), "Duration ▼") {
+		t.Errorf("the header does not mark the descending sort:\n%s", m.activityContent(120, 20))
+	}
+
+	m = send(t, m, press('s'))
+	if m.activity.sort != nil {
+		t.Fatalf("sort = %+v, want nil after the third `s`", m.activity.sort)
+	}
+	if ids := rowIDs(m); !equalStrings(ids, []string{"42", "43", "45", "44"}) {
+		t.Fatalf("default order = %v, want db.SortProcesses' own order", ids)
+	}
+	if strings.Contains(m.activityContent(120, 20), "Duration ▲") ||
+		strings.Contains(m.activityContent(120, 20), "Duration ▼") {
+		t.Errorf("the header still marks a sort after it was cleared:\n%s", m.activityContent(120, 20))
+	}
+}
+
+// The PID column sorts numerically, not lexically — "9" must not sort
+// ahead of "10".
+func TestActivitySortPIDIsNumeric(t *testing.T) {
+	rows := []db.Process{
+		{ID: "10", User: "app"},
+		{ID: "2", User: "app"},
+		{ID: "9", User: "app"},
+	}
+	m := openReport(t, serverModel(t, false), rows)
+	m = send(t, m, press('s')) // column cursor starts on PID
+	if ids := rowIDs(m); !equalStrings(ids, []string{"2", "9", "10"}) {
+		t.Fatalf("PID ASC order = %v, want numeric order [2 9 10]", ids)
+	}
+}
+
+// Auto-refresh (and a plain `R`) must not lose the active sort: fresh
+// rows land re-sorted by the same column and direction.
+func TestActivitySortSurvivesRefresh(t *testing.T) {
+	m := openReport(t, serverModel(t, false), fixtureProcesses())
+	m = send(t, m, press('l'), press('l'), press('l'), press('l'), press('l'), press('s'))
+	if ids := rowIDs(m); !equalStrings(ids, []string{"45", "43", "42", "44"}) {
+		t.Fatalf("ASC duration order before refresh = %v", ids)
+	}
+
+	// A fresh read arrives in the driver's own (unsorted-by-duration-asc)
+	// order, with one session's duration changed and a new one added.
+	fresh := []db.Process{
+		{ID: "42", User: "app", Duration: 200 * time.Second, HasDuration: true},
+		{ID: "43", User: "app", Duration: 12 * time.Second, HasDuration: true},
+		{ID: "44", User: "reporting"},
+		{ID: "45", User: "app", Duration: time.Second, HasDuration: true},
+		{ID: "46", User: "app", Duration: 5 * time.Second, HasDuration: true},
+	}
+	m.activity.id++ // what refreshActivity does before the round trip
+	m = send(t, m, activityLoadedMsg{id: m.activity.id, conn: m.active, rows: fresh})
+
+	if ids := rowIDs(m); !equalStrings(ids, []string{"45", "46", "43", "42", "44"}) {
+		t.Fatalf("ASC duration order after refresh = %v, want [45 46 43 42 44] (idle last)", ids)
+	}
+	if !strings.Contains(m.activityContent(120, 20), "Duration ▲") {
+		t.Errorf("the header lost its sort mark after refresh:\n%s", m.activityContent(120, 20))
+	}
+}
+
+func rowIDs(m Model) []string {
+	ids := make([]string, len(m.activity.rows))
+	for i, p := range m.activity.rows {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
 func TestActivityCursorMoves(t *testing.T) {
 	m := openReport(t, serverModel(t, false), fixtureProcesses())
 	m = send(t, m, press('j'))

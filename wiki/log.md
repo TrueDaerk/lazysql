@@ -1684,3 +1684,22 @@ Chronological history of wiki changes, newest last.
 - Auto-refresh behaviour is now defined and tested: the cursor re-anchors by
   session ID, falls back to its index when that session has ended, and a
   selection is kept only while both of its ends are still listed.
+
+## 2026-08-18 — Server activity: sortable columns (issue #178)
+
+- Updated [design/server-activity-view](design/server-activity-view.md) with a
+  **Column sorting** section: `s` on the column under the grid cursor cycles
+  ASC → DESC → the default `db.SortProcesses` order, client-side, mirroring
+  `toggleSort` on the data grid. `activityView.sort` (`internal/ui/activity.go`)
+  holds the active column/direction; `setRows` — the one place every fresh list
+  lands, refresh and auto-refresh tick included — applies it before the cursor
+  re-anchors by session ID, so a re-sort and a refresh share one path.
+- PID and Duration sort numerically rather than by their formatted display
+  text; every column sorts unreported/idle values last regardless of
+  direction, the same convention `db.SortProcesses`' own default order already
+  used for `HasDuration`. The one place that calls `db.SortProcesses` directly
+  from the UI is the third `s` press, so "back to default" takes effect
+  immediately instead of waiting for the next refresh.
+- `actSortColumn`/`k.SortColumn` (`s`) joined `keyMap.activityActions()`, the
+  single source for the report's dispatch, options bar and `?` — no separate
+  wiring needed for either.

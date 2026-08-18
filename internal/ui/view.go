@@ -338,10 +338,12 @@ func (m Model) mainTitle(w int) string {
 	if m.mainFocused() {
 		titleStyle = m.style.titleFocused
 	}
+	// The activity report is focused in this box rather than overlaid on
+	// panel [1], so it names the box wherever the focus currently is.
+	if m.activityOwnsMain() {
+		return m.activityTitle()
+	}
 	if m.focus == panelConnections {
-		if m.activity != nil {
-			return m.activityTitle()
-		}
 		if m.diff != nil {
 			return m.diffTitle()
 		}
@@ -375,12 +377,15 @@ func (m Model) mainTitle(w int) string {
 // selected connection's settings, or — with nothing opened yet — a
 // summary of what the focused panel points at.
 func (m Model) mainContent(w, h int) string {
+	// The activity report is the main view's own content: it stays on
+	// screen — without claiming any keys — while a side panel is focused,
+	// and only esc (or a relation opening here) takes the box back.
+	if m.activityOwnsMain() {
+		return m.activityContent(w, h)
+	}
 	if m.focus == panelConnections {
-		// An open report — the server activity list or a schema diff —
-		// replaces the profile detail until esc dismisses it.
-		if m.activity != nil {
-			return m.activityContent(w, h)
-		}
+		// An open schema diff replaces the profile detail until esc
+		// dismisses it.
 		if m.diff != nil {
 			return m.diffContent(w, h)
 		}
@@ -596,11 +601,12 @@ func (m Model) renderOptionsBar() string {
 	if _, ok := m.modal.(*enginePickerModal); ok {
 		bindings = m.keys.enginePickerKeys()
 	}
-	// The activity report claims panel [1]'s keys while it is on screen —
-	// `K` kills a session there rather than moving a connection — so the
-	// bar offers its set instead of the panel's, all of it documented
-	// under `?` in the same group.
-	if m.focus == panelConnections && m.activity != nil && m.modal == nil {
+	// The activity report claims the main view's keys while it is focused
+	// there — `K` kills a session rather than moving a connection — so the
+	// bar offers its set instead of the grid's, all of it documented under
+	// `?` in the same group. With a side panel focused the list is only on
+	// display and the bar stays that panel's.
+	if m.activityFocused() && m.modal == nil {
 		own := m.keys.serverActivity()
 		// A read-only connection cannot kill anything — the driver
 		// refuses it — so the key comes off the bar the way the grid's

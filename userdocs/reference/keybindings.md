@@ -71,10 +71,12 @@ mode it runs the statement the caret is in.
 
 ### In the server activity view (`A`)
 
-The report takes over the main view while `[1] Connections` keeps the focus,
-and claims these keys for as long as it is open — `K` kills a session there
-rather than moving a connection. `esc` closes it and gives the panel its keys
-back.
+The report opens **in the main view and takes the focus there**, so these are
+the keys of the main view for as long as it is focused — `K` kills a session
+here rather than moving a connection. `1` (or `tab`) hands the keyboard back
+to a side panel, which then works exactly as it always does while the list
+stays on screen; `A` from `[1] Connections` refreshes it and focuses it again.
+`esc` closes the report.
 
 | Keys | Action | Action name |
 |---|---|---|

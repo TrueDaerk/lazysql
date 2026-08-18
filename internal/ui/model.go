@@ -1309,10 +1309,14 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, tea.Quit
 
 	case key.Matches(msg, k.Help):
-		m.modal = newHelpModal(
-			"Keybindings — "+panelTitles[m.focus],
-			k.helpGroups(m.focus),
-		)
+		title, groups := "Keybindings — "+panelTitles[m.focus], k.helpGroups(m.focus)
+		// The report is focused in the main view rather than in a panel, so
+		// `?` lists what it binds instead of the grid's actions — the same
+		// split the options bar makes.
+		if m.activityFocused() {
+			title, groups = "Keybindings — Server activity", m.activityHelpGroups()
+		}
+		m.modal = newHelpModal(title, groups)
 		return true, m, nil
 
 	case key.Matches(msg, k.Jump):
@@ -1344,17 +1348,15 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	k := m.keys
 	p := m.panels[m.focus]
 
-	// An open schema diff or activity report owns the report keys while
-	// panel [1] is focused; anything neither claims falls through to the
-	// panel. Only one of the two is ever on screen — opening either
-	// replaces what the main view shows.
+	// An open schema diff owns its keys while panel [1] is focused;
+	// anything it does not claim falls through to the panel. The activity
+	// report used to be routed here the same way — it is not any more: it
+	// is focused in the main view (updateData dispatches it), so panel [1]
+	// keeps every one of its own keys while the list is on screen. See
+	// wiki/design/server-activity-focus.md; the diff is still an overlay
+	// because it has no cursor of its own to hand the main view.
 	if m.focus == panelConnections && m.diff != nil {
 		if mm, cmd, handled := m.updateDiffKeys(msg); handled {
-			return mm, cmd
-		}
-	}
-	if m.focus == panelConnections && m.activity != nil {
-		if mm, cmd, handled := m.updateActivityKeys(msg); handled {
 			return mm, cmd
 		}
 	}
@@ -1712,7 +1714,7 @@ func (m *Model) openObject(n *treeNode) tea.Cmd {
 // has no cursor to hand over, so tab skips it.
 func (m Model) cycleFocus(delta int) panelID {
 	n := int(panelCount)
-	if m.data.open() || m.trigger != nil {
+	if m.data.open() || m.trigger != nil || m.activity != nil {
 		n++
 	}
 	cur := int(m.focus)

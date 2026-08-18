@@ -40,6 +40,9 @@ func (m *Model) openTrigger(n *treeNode) tea.Cmd {
 		return logCmd("-- open trigger %s skipped: not connected", n.name)
 	}
 	m.triggerReq++
+	// The definition takes the main view, so an activity report focused
+	// there goes the way it goes when a relation opens.
+	m.closeActivity()
 	m.trigger = &triggerView{
 		database: n.database,
 		name:     n.name,

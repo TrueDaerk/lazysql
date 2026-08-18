@@ -16,7 +16,8 @@ to `psql` for `pg_stat_activity` or to `mysql` for `SHOW PROCESSLIST`.
 
 ## The report
 
-It takes over the main view while panel `[1]` keeps the focus.
+It opens in the main view and takes the focus there — the list is navigated
+where it is drawn, like a data grid.
 
 | Column | What it holds |
 |---|---|
@@ -48,7 +49,16 @@ rule — it holds locks, so it keeps its duration and stays near the top.
 | `v` | Show that session's statement in full |
 | ++esc++ | Close the report |
 
-`A` again on an open report refreshes it without losing the cursor.
+`A` again on an open report refreshes it without losing the cursor — and,
+if you had moved the focus back to panel `[1]`, hands the keyboard back to
+the list.
+
+The report holds the focus only while the main view has it. Press `1` (or
+`tab`) and the connections panel behaves completely normally — `j`/`k` and
+`enter` move and connect there — while the report stays visible beside it;
+its footer then reads `tab focuses the report` instead of offering keys it
+no longer owns. The options bar and `?` always describe whichever of the two
+is focused.
 
 !!! tip "`K`, not `k`"
 
@@ -56,6 +66,12 @@ rule — it holds locks, so it keeps its duration and stays near the top.
     key is the shifted `K`. Both are rebindable — see
     [Keybindings](../reference/keybindings.md) for the `kill-process` and
     `server-activity` action names.
+
+## Mouse
+
+Left-clicking a row puts the cursor on it (and focuses the report if a side
+panel had the focus). The wheel walks the list one notch at a time, from
+whichever panel is focused.
 
 ## Refreshing
 

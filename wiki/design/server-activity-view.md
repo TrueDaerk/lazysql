@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Server activity view (processes, lock waits, kill session)
-description: Why the session list is one Driver.ListProcesses returning a dialect-agnostic []db.Process with the sort settled in the driver, why the report takes over panel [1]'s main view like the schema diff instead of becoming a fourth panel or a modal, why the kill key is `K` rather than the issue's `k`, why auto-refresh is opt-in with a visible interval, and the three guards between a key press and a terminated session.
+description: Why the session list is one Driver.ListProcesses returning a dialect-agnostic []db.Process with the sort settled in the driver, why the report takes over the main view instead of becoming a fourth panel or a modal (its focus model was superseded by issue #174 — see design/server-activity-focus), why the kill key is `K` rather than the issue's `k`, why auto-refresh is opt-in with a visible interval, and the three guards between a key press and a terminated session.
 tags: [tui, activity, processlist, locks, kill, db, keybindings, read-only]
 generated:
   by: claude-code/opus-5
@@ -16,9 +16,17 @@ sources:
 ## Decision
 
 `A` on panel `[1] Connections` asks the live connection's server what it
-is doing. The report takes over the main view — the schema diff's
-pattern, not a new panel and not a modal — while panel `[1]` keeps the
-focus, and claims the keys it binds before the panel sees them.
+is doing. The report takes over the main view — not a new panel and not a
+modal — and is focused there.
+
+> **Superseded in part by issue #174.** As shipped in #151 the report was
+> the schema diff's pattern: panel `[1]` kept the focus and the report
+> claimed the keys it binds before the panel saw them. It is now focused
+> in the main view instead, so panel `[1]` keeps all of its own keys while
+> the list is on screen. See
+> [design/server-activity-focus](server-activity-focus.md); everything
+> below about *what* the view does — the driver contract, the sort, `K`
+> over `k`, opt-in auto-refresh, the three kill guards — is unchanged.
 
 The dialect work sits behind two new Driver methods, exactly like
 `Explain` does:
@@ -56,11 +64,11 @@ reason: the list is browsed, refreshed and acted on over minutes, which
 is what the main view is for, and a modal swallows the keys that let you
 look at anything else.
 
-Panel `[1]` owns it because a session list is a property of the
+Panel `[1]` opens it because a session list is a property of the
 *connection*, not of the browsed database — the same reason the schema
-diff hangs there. Only one of the two reports is on screen at a time:
-opening either closes the other, so panel [1]'s main view never has to
-decide which of two takeovers wins.
+diff hangs there. Only one thing owns the main view at a time: opening
+the report closes the diff and any trigger definition, and opening a
+relation or a trigger closes the report.
 
 ## Why `K` and not `k`
 
@@ -68,9 +76,10 @@ Issue #151 asks for `k` on a row to kill it. `k` is the **Up** binding
 everywhere in the shell, including in the very list `K` acts on — a
 lowercase kill key would make the report unnavigable with vim keys, and
 would put "delete something irreversible" on the most-repeated key in the
-app. `K` (shift, for kill) is bound instead. It shadows the panel's own
-`move-conn-up` for as long as the report is open, which is safe because
-the report is asked for keys first and nothing in it moves a connection.
+app. `K` (shift, for kill) is bound instead. It no longer shadows the panel's
+own `move-conn-up` at all: since #174 the two live in different focus
+contexts — `K` kills only while the report is focused in the main view,
+and moves a connection while panel `[1]` is focused, report open or not.
 
 Both keys are rebindable (`kill-process`, `server-activity`,
 `activity-auto` in `[keys]`), so a user who wants the issue's spelling can

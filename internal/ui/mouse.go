@@ -283,16 +283,18 @@ func (m *Model) applyScroll(t scrollTarget, delta int) {
 // scrollMain routes the wheel inside the main view to whichever block is
 // under the pointer — the same stack mainContent and queryContent render.
 func (m *Model) scrollMain(row, delta int) {
+	// The activity report draws this box wherever the focus is, so the
+	// wheel over it walks its rows before anything else is considered. It
+	// is a cursor rather than an offset, so a notch moves it the way j/k
+	// does.
+	if m.activityOwnsMain() {
+		m.scrollActivity(delta)
+		return
+	}
 	switch {
 	case m.focus == panelConnections:
-		// A schema diff and the activity report are the two scrollable
-		// things panel [1] puts here; the profile detail always fits. The
-		// report is a cursor rather than an offset, so the wheel walks
-		// its rows the way j/k does.
-		if m.activity != nil {
-			m.scrollActivity(delta)
-			return
-		}
+		// A schema diff is the one scrollable thing panel [1] puts here;
+		// the profile detail always fits.
 		if m.diff != nil {
 			m.diff.offset += delta
 		}
@@ -490,6 +492,21 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 	// While panel [3] has the focus the main view *is* its editor, so a
 	// click there must not hand the focus to the grid behind it.
 	if m.focus == panelQuery {
+		return m, nil
+	}
+	// The activity report is the main view's own content and its rows are
+	// a cursor, so a click there means what a click in a side panel list
+	// means: focus the box and put the cursor on the row. There is no
+	// second-click step — the report is the only thing the box shows, so
+	// what the click aims at is never in doubt.
+	if m.activityOwnsMain() {
+		if h.title {
+			return m, nil
+		}
+		m.setFocus(panelMain)
+		if h.row >= 0 {
+			m.clickActivity(h.row)
+		}
 		return m, nil
 	}
 	if h.title {

@@ -1624,3 +1624,24 @@ Chronological history of wiki changes, newest last.
   instead of cycling to the next — `↓`/`↑` is the way to preview more than one
   candidate before accepting. Footer hints updated to
   `enter accept & next` / `tab/enter accept & next · shift+tab back`.
+
+## 2026-08-18 — The activity view is focused in the main panel (issue #174)
+
+- Added [design/server-activity-focus](design/server-activity-focus.md) and
+  marked the focus half of
+  [design/server-activity-view](design/server-activity-view.md) superseded.
+- The server activity report no longer overlays panel [1] and eats its keys.
+  `A` focuses the main view (`openActivity` → `setFocus(panelMain)`),
+  `updateData` dispatches `updateActivityKeys` the way it dispatches the
+  trigger view's handler, and the branch in `updateFocused` that gave the
+  report first claim on panel [1]'s keys is gone. `1`/`tab`/a click return
+  the keyboard to a fully working panel while the list stays on display; the
+  report joins the `tab` order, and a second `A` refreshes *and* refocuses.
+- Everything that describes the focus follows one predicate each:
+  `activityFocused()` (options bar, `?`, footer hints, border title emphasis)
+  and `activityOwnsMain()` (what the main view draws, where the wheel goes).
+- Mouse: a click in the box focuses the report and moves the cursor onto the
+  clicked row in one step, mapped through the rendered window `v.off` plus
+  the header row; the wheel now works from any focus.
+- The schema diff stays an overlay on panel [1] on purpose — it is a scroll
+  offset over text, with no selection to act on — and both sites say so.

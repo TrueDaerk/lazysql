@@ -121,6 +121,13 @@ there) without a second key press.
 
 ## What the view shows
 
+> **Superseded in part by issue #176** — see
+> [design/read-only-grid](read-only-grid.md). The table below is now an
+> `roGrid`: content-sized columns with a sliding window rather than fixed caps
+> plus a statement column taking the rest, `Client` promoted to a column of its
+> own, `v` showing the cell under the cursor rather than always the statement,
+> and `x` opening the whole session. The tints described here are unchanged.
+
 One row per session: `PID`, `User`, `Database`, `State`, `Duration`,
 `Blocked by`, `Query` — the statement column taking whatever width is
 left, since it is the one that is never long enough. A blocked session is

@@ -33,22 +33,31 @@ const (
 // cannot be confused with the string "NULL".
 const nullText = "NULL"
 
-// rowKind is how a rendered row relates to the changeset: an untouched
-// page row, a row staged for deletion, or a phantom row standing for a
-// staged insert that does not exist in the database yet.
+// rowKind is the whole-row tint a rendered row carries. The first three
+// say how the row relates to the changeset: an untouched page row, a row
+// staged for deletion, or a phantom row standing for a staged insert
+// that does not exist in the database yet. The last two belong to the
+// read-only grids built on roGrid, which have no changeset at all — a
+// row the view wants to stand out (a session waiting on a lock) and one
+// of lesser interest (lazysql's own connection).
 type rowKind int
 
 const (
 	rowPlain rowKind = iota
 	rowDeleted
 	rowInserted
+	rowAlert
+	rowFaded
 )
 
 // defaultText marks a phantom row's cell that the INSERT leaves out.
 const defaultText = "DEFAULT"
 
 // gridColumn is one rendered column: its header, its type and the
-// already-formatted cells of the page under it.
+// already-formatted cells of the page under it. typ is empty for a grid
+// whose columns have no declared type — a read-only report over values
+// the server hands out as text — and gridHeader then leaves the type
+// line out rather than drawing a blank one.
 type gridColumn struct {
 	header string // name plus the sort marker, if any
 	typ    string
@@ -351,9 +360,10 @@ func (m Model) dataBody(w, h int) string {
 	default:
 		g := m.gridLayout(w, h)
 
-		lines = append(lines, m.gridHeader(g.cols[g.cs:g.ce], g.cs, w))
+		cur := m.dataCursor()
+		lines = append(lines, m.gridHeader(g.cols[g.cs:g.ce], g.cs, cur, w))
 		for r := g.rs; r < g.re; r++ {
-			lines = append(lines, m.gridRow(g.cols[g.cs:g.ce], g.cs, r, g.kinds[r], w))
+			lines = append(lines, m.gridRow(g.cols[g.cs:g.ce], g.cs, r, cur, g.kinds[r], w))
 		}
 		if len(g.kinds) == 0 {
 			msg := "table is empty"
@@ -384,10 +394,60 @@ func (m Model) dataBody(w, h int) string {
 	return body + "\n" + last
 }
 
+// gridCursor is where a rendered grid's cell cursor sits, whether the box
+// it is drawn in has the focus, and which of its cells the selection
+// covers. It is what the renderers below read instead of m.data, so the
+// editable data grid and the read-only grids built on roGrid share one
+// set of them — see wiki/design/read-only-grid.md.
+type gridCursor struct {
+	row, col int
+	// focused is whether the box the grid is drawn in owns the keyboard.
+	// A cursor that cannot be moved is not highlighted as one.
+	focused bool
+	// selected reports whether a cell takes part in the selection; nil
+	// when no selection is up.
+	selected func(r, c int) bool
+}
+
+func (c gridCursor) cellSelected(r, col int) bool {
+	return c.selected != nil && c.selected(r, col)
+}
+
+// dataCursor is the Data tab's cursor as the shared renderers want it.
+func (m Model) dataCursor() gridCursor {
+	return gridCursor{
+		row: m.data.row, col: m.data.col,
+		focused:  m.focus == panelMain,
+		selected: m.data.cellSelected,
+	}
+}
+
+// gridHeaderRows is how many lines gridHeader draws for a set of columns:
+// the names, the types when the columns declare any, and the rule under
+// them. The content box is budgeted with it and a click is mapped back
+// through it, so the number lives in one place.
+func gridHeaderRows(cols []gridColumn) int {
+	if gridHasTypes(cols) {
+		return 3
+	}
+	return 2
+}
+
+func gridHasTypes(cols []gridColumn) bool {
+	for _, c := range cols {
+		if c.typ != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // gridHeader renders the column names and, under them, their types, then a
 // rule that sets the header off from the data. The rule's `┼` junctions
-// line up with the `│` separators above and below it.
-func (m Model) gridHeader(cols []gridColumn, first, w int) string {
+// line up with the `│` separators above and below it. A grid whose
+// columns declare no types gets no type line — there would be nothing in
+// it, and a read-only report should not spend a row on a blank.
+func (m Model) gridHeader(cols []gridColumn, first int, cur gridCursor, w int) string {
 	var names, types, rule strings.Builder
 	for i, c := range cols {
 		if i > 0 {
@@ -397,23 +457,25 @@ func (m Model) gridHeader(cols []gridColumn, first, w int) string {
 			rule.WriteString(ruleJunction)
 		}
 		style := m.style.gridHeader
-		if first+i == m.data.col && m.focus == panelMain {
+		if first+i == cur.col && cur.focused {
 			style = m.style.gridHeaderCursor
 		}
 		names.WriteString(style.Render(pad(truncate(c.header, c.width), c.width)))
 		types.WriteString(m.style.muted.Render(pad(truncate(c.typ, c.width), c.width)))
 		rule.WriteString(strings.Repeat(ruleChar, c.width))
 	}
-	return truncate(names.String(), w) + "\n" +
-		truncate(types.String(), w) + "\n" +
-		m.style.gridSeparator.Render(truncate(rule.String(), w))
+	out := truncate(names.String(), w)
+	if gridHasTypes(cols) {
+		out += "\n" + truncate(types.String(), w)
+	}
+	return out + "\n" + m.style.gridSeparator.Render(truncate(rule.String(), w))
 }
 
 // gridRow renders one row of the page, tinting the cursor row and, more
 // strongly, the cursor cell.
-func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) string {
+func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind rowKind, w int) string {
 	var b strings.Builder
-	onRow := r == m.data.row && m.focus == panelMain
+	onRow := r == cur.row && cur.focused
 	for i, c := range cols {
 		if i > 0 {
 			sep := m.style.gridSeparator.Render(colSepChar)
@@ -429,7 +491,8 @@ func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) str
 		}
 		// The tint is per cell, not per row: a selection narrowed to a
 		// block of columns has to show which columns it kept.
-		b.WriteString(m.cellStyle(onRow, m.data.cellSelected(r, first+i), first+i == m.data.col, isNull, isStaged, kind).
+		b.WriteString(m.cellStyle(onRow, cur.cellSelected(r, first+i), first+i == cur.col && cur.focused,
+			isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
 	return truncate(b.String(), w)
@@ -445,7 +508,7 @@ func (m Model) gridRow(cols []gridColumn, first, r int, kind rowKind, w int) str
 func (m Model) cellStyle(onRow, selected, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	switch {
-	case onRow && onCol && m.focus == panelMain:
+	case onRow && onCol:
 		style = m.style.cellCursor
 	case onRow:
 		style = m.style.rowCursor
@@ -459,6 +522,10 @@ func (m Model) cellStyle(onRow, selected, onCol, isNull, isStaged bool, kind row
 		return style.Foreground(colorDeleted).Strikethrough(true)
 	case kind == rowInserted:
 		return style.Foreground(colorGreen).Bold(true)
+	case kind == rowAlert:
+		return style.Foreground(colorError)
+	case kind == rowFaded:
+		return style.Foreground(colorMuted)
 	case isStaged:
 		style = style.Foreground(colorYellow).Bold(true)
 	case isNull:

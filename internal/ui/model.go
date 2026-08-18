@@ -1460,6 +1460,21 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actConnect:
 		return m.dialSelected(false)
 
+	case actDisconnect:
+		c, ok := m.selectedConnection()
+		if !ok {
+			return m, nil
+		}
+		if c.Name != m.active {
+			return m, logCmd("-- disconnect: %s is not the active connection", c.Name)
+		}
+		driver, tunnel := m.driver, m.tunnel
+		name := m.active
+		m.driver, m.tunnel, m.active = nil, nil, ""
+		m.resetBrowse()
+		m.setConnStatus(name, statusIdle, "")
+		return m, tea.Batch(closeSessionCmd(driver, tunnel), logCmd("-- disconnect %s", name))
+
 	case actTestConnection:
 		return m.dialSelected(true)
 

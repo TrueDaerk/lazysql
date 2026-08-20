@@ -53,9 +53,26 @@ type is the `WHERE` clause and nothing else.
 | ++esc++ | Cancel — the grid is left exactly as it was |
 | `↑` / `ctrl+p` | Previous filter for this table |
 | `↓` / `ctrl+n` | Next filter |
+| `ctrl+space` / `tab` | Complete a column name or keyword |
 | `F` | (in the grid) Clear the filter |
 
 An empty clause clears the filter, as does `F`.
+
+### Completion
+
+You do not have to remember the column names. Typing two characters offers
+the open table's columns first, then the keywords and functions a `WHERE`
+clause is written from; `ctrl+space` opens the list on nothing at all, which
+on an empty clause is the whole column list.
+
+`↓` / `↑` walk the list, `tab` accepts, and an accepted name is quoted for the
+engine when it has to be (`"order date"`). While the list is up it owns those
+keys: `↑` / `↓` select instead of recalling a filter, and `esc` closes the
+list and leaves your clause — a second `esc` closes the line. `enter` still
+applies the clause, unless you picked a suggestion with `↓` / `↑` first.
+
+It is the same popup the [query editor](query-editor.md) uses, with the same
+keys.
 
 ### Your clause is SQL, but its values are parameters
 

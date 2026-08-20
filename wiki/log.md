@@ -1746,3 +1746,24 @@ Chronological history of wiki changes, newest last.
   function catalog is 243 entries, and the old cap silently dropped keywords
   past it on an empty-word `ctrl+space` — caught by the existing
   `TestKeywordSuggestionsDifferPerDriver` before this shipped.
+
+## 2026-08-20 — Autocomplete on the grid's inline WHERE line (issue #183)
+
+- Added [design/filter-line-autocomplete](design/filter-line-autocomplete.md):
+  the editor's popup generalized to a second line rather than duplicated — a
+  `completionSite` derived from the focus (the routing order already decides
+  which line is taking text), a `completionScope` pairing the word under the
+  caret with the statement around it so the filter line's uneditable
+  `SELECT * FROM <relation> WHERE ` prefix is what `referencedRelations` reads
+  the relation out of, `filterInput.view` recording its caret cell for the
+  anchor, and a placement budget that ends at the bottom-pinned line so the box
+  is sized to the rows above it and flipped up there.
+- Key precedence written down: the popup takes `esc` and the arrows from the
+  line (history is one `esc` away again), `tab` accepts, and `enter` stays the
+  line's own verb unless the user picked a row with `↑`/`↓` — tracked by the new
+  `completion.picked`, which also decides whether `restackCompletion` pins a
+  selection across a landed column fetch.
+- Updated [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)
+  (`editorCompletion()` → `completionKeys()`, the narrowed selection-keeping
+  rule) and [design/inline-where-filter](design/inline-where-filter.md) (the
+  popup now sits ahead of the line's four keys).

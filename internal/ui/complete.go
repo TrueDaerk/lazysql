@@ -13,15 +13,21 @@ import (
 	"lazysql/internal/sqlhl"
 )
 
-// Autocomplete in the query editor is a floating list anchored under the
-// caret, composited by the same lipgloss layer mechanism as the modals —
-// but it is *not* a modal: a modal swallows every key, and this one only
-// claims five of them so typing keeps narrowing the list.
+// Autocomplete is a floating list anchored under the caret, composited
+// by the same lipgloss layer mechanism as the modals — but it is *not* a
+// modal: a modal swallows every key, and this one only claims five of
+// them so typing keeps narrowing the list.
+//
+// Two lines take text and therefore drive it: the query editor's buffer
+// and the data grid's inline WHERE line. They are never both typing at
+// once, so the popup is one piece of model state and the line it belongs
+// to — its completionSite — is derived from the focus rather than
+// remembered by whoever opened it.
 //
 // Three decisions shape the rest of this file:
 //
 //   - The suggestion list is derived, never accumulated. Every refresh
-//     rebuilds it from the buffer, the relation list and the column
+//     rebuilds it from the line, the relation list and the column
 //     cache, so there is no stale state to reconcile with an edit made
 //     somewhere else.
 //   - The replaced text is recomputed at accept time, not remembered
@@ -335,6 +341,18 @@ type completion struct {
 	// would otherwise close itself the moment the metadata it is waiting
 	// for arrives.
 	explicit bool
+	// picked records that the user moved the selection with ↑/↓. The
+	// popup's own idea of a selection is the top row, which it has from
+	// the moment it opens; this is the narrower question of whether
+	// anyone *chose* it — which is what the filter line's `enter` reads
+	// to tell "take this suggestion" from "run my clause".
+	picked bool
+	// site is the line the popup was built over. Everything that reads
+	// the line re-derives it from the focus, so this is not a second
+	// answer to that question — it is what lets code that is *not*
+	// reading a line (the layer that anchors the box, the close that
+	// comes with the filter line going away) tell whose popup this is.
+	site completionSite
 }
 
 // selected returns the item the popup would insert.
@@ -345,7 +363,66 @@ func (c completion) selected() (completionItem, bool) {
 	return c.items[c.cursor], true
 }
 
-// ---------- assembling the suggestions ----------
+// ---------- where the popup is typing ----------
+
+// completionSite names the line an open popup completes on.
+type completionSite int
+
+const (
+	// siteNone is "nothing is taking text", which is most of the time:
+	// the grid, the side panels, the editor in normal mode.
+	siteNone completionSite = iota
+	siteEditor
+	siteFilter
+)
+
+// completionSite reports which line owns the keyboard. The order matches
+// Update's routing — the inline WHERE line is only live on the focused
+// grid, the editor only in insert mode — so the popup can never be built
+// over a line that is not the one being typed into.
+func (m Model) completionSite() completionSite {
+	if m.filterInputOpen() {
+		return siteFilter
+	}
+	if m.focus == panelQuery && m.editor.editing {
+		return siteEditor
+	}
+	return siteNone
+}
+
+// completionScope is everything a suggestion list is derived from: the
+// word under the caret, and the statement whose relations decide which
+// columns belong in that list.
+//
+// The two travel together because the lines disagree about the second
+// one. The editor's statement is its buffer. The filter line's is its
+// clause under a prefix the user cannot edit — `SELECT * FROM "orders"
+// WHERE ` — and reading the clause alone would leave the popup with no
+// relation to take columns from, and with a word that looks like it sits
+// at the start of a statement rather than after a WHERE.
+type completionScope struct {
+	ctx  completionContext
+	stmt string
+}
+
+// completionScopeAt reads a site's line. ok is false for siteNone, and
+// for a site whose line has since gone away.
+func (m Model) completionScopeAt(site completionSite) (completionScope, bool) {
+	switch site {
+	case siteEditor:
+		return completionScope{ctx: m.editorContext(), stmt: m.script()}, true
+	case siteFilter:
+		if m.filterInput == nil {
+			return completionScope{}, false
+		}
+		clause := m.filterInput.input.Value()
+		return completionScope{
+			ctx:  completionContextAt(clause, m.filterInput.input.Position()),
+			stmt: m.filterInput.prefix + clause,
+		}, true
+	}
+	return completionScope{}, false
+}
 
 // editorContext reads the word under the editor's caret.
 func (m Model) editorContext() completionContext {
@@ -359,12 +436,16 @@ func (m Model) editorContext() completionContext {
 	return ctx
 }
 
+// ---------- assembling the suggestions ----------
+
 // completionSources builds the unranked suggestion list and the relations
 // whose columns it would like fetched. The two come back together
-// because they are read from the same scan of the buffer.
-func (m Model) completionSources(ctx completionContext) (items []completionItem, want []string) {
+// because they are read from the same scan of stmt — the whole statement
+// the word being completed sits in, prefix included where the line has
+// one.
+func (m Model) completionSources(ctx completionContext, stmt string) (items []completionItem, want []string) {
 	dialect := m.sqlDialect()
-	referenced := referencedRelations(dialect, m.script(), m.relations)
+	referenced := referencedRelations(dialect, stmt, m.relations)
 
 	// A qualified word is a member access: only that relation's columns
 	// can complete it, and nothing else belongs in the list.
@@ -416,42 +497,54 @@ func (m *Model) refreshCompletion(explicit bool) tea.Cmd {
 // restackCompletion rebuilds an open popup after a column list landed.
 // It is the other half of "never block": the popup opened on what was
 // cached, and this is what makes the rest appear without a keystroke.
-// The selection is carried across by name — the user did not move, so
-// neither should the highlight.
+//
+// A selection the user picked is carried across by name — they did not
+// move, so neither should the highlight. A selection nobody picked is
+// not: it is only the top row of a list that was missing its columns,
+// and pinning it would leave the arriving columns ranked below a keyword
+// that happened to match first.
 func (m *Model) restackCompletion() tea.Cmd {
 	if !m.completion.open && !m.completion.loading {
 		return nil
 	}
 	keep := ""
-	if it, ok := m.completion.selected(); ok {
+	if it, ok := m.completion.selected(); ok && m.completion.picked {
 		keep = it.text
 	}
-	return m.rebuildCompletion(m.completion.explicit, keep)
+	picked := m.completion.picked
+	cmd := m.rebuildCompletion(m.completion.explicit, keep)
+	// A row the user had chosen is still chosen: the fetch is not a
+	// keystroke, and it must not turn a picked selection back into the
+	// default one.
+	m.completion.picked = picked && m.completion.open
+	return cmd
 }
 
 // rebuildCompletion is the shared body: derive the list, start the
 // fetches it wants, and place the cursor.
 func (m *Model) rebuildCompletion(explicit bool, keep string) tea.Cmd {
-	if m.focus != panelQuery || !m.editor.editing {
+	site := m.completionSite()
+	scope, ok := m.completionScopeAt(site)
+	if !ok {
 		m.completion = completion{}
 		return nil
 	}
-	ctx := m.editorContext()
+	ctx := scope.ctx
 	if !explicit && len([]rune(ctx.word)) < minCompletionPrefix {
 		m.completion = completion{}
 		return nil
 	}
-	items, want := m.completionSources(ctx)
+	items, want := m.completionSources(ctx, scope.stmt)
 	cmd, loading := m.ensureSchemaColumns(want)
 	ranked := rankCompletions(ctx.word, items, maxCompletionItems)
 	if len(ranked) == 0 {
 		// Nothing matches. An open popup with no rows would be a border
-		// drawn over the buffer for no reason — but a fetch may still be
+		// drawn over the line for no reason — but a fetch may still be
 		// in flight, and its reply comes back through here.
-		m.completion = completion{loading: loading, explicit: explicit}
+		m.completion = completion{loading: loading, explicit: explicit, site: site}
 		return cmd
 	}
-	next := completion{open: true, items: ranked, loading: loading, explicit: explicit}
+	next := completion{open: true, items: ranked, loading: loading, explicit: explicit, site: site}
 	for i, it := range ranked {
 		if keep != "" && it.text == keep {
 			next.cursor = i
@@ -469,6 +562,7 @@ func (m *Model) moveCompletion(delta int) {
 	if !m.completion.open {
 		return
 	}
+	m.completion.picked = true
 	c := m.completion.cursor + delta
 	if c < 0 {
 		c = 0
@@ -480,8 +574,9 @@ func (m *Model) moveCompletion(delta int) {
 }
 
 // closeCompletion is `esc` while the popup is open: it closes the popup
-// and touches nothing else — not the buffer, not insert mode, not the
-// focus.
+// and touches nothing else — not the line being typed, not insert mode,
+// not the filter line, not the focus. It is what makes the *second* esc
+// the one that leaves whatever the popup was floating over.
 func (m *Model) closeCompletion() { m.completion = completion{} }
 
 // acceptCompletion inserts the selected item over the word under the
@@ -511,7 +606,38 @@ func (m *Model) acceptCompletion() {
 	if it.kind == completeFunction {
 		cursor-- // between the parens, not after the closing one
 	}
-	m.replaceEditorWord(text, cursor)
+	m.replaceCompletionWord(text, cursor)
+}
+
+// replaceCompletionWord writes an accepted item into whichever line the
+// popup was completing. The site is re-derived rather than read off the
+// popup: nothing can have moved the keyboard between the keystroke and
+// this call, and a stale site would type into a line that is not on
+// screen.
+func (m *Model) replaceCompletionWord(text string, cursor int) {
+	switch m.completionSite() {
+	case siteEditor:
+		m.replaceEditorWord(text, cursor)
+	case siteFilter:
+		m.replaceFilterWord(text, cursor)
+	}
+}
+
+// replaceFilterWord is replaceEditorWord for the grid's inline WHERE
+// line: the same "read the region now, not when the popup opened" rule,
+// with no rows to walk — the clause is one line by construction, and the
+// prefix in front of it is not part of the value.
+func (m *Model) replaceFilterWord(text string, cursor int) {
+	fi := m.filterInput
+	if fi == nil {
+		return
+	}
+	runes := []rune(fi.input.Value())
+	ctx := completionContextAt(string(runes), fi.input.Position())
+	col := min(ctx.col, len(runes))
+	start := min(ctx.start, col)
+	fi.input.SetValue(string(runes[:start]) + text + string(runes[col:]))
+	fi.input.SetCursor(start + cursor)
 }
 
 // replaceEditorWord overwrites the word under the caret with text and

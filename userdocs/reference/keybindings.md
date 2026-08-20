@@ -297,6 +297,14 @@ Every other key types into the clause.
 | `↓` · `ctrl+n` | Next filter | `filter-hist-next` |
 | `enter` · `ctrl+enter` | Apply the filter | `apply-filter` |
 | `esc` | Cancel the filter | `cancel-filter` |
+| `ctrl+space` · `tab` | Complete | `complete` |
+
+The completion popup opens over the filter line too, with the open table's
+columns and the keywords a `WHERE` clause is written from. While it is up it
+takes the same keys it takes in the editor — `↓`/`↑` select, `tab` accepts,
+`esc` closes the popup and leaves the line — so `↑`/`↓` only walk the filter
+history once the popup is gone. `enter` is the exception: it applies the
+clause unless you picked a suggestion with `↓`/`↑` first.
 
 ### In the cell detail popup (`v`)
 

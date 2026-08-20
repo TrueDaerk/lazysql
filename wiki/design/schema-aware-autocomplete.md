@@ -190,6 +190,15 @@ Which is also what makes the per-dialect difference fall out for free:
 `QUALIFY` is offered on DuckDB and not on MySQL, `AUTO_INCREMENT` the
 other way round.
 
+Built-in SQL functions (issue #184) are a fourth suggestion kind,
+`completeFunction`, ranked between schema and keywords and tagged `fn`.
+They come from `sqlhl.Functions(dialect)` — a list of its own, built the
+same way as `Keywords` but never merged into it, so a function name never
+starts highlighting as a keyword. Accepting one inserts `NAME()` with the
+caret between the parens. See
+[reference/sql-function-catalog](../reference/sql-function-catalog.md)
+for what each dialect covers and why.
+
 ## Keybindings
 
 | Action name | Default | Meaning |
@@ -237,6 +246,8 @@ taught that these two groups are bound without being actions.
 
 ## See also
 
+- [reference/sql-function-catalog](../reference/sql-function-catalog.md)
+  — the per-dialect built-in function list `completeFunction` offers.
 - [query-editor-panel](query-editor-panel.md) — the panel and the
   normal/insert split the popup's keys sit inside.
 - [sql-syntax-highlighting](sql-syntax-highlighting.md) — the tokenizer

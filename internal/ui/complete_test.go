@@ -735,7 +735,7 @@ func TestCompletionKeysAreDocumented(t *testing.T) {
 			documented[b.Help().Key] = true
 		}
 	}
-	for _, b := range k.editorCompletion() {
+	for _, b := range k.completionKeys() {
 		if !documented[b.Help().Key] {
 			t.Errorf("`?` omits the popup key %q", b.Help().Key)
 		}

@@ -1024,7 +1024,7 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 		// They are bound; they are just not actions.
 		if id == panelQuery {
 			groups := append(k.editorNormal(), k.editorInsert()...)
-			groups = append(groups, k.editorCompletion()...)
+			groups = append(groups, k.completionKeys()...)
 			groups = append(groups, k.historyPane()...)
 			groups = append(groups, k.queryResultKeys()...)
 			for _, b := range groups {
@@ -1034,10 +1034,12 @@ func TestEveryDocumentedKeyIsBound(t *testing.T) {
 			}
 		}
 		// The date picker's keys are dispatched inside the modal, like the
-		// pane's and the popup's, and the inline WHERE line's inside
-		// updateFilterInput: bound, just not actions.
+		// pane's, and the inline WHERE line's — the completion popup it
+		// can open included — inside updateFilterInput: bound, just not
+		// actions.
 		if id == panelMain {
-			for _, b := range append(k.datePicker(), k.filterInput()...) {
+			grid := append(k.datePicker(), k.filterInput()...)
+			for _, b := range append(grid, k.completionKeys()...) {
 				for _, ks := range b.Keys() {
 					actions[ks] = true
 				}

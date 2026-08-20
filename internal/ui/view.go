@@ -221,32 +221,35 @@ func commandLogHeight(h int) int {
 
 // completionLayer is the autocomplete popup and the absolute cell it is
 // drawn at. It walks the same nesting View renders — main column box,
-// its border, the query view's header line, the editor block — because
-// the layer compositor places by screen coordinate and none of those
-// frames knows where it ended up.
+// its border, the query view's header line, the editor block, or the
+// grid's bottom-pinned filter line — because the layer compositor places
+// by screen coordinate and none of those frames knows where it ended up.
 //
 // The popup is kept inside the terminal: it flips above the caret when
-// there is no room below, and slides left at the right edge.
+// there is no room below, and slides left at the right edge. The filter
+// line takes the flip on every terminal tall enough to have a command
+// log under it, which is what makes a popup anchored on the last row of
+// the grid readable at all.
 func (m Model) completionLayer() (box string, x, y int, ok bool) {
-	if !m.completion.open || m.modal != nil || m.focus != panelQuery || !m.editor.editing {
+	if !m.completion.open || m.modal != nil {
 		return "", 0, 0, false
 	}
 	mx, my, mw, mh, ok := m.mainColumnRect()
 	if !ok {
 		return "", 0, 0, false
 	}
-	// Inside the main column: the box's border — whose top line carries
-	// the title — then the editor block, which is the first content row.
-	cw, rows := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
-	if rows < 1 {
-		return "", 0, 0, false
+	var ax, ay int
+	switch m.completion.site {
+	case siteEditor:
+		ax, ay, ok = m.editorAnchor(mx, my, mw, mh)
+	case siteFilter:
+		ax, ay, ok = m.filterAnchor(mx, my, mw, mh)
+	default:
+		ok = false
 	}
-	editorH := m.editorHeight(cw, rows)
-	caretRow, caretCol, ok := m.editorCaret(cw, editorH)
 	if !ok {
 		return "", 0, 0, false
 	}
-	ax, ay := mx+1+caretCol, my+1+caretRow
 
 	// The box is measured and placed against the main column alone, not
 	// the full terminal: in a split layout the side column sits to its
@@ -254,12 +257,54 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	// side panels' borders instead of floating over the editor. Placing
 	// in coordinates relative to the column and translating back keeps
 	// placePopup's own logic untouched.
-	box = m.completionPopup(mw, mh)
+	//
+	// The filter line's popup gets a shorter column still: the line is
+	// the last row of the box, and everything under it — the box's own
+	// bottom border, the command log — is not somewhere a list anchored
+	// on the grid may be drawn. Ending the budget at the line is what
+	// both sizes the box to the room above it and makes placePopup flip
+	// it up there.
+	limit := mh
+	if m.completion.site == siteFilter {
+		limit = ay - my + 1
+	}
+	box = m.completionPopup(mw, limit)
 	if box == "" {
 		return "", 0, 0, false
 	}
-	relX, relY := placePopup(ax-mx, ay-my, lipgloss.Width(box), lipgloss.Height(box), mw, mh)
+	relX, relY := placePopup(ax-mx, ay-my, lipgloss.Width(box), lipgloss.Height(box), mw, limit)
 	return box, mx + relX, my + relY, true
+}
+
+// editorAnchor is the caret cell of the query editor's buffer inside the
+// main column at mx,my,mw,mh: the box's border — whose top line carries
+// the title — then the editor block, which is the first content row.
+func (m Model) editorAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
+	if m.focus != panelQuery || !m.editor.editing {
+		return 0, 0, false
+	}
+	cw, rows := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
+	caretRow, caretCol, ok := m.editorCaret(cw, m.editorHeight(cw, rows))
+	if !ok {
+		return 0, 0, false
+	}
+	return mx + 1 + caretCol, my + 1 + caretRow, true
+}
+
+// filterAnchor is the caret cell of the grid's inline WHERE line. The
+// line is pinned to the last content row of the main box — it stands in
+// for the status line there — so its row is the box's height rather than
+// anything the grid reports, and its column is what the line recorded
+// while rendering itself.
+func (m Model) filterAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
+	// The clause is only drawn on the Data tab: the metadata tabs render
+	// their own content into the same box, with no line to anchor on.
+	if !m.filterInputOpen() || !m.data.open() || m.tab.metadata() {
+		return 0, 0, false
+	}
+	cw := maxInt(mw-2, 1)
+	rows := maxInt(mh-commandLogHeight(mh)-2, 1)
+	return mx + 1 + min(m.filterInput.caret, cw-1), my + rows, true
 }
 
 // pathSuggestLayer is an open form's path-completion box and the absolute
@@ -567,13 +612,18 @@ func (m Model) renderOptionsBar() string {
 	if m.focus == panelQuery && m.editor.editing {
 		bindings = m.keys.editorInsert()
 		if m.completion.open {
-			bindings = m.keys.editorCompletion()
+			bindings = m.keys.completionKeys()
 		}
 	}
 	// The inline WHERE line claims every key it does not bind, exactly
-	// like insert mode, so the bar shows the four it does.
+	// like insert mode, so the bar shows the ones it does — and narrows
+	// to the popup's four while one is open, since ↑/↓ and enter mean
+	// something else there.
 	if m.filterInputOpen() {
 		bindings = m.keys.filterInput()
+		if m.completion.open {
+			bindings = m.keys.completionKeys()
+		}
 	}
 	// The date picker claims every key while it is open, so the bar shows
 	// its own set instead of the grid's — its keys are motions rather

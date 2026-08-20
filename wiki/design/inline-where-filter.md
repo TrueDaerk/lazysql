@@ -140,6 +140,14 @@ than second meanings of `Enter`/`Back`, so `?` and the options bar can
 name what they do *here* — the same reason the editor has `LeaveInsert`.
 `keyMap.filterInput()` is the single slice all three read.
 
+Since issue #183 the completion popup opens over this line too, and it
+claims its own keys ahead of these four — `esc` closes the popup before
+it closes the line, and `↑`/`↓` move the selection before they walk the
+history. `enter` is the one key the line keeps: it applies the clause
+unless a suggestion was actually picked with `↑`/`↓`. The reasoning, and
+the anchoring a bottom-pinned line needs, are in
+[filter-line-autocomplete](filter-line-autocomplete.md).
+
 The keyboard cannot leave the line without answering it (`esc` or
 `enter`). A mouse click on another panel can, and `Model.setFocus` closes
 the line when the focus lands anywhere but the grid — a line left open

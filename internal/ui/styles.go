@@ -77,6 +77,15 @@ type styles struct {
 	gridSeparator    lipgloss.Style
 	rowCursor        lipgloss.Style
 	cellCursor       lipgloss.Style
+	// cellCursorIdle is the cell cursor of a grid whose box has the
+	// focus but not the keyboard — the grid under an open inline WHERE
+	// line. It keeps the cursor findable while saying, by being the
+	// weaker tint, that j/k are not going there right now.
+	cellCursorIdle lipgloss.Style
+
+	// The inline WHERE line's focus bar. It is the panel-focus green,
+	// because it means the same thing the green border means.
+	filterFocus lipgloss.Style
 
 	// SQL syntax highlighting. sqlQuoted covers delimited identifiers,
 	// which are neither plain text nor literals; it borrows the accent so
@@ -144,6 +153,9 @@ func newStyles() styles {
 		gridSeparator:    lipgloss.NewStyle().Foreground(colorMuted),
 		rowCursor:        lipgloss.NewStyle().Background(colorRowCursorBg),
 		cellCursor:       lipgloss.NewStyle().Background(colorCellCursorBg).Bold(true),
+		cellCursorIdle:   lipgloss.NewStyle().Background(colorRowCursorBg),
+
+		filterFocus: lipgloss.NewStyle().Foreground(colorGreen).Bold(true),
 
 		sqlKeyword:     lipgloss.NewStyle().Foreground(colorSQLKeyword).Bold(true),
 		sqlString:      lipgloss.NewStyle().Foreground(colorSQLString),

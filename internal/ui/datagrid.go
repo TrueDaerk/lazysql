@@ -404,6 +404,11 @@ type gridCursor struct {
 	// focused is whether the box the grid is drawn in owns the keyboard.
 	// A cursor that cannot be moved is not highlighted as one.
 	focused bool
+	// idle is whether the box has the focus but something inside it has
+	// the keyboard — the inline WHERE line. The cursor stays drawn, so
+	// the page keeps its place, but weakly: the loud highlight belongs
+	// to whatever the keys are actually going to.
+	idle bool
 	// selected reports whether a cell takes part in the selection; nil
 	// when no selection is up.
 	selected func(r, c int) bool
@@ -418,6 +423,7 @@ func (m Model) dataCursor() gridCursor {
 	return gridCursor{
 		row: m.data.row, col: m.data.col,
 		focused:  m.focus == panelMain,
+		idle:     m.filterInputOpen(),
 		selected: m.data.cellSelected,
 	}
 }
@@ -457,7 +463,7 @@ func (m Model) gridHeader(cols []gridColumn, first int, cur gridCursor, w int) s
 			rule.WriteString(ruleJunction)
 		}
 		style := m.style.gridHeader
-		if first+i == cur.col && cur.focused {
+		if first+i == cur.col && cur.focused && !cur.idle {
 			style = m.style.gridHeaderCursor
 		}
 		names.WriteString(style.Render(pad(truncate(c.header, c.width), c.width)))
@@ -479,7 +485,7 @@ func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind row
 	for i, c := range cols {
 		if i > 0 {
 			sep := m.style.gridSeparator.Render(colSepChar)
-			if onRow {
+			if onRow && !cur.idle {
 				sep = m.style.rowCursor.Render(colSepChar)
 			}
 			b.WriteString(sep)
@@ -491,7 +497,7 @@ func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind row
 		}
 		// The tint is per cell, not per row: a selection narrowed to a
 		// block of columns has to show which columns it kept.
-		b.WriteString(m.cellStyle(onRow, cur.cellSelected(r, first+i), first+i == cur.col && cur.focused,
+		b.WriteString(m.cellStyle(cur.idle, onRow, cur.cellSelected(r, first+i), first+i == cur.col && cur.focused,
 			isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}
@@ -505,9 +511,16 @@ func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind row
 // row is going away or arriving, so a per-cell tint would only muddle
 // it. Otherwise staged wins over NULL — yellow is the "pending" color
 // throughout the app.
-func (m Model) cellStyle(onRow, selected, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
+// idle weakens the cursor tints without moving them: the grid keeps the
+// focus, but the keys are going to the inline WHERE line.
+func (m Model) cellStyle(idle, onRow, selected, onCol, isNull, isStaged bool, kind rowKind) lipgloss.Style {
 	style := lipgloss.NewStyle()
 	switch {
+	case onRow && onCol && idle:
+		style = m.style.cellCursorIdle
+	case onRow && idle:
+		// The row tint drops entirely: two weakened tints on one row
+		// would blur into the cursor cell they are meant to set off.
 	case onRow && onCol:
 		style = m.style.cellCursor
 	case onRow:

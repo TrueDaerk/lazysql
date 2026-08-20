@@ -1,13 +1,14 @@
 ---
 type: Design Decision
 title: Inline WHERE input with per-table filter history
-description: Why `/` on the data grid types a WHERE clause into a line inside the grid instead of opening a popup, how the immutable `SELECT * FROM <relation> WHERE ` prefix is built and rendered, and how applied clauses are recalled per connection + relation out of the JSON Lines history store using the same Entry scope fields the query history is filtered by.
-tags: [tui, db, main-view, filtering, history, keybindings, security]
+description: Why `/` on the data grid types a WHERE clause into a line inside the grid instead of opening a popup, how the immutable `SELECT * FROM <relation> WHERE ` prefix is built and rendered, why the line draws its own dialect-highlighted clause and caret instead of calling textinput.View(), the three cues that say the keyboard has moved to it, and how applied clauses are recalled per connection + relation out of the JSON Lines history store using the same Entry scope fields the query history is filtered by.
+tags: [tui, db, main-view, filtering, history, keybindings, highlighting, theme, security]
 generated:
   by: claude-code/opus-5
-  at: 2026-08-12T00:00:00Z
+  at: 2026-08-20T00:00:00Z
 sources:
   - resource: https://github.com/TrueDaerk/lazysql/issues/130
+  - resource: https://github.com/TrueDaerk/lazysql/issues/180
 ---
 
 # Inline WHERE filter
@@ -36,13 +37,47 @@ the shell already uses for `/` — the side panels' inline fuzzy filter —
 so the key now means the same thing everywhere: *type what narrows this
 list*.
 
-## The prefix is the textinput's prompt
+## The textinput is the model, this file is the renderer
 
-`filterInput` (in `internal/ui/filterinput.go`) is a `textinput.Model`
-whose `Prompt` is the statement prefix. That is what makes the label
-immutable for free: a prompt is not part of the value, so it cannot be
-selected, backspaced into or submitted, and the horizontal scrolling of a
-long clause happens inside the value alone.
+`filterInput` (in `internal/ui/filterinput.go`) holds a `textinput.Model`
+but never calls its `View()`. The clause is SQL and has to be coloured
+token by token; a `textinput` styles its value whole, exactly the way a
+`textarea` does — which is why the query editor already draws its own
+buffer ([query-editor-and-history](query-editor-and-history.md)). The
+line makes the same split, for the same reason:
+
+- The component owns the **value, the cursor and every editing key**.
+  `Value()` and `Position()` are read back from it.
+- `filterInput.view` owns the **prefix, the colours, the caret cell and
+  the horizontal scroll**.
+
+The prefix is therefore drawn text rather than the component's `Prompt`,
+and it stays immutable for the same reason it was before: it is not part
+of the value, so nothing can select, backspace into or submit it. The
+component's own `Prompt` and `Width` stay unset — anything it computed
+from them would be a second, disagreeing answer to a question the
+renderer already answers.
+
+**Highlighting.** `sqlhl.Kinds(dialect, clause)` tokenizes the typed
+clause and `renderTokens` writes it with `styles.sqlStyle`, the same
+palette the editor uses — keywords, strings, numbers, placeholders and
+quoted identifiers, all themeable through `[theme]`
+([sql-syntax-highlighting](sql-syntax-highlighting.md),
+[configurable-keys-and-theme](configurable-keys-and-theme.md)). The
+dialect is `Model.sqlDialect()`, captured
+when the line opens: `"x"` is a quoted identifier on SQLite and a string
+literal on MySQL, and the line reads the clause the way the connection
+behind it will. The prefix is *not* run through the tokenizer — it is
+chrome, and a muted `SELECT … WHERE` is what says "this part is not
+yours".
+
+**Scrolling.** `filterInput.window` picks the visible slice of the clause
+in cells, not runes ([runes-cells-and-ansi-in-rendering](../reference/runes-cells-and-ansi-in-rendering.md)):
+it scrolls only as far as it must to keep the caret — including the empty
+cell past the end of the clause — inside the box, never further right
+than the point where the tail fills it, and never inside a grapheme
+cluster. That last rule is why a combining accent cannot be scrolled away
+from the letter carrying it.
 
 The prefix comes from `db.FilterPrefixSQL(dialect, database, table)`, not
 from string-building in the UI. The relation is therefore quoted by the
@@ -56,8 +91,34 @@ In a box too narrow to hold both the prefix and a usable clause
 Truncating the line instead would cut off the end the caret is on, which
 is the only part that has to stay visible.
 
-The caret does not blink: `Styles.Cursor.Blink` is off, so the line costs
-no timer per keystroke and matches the editor's own static cursor.
+The caret does not blink: it is a reversed cell (`styles.editorCursor`)
+drawn by the renderer, so the line costs no timer per keystroke and
+matches the editor's own static cursor.
+
+## Saying where the keyboard is
+
+A line at the bottom edge of a big grid is easy to miss, and issue #180
+is the report of people typing at a grid that had already handed the keys
+over. Three cues answer it, all of them theme colours rather than
+hard-coded ones, and all of them gone the moment the line closes:
+
+- **A focus bar.** The line starts with `▌` in `styles.filterFocus` —
+  the same green a focused panel's border wears
+  ([tui-shell-architecture](tui-shell-architecture.md)). The green means
+  one thing throughout the app: *the keyboard is here*. A box under four
+  cells wide drops the bar rather than a cell of clause.
+- **A caret in coloured text.** The reversed cell sits inside the
+  highlighted clause, which no other bottom-line state has.
+- **A grid that steps back.** `gridCursor.idle` is set while the line is
+  open (`Model.filterInputOpen()`). The cell cursor drops to
+  `styles.cellCursorIdle`, the weaker tint, the row tint under it goes
+  away and the header column stops wearing the accent. The cursor is
+  still *findable* — the page must not lose its place while a filter is
+  being typed — but it is no longer the loudest thing on screen.
+
+The grid keeps its green border: the main view does still have the focus,
+and the line is inside it. What moved is the keyboard, and that is what
+the bar and the idle tint say.
 
 ## Routing: the line owns the keyboard
 

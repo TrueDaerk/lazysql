@@ -466,6 +466,8 @@ staged = "yellow"
 
 Named colors: `border-focused`, `border-blurred`, `accent`, `staged`,
 `deleted`, `error`, `selection-bg`, `row-cursor-bg`, `cell-cursor-bg`,
+`focus-input-bg` (the background of a focused single-line input — prompt
+modals, form fields, the cell editor),
 and the query editor's SQL highlighting — `sql-keyword`, `sql-string`,
 `sql-number`, `sql-comment`, `sql-placeholder`. Identifiers and
 operators are deliberately left uncolored so they keep your terminal's

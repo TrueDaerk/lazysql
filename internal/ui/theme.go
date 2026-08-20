@@ -24,6 +24,12 @@ type palette struct {
 	SelectionBg   color.Color
 	RowCursorBg   color.Color
 	CellCursorBg  color.Color
+	// FocusInputBg tints the box of a single-line input that currently
+	// holds the keyboard (the quick filter, prompt and form modals), so
+	// "typing lands here" reads at a glance instead of only from a dim
+	// cursor. It has to stay a green dark/light enough that default text
+	// drawn over it — in either theme — is still legible.
+	FocusInputBg color.Color
 
 	// SQL syntax highlighting in the query editor. Identifiers and
 	// operators have no slot of their own: they keep the terminal's
@@ -51,6 +57,7 @@ var presets = map[string]palette{
 		SelectionBg:   lipgloss.Color("237"),
 		RowCursorBg:   lipgloss.Color("236"),
 		CellCursorBg:  lipgloss.Color("240"),
+		FocusInputBg:  lipgloss.Color("22"),
 
 		SQLKeyword:     lipgloss.Color("5"),
 		SQLString:      lipgloss.Color("2"),
@@ -68,6 +75,7 @@ var presets = map[string]palette{
 		SelectionBg:   lipgloss.Color("253"),
 		RowCursorBg:   lipgloss.Color("253"),
 		CellCursorBg:  lipgloss.Color("245"),
+		FocusInputBg:  lipgloss.Color("#c3ecc9"),
 
 		SQLKeyword:     lipgloss.Color("#8250df"),
 		SQLString:      lipgloss.Color("#0a3069"),
@@ -96,6 +104,7 @@ func (p *palette) slots() []paletteSlot {
 		{"selection-bg", &p.SelectionBg},
 		{"row-cursor-bg", &p.RowCursorBg},
 		{"cell-cursor-bg", &p.CellCursorBg},
+		{"focus-input-bg", &p.FocusInputBg},
 		{"sql-keyword", &p.SQLKeyword},
 		{"sql-string", &p.SQLString},
 		{"sql-number", &p.SQLNumber},
@@ -217,6 +226,7 @@ func applyPalette(p palette) {
 	colorSelectionBg = p.SelectionBg
 	colorRowCursorBg = p.RowCursorBg
 	colorCellCursorBg = p.CellCursorBg
+	colorFocusInputBg = p.FocusInputBg
 
 	colorSQLKeyword = p.SQLKeyword
 	colorSQLString = p.SQLString

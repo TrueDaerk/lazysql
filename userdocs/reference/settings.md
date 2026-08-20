@@ -184,6 +184,7 @@ staged = "yellow"
 | `selection-bg` | The multi-row selection background |
 | `row-cursor-bg` | The row under the cursor |
 | `cell-cursor-bg` | The cell under the cursor |
+| `focus-input-bg` | A focused single-line input (prompt modals, form fields, the cell editor) |
 | `sql-keyword` | SQL keywords in the query editor |
 | `sql-string` | String literals |
 | `sql-number` | Numeric literals |

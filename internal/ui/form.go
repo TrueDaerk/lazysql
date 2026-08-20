@@ -190,6 +190,7 @@ func (f *formField) display(s styles, focused bool) string {
 		}
 		return s.muted.Render("[ ]") + " no"
 	default:
+		f.input.SetStyles(s.inputStyles)
 		return f.input.View()
 	}
 }

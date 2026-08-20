@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/db"
+	"lazysql/internal/sqlhl"
 )
 
 // filterInput is the data grid's `/`: one line pinned to the bottom of
@@ -16,11 +17,18 @@ import (
 // popup the filter used to open.
 //
 // The line is pre-labeled with the statement the clause goes into —
-// `SELECT * FROM "orders" WHERE ` — and that label is the textinput's
-// prompt, so it cannot be edited, selected or backspaced into: what the
+// `SELECT * FROM "orders" WHERE ` — and that label is not part of the
+// value, so it cannot be edited, selected or backspaced into: what the
 // user types is the WHERE clause and nothing else. The prefix is
 // rendered by the dialect (db.FilterPrefixSQL), so the relation named on
 // screen is quoted exactly as the statement behind it will be.
+//
+// The clause is drawn by this file rather than by textinput.View(): the
+// component styles its value whole, and the clause is SQL that has to be
+// highlighted token by token, like the query editor's buffer. The
+// textinput stays the model — value, cursor, editing keys — and view()
+// below owns the prefix, the colours, the caret cell and the horizontal
+// scroll.
 //
 // The clause itself stays user-authored SQL by design — db.ParseFilter
 // binds what it can take apart and flags the rest as verbatim, the same
@@ -28,6 +36,17 @@ import (
 type filterInput struct {
 	input  textinput.Model
 	prefix string
+
+	// st and dialect are what the clause is drawn with. Both are fixed
+	// for the life of the line: it belongs to one relation of one
+	// connection, and every change of either closes it.
+	st      styles
+	dialect sqlhl.Dialect
+
+	// offset is the rune index the visible slice of the clause starts at
+	// — the horizontal scroll, which is ours now that the line renders
+	// itself.
+	offset int
 
 	// hist are the filters recorded for this relation, newest first, and
 	// idx walks them: -1 is the line being typed, which draft holds while
@@ -51,23 +70,16 @@ const minFilterClauseWidth = 16
 // newFilterInput builds the line for one relation. initial is the filter
 // already running, so `/` opens on what the grid is showing rather than
 // on an empty clause, and hist is that relation's recall list.
-func newFilterInput(s styles, prefix, initial string, hist []string) *filterInput {
+func newFilterInput(s styles, d sqlhl.Dialect, prefix, initial string, hist []string) *filterInput {
 	ti := textinput.New()
-	ti.Prompt = prefix
+	// Its own prompt and width stay unset: nothing textinput would print
+	// is ever printed, so anything it computed from them — its prompt
+	// style, its blinking cursor, its own scroll window — would only be
+	// a second, disagreeing answer to a question view() already answers.
 	ti.SetValue(initial)
 	ti.CursorEnd()
 	ti.Focus()
-	// The prompt is not editable text, so it is styled like the muted
-	// chrome it is rather than like the clause next to it. The caret does
-	// not blink: it sits in the grid's own box, which repaints on every
-	// key anyway, and a blink is a timer per keystroke for a cursor the
-	// editor already renders static elsewhere in the app.
-	st := ti.Styles()
-	st.Focused.Prompt = s.muted
-	st.Blurred.Prompt = s.muted
-	st.Cursor.Blink = false
-	ti.SetStyles(st)
-	return &filterInput{input: ti, prefix: prefix, hist: hist, idx: -1}
+	return &filterInput{input: ti, prefix: prefix, st: s, dialect: d, hist: hist, idx: -1}
 }
 
 // value is the clause as typed, trimmed.
@@ -93,22 +105,35 @@ func (fi *filterInput) recall(delta int) {
 	fi.input.CursorEnd()
 }
 
-// view renders the line into a w-cell box. The prefix gives way to
-// shortFilterPrefix when the box cannot hold both it and a usable
-// clause: truncating the line instead would cut off the end the caret is
-// on.
+// filterMarker is the bar drawn at the head of the line while it owns
+// the keyboard. It wears the green the focused panel borders wear, so
+// "the keyboard is here" reads the same on the line as it does on a
+// panel, and it goes away with the line.
+const filterMarker = "▌"
+
+// view renders the line into a w-cell box: the focus bar, the muted
+// statement prefix, and the clause highlighted as SQL with the caret
+// drawn on it. The prefix gives way to shortFilterPrefix when the box
+// cannot hold both it and a usable clause: truncating the line instead
+// would cut off the end the caret is on.
 func (fi *filterInput) view(w int) string {
 	if w <= 0 {
 		return ""
 	}
-	fi.resize(w)
-	return fi.input.View()
+	marker, rest := "", w
+	// A box too narrow for both keeps the clause: the caret sitting in
+	// highlighted text is a focus cue of its own, the bar is the louder
+	// one, and neither is worth a cell taken off the clause here.
+	if w >= 4 {
+		marker, rest = fi.st.filterFocus.Render(filterMarker), w-lipgloss.Width(filterMarker)
+	}
+	prefix, clauseW := fitFilterPrefix(fi.prefix, rest)
+	return marker + fi.st.muted.Render(prefix) + fi.clauseView(clauseW)
 }
 
-// resize fits the line to a w-cell box: it picks the prefix the box can
-// afford and gives the clause the rest.
-func (fi *filterInput) resize(w int) {
-	prefix := fi.prefix
+// fitFilterPrefix picks the prefix a w-cell box can afford and gives the
+// clause the rest.
+func fitFilterPrefix(prefix string, w int) (string, int) {
 	if w-lipgloss.Width(prefix) < minFilterClauseWidth {
 		prefix = shortFilterPrefix
 	}
@@ -117,18 +142,87 @@ func (fi *filterInput) resize(w int) {
 	if w-lipgloss.Width(prefix) < 2 {
 		prefix = ""
 	}
-	width := maxInt(w-lipgloss.Width(prefix)-1, 1)
-	if prefix == fi.input.Prompt && width == fi.input.Width() {
-		return
+	return prefix, maxInt(w-lipgloss.Width(prefix), 1)
+}
+
+// clauseView draws the clause into exactly w cells: tokenized in the
+// connection's dialect, coloured with the same sqlStyle palette the
+// query editor uses, and with the caret reversed over whatever token it
+// landed on. The result is padded to w, so the line covers the status
+// line it stands in for.
+func (fi *filterInput) clauseView(w int) string {
+	value := fi.input.Value()
+	runes := []rune(value)
+	kinds := sqlhl.Kinds(fi.dialect, value)
+	cells := lineCells(runes)
+	pos := min(maxInt(fi.input.Position(), 0), len(runes))
+
+	start, end := fi.window(cells, len(runes), pos, w)
+	body := renderTokens(fi.st, runes[start:end], kindRange(kinds, start, end), pos-start, fi.st.editorCursor)
+
+	drawn := cells[end] - cells[start]
+	if pos == end {
+		// renderTokens drew the caret on its own cell past the last rune.
+		drawn++
 	}
-	fi.input.Prompt = prefix
-	fi.input.SetWidth(width)
-	// textinput recomputes which slice of a too-long clause is on screen
-	// when the value changes, not when the width does. Re-setting the
-	// value is what makes a resize — or the very first frame, before a
-	// key has landed on a line opened with a filter already in it — scroll
-	// to the caret instead of drawing past the box.
-	fi.input.SetValue(fi.input.Value())
+	if pad := w - drawn; pad > 0 {
+		body += strings.Repeat(" ", pad)
+	}
+	return body
+}
+
+// window is the slice of the clause a w-cell box shows, as rune indexes
+// into it. It scrolls only as far as it must to keep the caret — the
+// empty cell past the end of the clause included — inside the box, and
+// never further right than the point where the tail fills the box, so
+// backspacing at the end pulls the text back into view instead of
+// leaving a gap. Cluster boundaries hold on both ends: a combining
+// accent may not be scrolled away from the letter carrying it.
+func (fi *filterInput) window(cells []int, n, pos, w int) (start, end int) {
+	if w < 1 || n == 0 {
+		fi.offset = 0
+		return 0, 0
+	}
+	total := cells[n]
+	// The rightmost start that still fills the box, measured with the
+	// trailing caret cell the end of the clause needs.
+	maxStart := 0
+	for maxStart < n && total+1-cells[maxStart] > w {
+		maxStart = clusterEnd(cells, maxStart)
+	}
+
+	start = clusterStart(cells, min(maxInt(fi.offset, 0), n))
+	if start > maxStart {
+		start = maxStart
+	}
+	if pos < start {
+		start = clusterStart(cells, pos)
+	}
+	caretEnd := total + 1
+	if pos < n {
+		caretEnd = cells[clusterEnd(cells, pos)]
+	}
+	for start < n && caretEnd-cells[start] > w {
+		start = clusterEnd(cells, start)
+	}
+	fi.offset = start
+
+	end = start
+	for end < n && cells[clusterEnd(cells, end)]-cells[start] <= w {
+		end = clusterEnd(cells, end)
+	}
+	return start, end
+}
+
+// kindRange is renderTokens' kinds argument for a rune range, read
+// through the bounds-safe lookup: one kind per rune is the tokenizer's
+// contract, and a renderer should not panic if that ever slips.
+func kindRange(kinds []sqlhl.Kind, start, end int) []sqlhl.Kind {
+	out := make([]sqlhl.Kind, end-start)
+	for i := range out {
+		out[i] = kindAt(kinds, start+i)
+	}
+	return out
 }
 
 // ---------- model wiring ----------
@@ -146,6 +240,7 @@ func (m *Model) openFilterInput() tea.Cmd {
 	}
 	m.filterInput = newFilterInput(
 		m.style,
+		m.sqlDialect(),
 		db.FilterPrefixSQL(m.driver.Dialect(), m.data.database, m.data.table),
 		raw,
 		m.filterHistory(),

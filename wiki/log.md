@@ -1727,3 +1727,16 @@ Chronological history of wiki changes, newest last.
   the row tint and the accented header column go away. The cursor stays
   findable so the page keeps its place; it just stops being the loudest thing
   on screen.
+
+## 2026-08-20
+
+- Added [design/focused-input-highlight](design/focused-input-highlight.md)
+  (issue #182): one shared `textinput.Styles` (`styles.inputStyles`,
+  `internal/ui/styles.go`) for every focused single-line `textinput.Model` —
+  prompt modals, the connection/row-insert forms, the cell-edit modal — a
+  green-tinted background across the field's width plus a bold green prompt
+  and cursor, applied per-render via `SetStyles` rather than threaded through
+  field constructors. Adds the `palette.FocusInputBg` theme slot
+  (`focus-input-bg` in `[theme]`). The quick filter line's own `▌` marker
+  from #180 was left as its own cue rather than folded into this one, since
+  it draws its own SQL-highlighted clause and never calls `textinput.View()`.

@@ -210,6 +210,7 @@ func (p *promptModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 }
 
 func (p *promptModal) view(s styles, maxW, maxH int) string {
+	p.input.SetStyles(s.inputStyles)
 	p.input.SetWidth(min(50, maxW-8))
 	return s.modal.Render(lipgloss.JoinVertical(lipgloss.Left,
 		s.modalTitle.Render(p.title),

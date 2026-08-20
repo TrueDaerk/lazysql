@@ -619,6 +619,7 @@ func (f *insertRowModal) fieldValue(s styles, fl *insertField) string {
 		}
 		return s.pending.Render("DEFAULT")
 	default:
+		fl.input.SetStyles(s.inputStyles)
 		return fl.input.View()
 	}
 }

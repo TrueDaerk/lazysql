@@ -1740,3 +1740,22 @@ Chronological history of wiki changes, newest last.
   (`focus-input-bg` in `[theme]`). The quick filter line's own `▌` marker
   from #180 was left as its own cue rather than folded into this one, since
   it draws its own SQL-highlighted clause and never calls `textinput.View()`.
+
+## 2026-08-20 — Autocomplete: per-dialect SQL function catalog (issue #184)
+
+- Added [reference/sql-function-catalog](reference/sql-function-catalog.md):
+  `internal/sqlhl/functions.go`'s `coreFunctions`/`dialectFunctions`, built the
+  same way as the keyword lists but kept a list of its own so a function name
+  never starts highlighting as a keyword; the deliberate collisions dropped
+  from it (`CAST`, `REPLACE`, `LEFT`/`RIGHT`, `TRUNCATE`, `DATE`/`TIME`/
+  `DATETIME`/`GLOB` — each already reaches the popup as a keyword) and the one
+  kept on purpose (DuckDB's `LIST`, which the issue names explicitly); the
+  source doc each dialect's extras came from.
+- Updated [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)
+  with the new `completeFunction` suggestion kind (tagged `fn`, ranked between
+  schema and keywords) and the accept behaviour: a function inserts `NAME()`
+  with the caret left between the parens, everything else unchanged.
+- `maxCompletionItems` moved from 200 to 300: MySQL's unfiltered keyword +
+  function catalog is 243 entries, and the old cap silently dropped keywords
+  past it on an empty-word `ctrl+space` — caught by the existing
+  `TestKeywordSuggestionsDifferPerDriver` before this shipped.

@@ -566,6 +566,80 @@ func TestKeywordSuggestionsDifferPerDriver(t *testing.T) {
 	}
 }
 
+// ---------- functions ----------
+
+// The issue's first acceptance criterion: a core function is offered for
+// every dialect, tagged apart from a keyword, and a dialect-only function
+// is offered only for its dialect.
+func TestFunctionSuggestionsDifferPerDriver(t *testing.T) {
+	cases := []struct {
+		engine     db.Engine
+		want, gone string
+	}{
+		{db.EngineMySQL, "GROUP_CONCAT", "STRING_AGG"},
+		{db.EnginePostgres, "STRING_AGG", "LIST"},
+		{db.EngineSQLite, "GROUP_CONCAT", "STRING_AGG"},
+		{db.EngineDuckDB, "LIST", "GROUP_CONCAT"},
+	}
+	for _, c := range cases {
+		drv, err := db.Open(c.engine)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := sized(120, 40)
+		m.driver = drv
+		m = send(t, m, press(':'))
+		m.setScript("")
+		if cmd := m.refreshCompletion(true); cmd != nil {
+			drain(cmd)
+		}
+		if !hasCompletion(m.completion, "COALESCE") {
+			t.Errorf("%s: the shared core function COALESCE is missing", c.engine)
+		}
+		if !hasCompletion(m.completion, c.want) {
+			t.Errorf("%s: %q is missing from the suggestions", c.engine, c.want)
+		}
+		if hasCompletion(m.completion, c.gone) {
+			t.Errorf("%s: %q is another dialect's function and should not be offered", c.engine, c.gone)
+		}
+		for _, it := range m.completion.items {
+			if it.text == "COALESCE" && it.kind != completeFunction {
+				t.Errorf("%s: COALESCE has kind %v, want completeFunction", c.engine, it.kind)
+			}
+		}
+	}
+}
+
+// Accepting a function inserts its call parens with the caret left
+// between them, ready for an argument.
+func TestAcceptedFunctionInsertsParensWithCaretInside(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press(':'), press('C'), press('O'), press('A'), press('L'))
+	if !m.completion.open {
+		t.Fatal("typing did not open the popup")
+	}
+	found := false
+	for i, it := range m.completion.items {
+		if it.text == "COALESCE" {
+			m.completion.cursor = i
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("suggestions = %v, want COALESCE", completionTexts(m.completion))
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.script() != "COALESCE()" {
+		t.Fatalf("buffer = %q, want COALESCE()", m.script())
+	}
+	// The caret sits between the parens: typing an argument lands inside.
+	m = send(t, m, press('x'))
+	if m.script() != "COALESCE(x)" {
+		t.Fatalf("buffer = %q, want the caret left between the parens", m.script())
+	}
+}
+
 // ---------- placement and rendering ----------
 
 // placePopup is where the popup ends up on screen. It is unit-tested

@@ -38,10 +38,12 @@ const (
 	// most of the schema and would make the popup a permanent fixture;
 	// ctrl+space still opens it on nothing at all.
 	minCompletionPrefix = 2
-	// maxCompletionItems caps the ranked list. Nothing below it is
-	// reachable in a popup this size, and ranking a whole catalog on
-	// every keystroke is work with no reader.
-	maxCompletionItems = 200
+	// maxCompletionItems caps the ranked list. It has to clear the widest
+	// dialect's unfiltered catalog — keywords plus functions, MySQL's
+	// being the largest — or ctrl+space on an empty word would silently
+	// drop keywords past the cut. Ranking a whole catalog on every
+	// keystroke past that is work with no reader.
+	maxCompletionItems = 300
 	// completionRows is how many suggestions are visible at once.
 	completionRows = 8
 	// completionWidth caps the popup's text column.
@@ -59,10 +61,11 @@ const (
 	completeColumn completionKind = iota
 	completeTable
 	completeView
+	completeFunction
 	completeKeyword
 )
 
-var completionTags = [...]string{"col", "table", "view", "kw"}
+var completionTags = [...]string{"col", "table", "view", "fn", "kw"}
 
 func (k completionKind) tag() string {
 	if int(k) < len(completionTags) {
@@ -388,6 +391,9 @@ func (m Model) completionSources(ctx completionContext) (items []completionItem,
 		}
 		items = append(items, completionItem{text: r.Name, kind: kind})
 	}
+	for _, w := range sqlhl.Functions(dialect) {
+		items = append(items, completionItem{text: w, kind: completeFunction})
+	}
 	for _, w := range sqlhl.Keywords(dialect) {
 		items = append(items, completionItem{text: w, kind: completeKeyword})
 	}
@@ -479,8 +485,9 @@ func (m *Model) moveCompletion(delta int) {
 func (m *Model) closeCompletion() { m.completion = completion{} }
 
 // acceptCompletion inserts the selected item over the word under the
-// caret and closes the popup. Keywords go in as they are; identifiers go
-// through the dialect's quoting rules.
+// caret and closes the popup. Keywords go in as they are; a function
+// brings its call parens along, with the caret left inside them ready for
+// an argument; everything else goes through the dialect's quoting rules.
 func (m *Model) acceptCompletion() {
 	it, ok := m.completion.selected()
 	m.completion = completion{}
@@ -488,20 +495,30 @@ func (m *Model) acceptCompletion() {
 		return
 	}
 	text := it.text
-	if it.kind != completeKeyword {
+	switch it.kind {
+	case completeKeyword:
+		// inserted as-is
+	case completeFunction:
+		text += "()"
+	default:
 		var dialect db.Dialect
 		if m.driver != nil {
 			dialect = m.driver.Dialect()
 		}
 		text = quoteCompletion(dialect, m.sqlDialect(), text)
 	}
-	m.replaceEditorWord(text)
+	cursor := len([]rune(text))
+	if it.kind == completeFunction {
+		cursor-- // between the parens, not after the closing one
+	}
+	m.replaceEditorWord(text, cursor)
 }
 
 // replaceEditorWord overwrites the word under the caret with text and
-// leaves the caret at its end. The region is read from the editor now,
-// not from what the popup recorded when it opened.
-func (m *Model) replaceEditorWord(text string) {
+// leaves the caret cursor runes into it — usually its end, but a function
+// call lands the caret between its parens instead. The region is read
+// from the editor now, not from what the popup recorded when it opened.
+func (m *Model) replaceEditorWord(text string, cursor int) {
 	ctx := m.editorContext()
 	lines := strings.Split(m.script(), "\n")
 	if ctx.line < 0 || ctx.line >= len(lines) {
@@ -518,7 +535,7 @@ func (m *Model) replaceEditorWord(text string) {
 	}
 	lines[ctx.line] = string(runes[:start]) + text + string(runes[col:])
 	m.editor.area.SetValue(strings.Join(lines, "\n"))
-	moveEditorCursor(&m.editor.area, ctx.line, start+len([]rune(text)))
+	moveEditorCursor(&m.editor.area, ctx.line, start+cursor)
 }
 
 // moveEditorCursor puts the textarea's caret on a logical line and

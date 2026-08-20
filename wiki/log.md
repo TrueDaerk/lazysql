@@ -1703,3 +1703,27 @@ Chronological history of wiki changes, newest last.
 - `actSortColumn`/`k.SortColumn` (`s`) joined `keyMap.activityActions()`, the
   single source for the report's dispatch, options bar and `?` — no separate
   wiring needed for either.
+
+## 2026-08-20 — Quick filter: highlighted clause and a visible focus (issue #180)
+
+- Updated [design/inline-where-filter](design/inline-where-filter.md): the
+  inline `/` line no longer calls `textinput.View()`. The component stays the
+  model — value, cursor, editing keys — and `filterInput.view`
+  (`internal/ui/filterinput.go`) draws the prefix, the colours, the caret cell
+  and the horizontal scroll, the same split the query editor makes with its
+  textarea and for the same reason: these components style their value whole,
+  and a WHERE clause has to be coloured token by token.
+- The clause runs through `sqlhl.Kinds` at `Model.sqlDialect()` and
+  `renderTokens` with the shared `styles.sqlStyle` palette, so `"x"` is a
+  quoted identifier on SQLite and a string literal on MySQL. The statement
+  prefix is deliberately not tokenized: muted chrome is what says "this part is
+  not yours". `filterInput.window` picks the visible slice in cells and never
+  inside a grapheme cluster, which is what keeps the caret, CJK clauses and
+  decomposed umlauts inside the grid's box.
+- Three cues now say the keyboard has moved to the line, all from `[theme]`
+  colours and all gone when it closes: a `▌` focus bar in the panel-focus green
+  (`styles.filterFocus`), the reversed caret inside the highlighted clause, and
+  `gridCursor.idle` — the grid's cell cursor drops to `styles.cellCursorIdle`,
+  the row tint and the accented header column go away. The cursor stays
+  findable so the page keeps its place; it just stops being the loudest thing
+  on screen.

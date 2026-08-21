@@ -26,6 +26,11 @@ type conn struct {
 	// once at Open and never changes: a session cannot be talked out of
 	// read-only mode while it is live. See readonly.go.
 	readOnly bool
+
+	// setup are the statements Connect runs to prepare the session; see
+	// Options.Setup. They bypass the read-only guard, which is why they
+	// are only ever set by this program's own code.
+	setup []string
 }
 
 func (c *conn) Logger() *Logger { return c.logger }
@@ -48,6 +53,26 @@ func (c *conn) Connect(ctx context.Context, dsn string) error {
 		return fmt.Errorf("db: connect %s: %w", c.dialect.DisplayName(), err)
 	}
 	c.db, c.release = sqlDB, release
+	if err := c.runSetup(ctx); err != nil {
+		c.Close()
+		return err
+	}
+	return nil
+}
+
+// runSetup runs Options.Setup on the fresh session. A failure leaves the
+// caller with no connection at all rather than a half-prepared one — the
+// Parquet view is the whole point of its session, so a session without it
+// is worth nothing.
+func (c *conn) runSetup(ctx context.Context) error {
+	for _, stmt := range c.setup {
+		start := time.Now()
+		_, err := c.db.ExecContext(ctx, stmt)
+		c.logger.record(stmt, nil, start, err)
+		if err != nil {
+			return fmt.Errorf("db: session setup: %w", err)
+		}
+	}
 	return nil
 }
 

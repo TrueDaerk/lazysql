@@ -21,6 +21,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 ## Features
 
 - **Connection manager** — add/edit/delete/test connections; passwords stored in the OS keyring, never in plain text.
+- **Open a file straight away** — `lazysql sales.parquet` (or `o` on panel `[1]`) opens a SQLite, DuckDB or Parquet file for that session only, with the engine detected from the file's own bytes and nothing written to `config.toml`. Parquet is browsed read-only through an in-memory DuckDB view.
 - **Browse** — databases/schemas, tables and views, with fuzzy filtering.
 - **Data view** — paginated rows, column sorting, quick `WHERE` filters.
 - **Structure view** — columns, indexes, foreign keys, and generated DDL.

@@ -155,6 +155,13 @@ type dialRequest struct {
 	conn config.Connection
 	test bool
 
+	// setup are the statements the session is prepared with once it is
+	// open — the DuckDB view an ephemeral Parquet connection is browsed
+	// through. They travel with the request so a redial (or a schema
+	// diff's own dial) prepares the session the same way the first
+	// connect did. See db.Options.Setup.
+	setup []string
+
 	// restore marks the one dial the startup session restore issues, so
 	// the connectedMsg handler can route it into the restore chain
 	// instead of the interactive connect flow.
@@ -294,7 +301,7 @@ func dial(req dialRequest) (db.Driver, *sshtunnel.Tunnel, string, error) {
 		redacted += " " + tunnelSuffix(c)
 	}
 
-	drv, err := db.OpenOpts(c.Engine, db.Options{Dial: dialFn, ReadOnly: c.ReadOnly})
+	drv, err := db.OpenOpts(c.Engine, db.Options{Dial: dialFn, ReadOnly: c.ReadOnly, Setup: req.setup})
 	if err != nil {
 		closeTunnel(tunnel)
 		return nil, nil, redacted, err

@@ -444,7 +444,7 @@ func (m Model) connectionDetail(w, h int) string {
 	var lines []string
 	c, ok := m.selectedConnection()
 	if !ok {
-		lines = append(lines, m.style.muted.Render("no connections yet — press n to add one"))
+		lines = append(lines, m.style.muted.Render("no connections yet — press n to add one, o to open a file"))
 		return joinTruncated(lines, w, h)
 	}
 
@@ -469,8 +469,15 @@ func (m Model) connectionDetail(w, h int) string {
 	if c.ReadOnly {
 		access, accessStyle = lockMark+" read-only", m.style.pending
 	}
+	name := m.tagMarkerFor(c.Name) + c.Name
+	if m.isEphemeral(c.Name) {
+		// The tag is the whole point: this profile is not in config.toml
+		// and will not be there after the disconnect.
+		name += " " + m.style.muted.Render(ephemeralTag)
+		engine += m.style.muted.Render(" · " + m.ephem.engineLabel() + " file")
+	}
 	lines = append(lines,
-		"name    "+m.tagMarkerFor(c.Name)+c.Name,
+		"name    "+name,
 		"engine  "+engine,
 		"status  "+statusStyle.Render(status),
 		"access  "+accessStyle.Render(access),
@@ -479,6 +486,11 @@ func (m Model) connectionDetail(w, h int) string {
 		file := c.File
 		if file == "" {
 			file = "(in-memory)"
+		}
+		if m.isEphemeral(c.Name) {
+			// A Parquet connection's own File is empty — the session is
+			// in-memory — so the file that matters is the one it reads.
+			file = m.ephem.path
 		}
 		lines = append(lines, "file    "+file)
 	} else {

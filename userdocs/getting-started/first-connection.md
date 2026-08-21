@@ -106,10 +106,44 @@ now in [Browsing objects](../guides/browsing-objects.md) and
     the tree starts at the category level instead of making you expand a
     database that could never have a sibling.
 
+## Opening a file without saving a profile
+
+A local SQLite, DuckDB or Parquet file needs nothing but its path, so it has
+a shortcut past the wizard. Either name it on the command line:
+
+```console
+$ lazysql ~/data/sales.parquet
+```
+
+or press `o` on panel `[1] Connections` and type the path (++tab++ completes
+it, exactly like the form's `File` field). Both do the same thing: the file
+is opened straight away and appears in panel `[1]` as the connected entry,
+marked `(ephemeral)`.
+
+**Nothing is saved.** No profile is written to `config.toml`, no keyring
+entry is created, and the session is never restored on the next start. `x`
+(disconnect) closes it and drops the row, leaving the ordinary
+saved-connections panel behind — the app keeps running, including when the
+file came from the command line.
+
+The engine is decided by the file's **contents**, not its extension: `.db` is
+as common for DuckDB as it is for SQLite, so lazysql reads the leading bytes
+and only falls back to the extension when they say nothing. A path that does
+not exist is an error, never a new empty database — the CLI prints it and
+exits, the `o` prompt shows it and stays open.
+
+!!! info "Parquet is read-only"
+    A Parquet file is not a database: lazysql opens an in-memory DuckDB and
+    exposes the file as a view (`CREATE VIEW … AS SELECT * FROM
+    read_parquet('…')`, visible in the command log). Browsing, sorting,
+    filtering, querying and exporting all work; the session is read-only, so
+    the editing keys are unavailable rather than failing at commit time.
+
 ## Editing a connection later
 
 | Key | On panel `[1]` |
 |---|---|
+| `o` | Open a file for this session only, without saving a profile |
 | `e` | Edit the profile — the same form, ++ctrl+e++ still switches engine |
 | `d` | Remove it, after a confirmation (its keyring entries go with it) |
 | `t` | Test it |

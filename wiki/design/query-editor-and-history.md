@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Query editor, result routing and the persistent history
-description: Why free-form results are materialized and paged in memory instead of rewritten with LIMIT/OFFSET, how a script is split and classified without a parser, why DML from the editor runs unstaged and is confirmed only when a DELETE/UPDATE has no WHERE or LIMIT, how a run is cancelled, and why the history is JSON Lines under XDG_STATE_HOME.
+description: Why free-form results are materialized and paged in memory instead of rewritten with LIMIT/OFFSET, how a script is split and classified without a parser, why DML from the editor runs unstaged and is confirmed only when a DELETE/UPDATE has no WHERE or LIMIT, how a run is cancelled, why the history is JSON Lines under XDG_STATE_HOME, and why only user-submitted statements — not browsing pages or commit statements — are recorded in it.
 tags: [tui, query, sql, history, cancellation, persistence, xdg]
 generated:
   by: claude-code/opus-5
@@ -14,8 +14,8 @@ generated:
 
 `ctrl+r` runs the script the editor holds, `ctrl+c` aborts a run, and
 results land in the existing main-view **Data** tab, next to the browsing
-pages. Every executed statement is appended to the query history, which is
-backed by a file so it survives a restart and opens as a floating pane
+pages. Statements the user submitted are appended to the query history —
+and only those, see below — which is backed by a file so it survives a restart and opens as a floating pane
 from the editor (`backspace` in normal mode) — see
 [history-pane-and-placeholders](history-pane-and-placeholders.md).
 
@@ -197,11 +197,34 @@ One JSON object per line, oldest first:
 - **Writes are mutex-guarded.** Appends run in `tea.Cmd` goroutines and
   would otherwise interleave their lines.
 
-Everything lazysql executes goes in through one message,
-`historyEntryMsg` — a browsing page, a committed changeset statement, an
-editor script. Re-running the newest entry does not duplicate it; only
-the timestamp would differ, and `enter`-and-run would otherwise grow the
-list on every replay.
+### Only submitted statements enter the history (issue #190)
+
+The history originally recorded everything lazysql executed, browsing
+pages included. In practice that made it useless: opening a table and
+paging through it appends one `SELECT * FROM t LIMIT 100 OFFSET n` per
+keypress, so a few minutes of scrolling buries the handful of statements
+the user actually typed under hundreds of generated ones.
+
+The history now only accepts statements the user *submitted*:
+
+- an editor run (`applyQueryStmt`), including one that failed — the
+  history records what was submitted, not what succeeded;
+- a re-run from the `H` pane, which goes through `submitQuery` and so
+  through `applyQueryStmt` as well.
+
+Generated SQL never emits `historyEntryMsg`: `reloadPage` no longer does,
+introspection never did, and the `changesCommittedMsg` loop stopped —
+commit statements are built from the changeset, and offering an old
+`UPDATE`/`DELETE` for one-key replay is a footgun. All of it stays in the
+command log, which the Driver's `Logger` fills independently; the command
+log is the audit trail, the history is the recall list.
+
+Origin is decided by *who emits the message*, not by matching the SQL:
+a `LIMIT`/`OFFSET` shape test would eat legitimate user queries.
+
+Re-running the newest entry does not duplicate it; only the timestamp
+would differ, and `enter`-and-run would otherwise grow the list on every
+replay.
 
 ### History is scoped by connection name, and legacy entries are shown everywhere
 

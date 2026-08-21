@@ -135,17 +135,13 @@ func restoreStartCmd() tea.Cmd {
 	return func() tea.Msg { return restoreStartMsg{} }
 }
 
-// historyEntryMsg records a statement in the query history: panel [3]
-// and the on-disk history behind it. Everything lazysql executes emits
-// one — a browsing page, a committed changeset, a script from the
-// editor — so there is a single way into the history.
+// historyEntryMsg records a statement in the query history: the pane
+// behind `H` and the on-disk history under it. Only statements the user
+// submitted may emit one — an editor run or a re-run from the history
+// pane. Generated SQL (browsing pages, introspection, committed
+// changesets) stays out: it would bury the handful of typed queries the
+// history exists for, and it is all in the command log anyway.
 type historyEntryMsg struct{ statement string }
-
-// historyCmd is the message as a command, for callers that only build
-// tea.Cmds.
-func historyCmd(statement string) tea.Cmd {
-	return func() tea.Msg { return historyEntryMsg{statement: statement} }
-}
 
 // ---------- root model ----------
 
@@ -1124,12 +1120,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// The transaction itself — BEGIN, each statement, COMMIT — is
 		// already in the command log: ExecTx logged it through the
-		// Driver's Logger as it ran. This only feeds the query-recall
-		// history, a separate concern from the audit trail.
+		// Driver's Logger as it ran. It is not recorded in the query
+		// history: those statements are generated from the changeset,
+		// not typed, and re-running an old UPDATE/DELETE from the
+		// history pane is a footgun.
 		var cmds []tea.Cmd
-		for _, s := range msg.stmts {
-			cmds = append(cmds, historyCmd(s.SQL))
-		}
 		m.changes.Clear()
 		// The phantom rows of the staged inserts are gone with it, and
 		// the fresh page is still a round trip away: the cursor cannot be

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazysql/internal/db"
 	"lazysql/internal/history"
 )
 
@@ -261,5 +262,62 @@ func TestHistoryPaneKeysAreInHelp(t *testing.T) {
 		if !documented[b.Help().Key] {
 			t.Fatalf("`?` for panel [3] omits the pane key %q", b.Help().Key)
 		}
+	}
+}
+
+// Only what the user submitted belongs in the history: opening a table
+// and paging through it runs generated SQL that must leave the on-disk
+// history untouched, while a run from the editor is written to it. A
+// failed statement is recorded too — the history is a record of what was
+// submitted, not of what succeeded.
+func TestPageLoadsStayOutOfHistoryEditorRunsDoNot(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	m := queryable(t)
+
+	// Open the table: one page load plus its count, both generated.
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("q") {
+		t.Fatalf("q not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+	// Page forward and back, the flood the history used to fill with.
+	m = send(t, m, special('f', tea.ModCtrl), special('b', tea.ModCtrl))
+
+	if len(m.history) != 0 {
+		t.Fatalf("history = %#v, want browsing to record nothing", m.history)
+	}
+	if entries, err := history.Load(); err != nil || len(entries) != 0 {
+		t.Fatalf("history file = %#v (err %v), want it untouched by page loads", entries, err)
+	}
+	if !logContains(m, `SELECT * FROM "q" LIMIT 100 OFFSET 0;`) {
+		t.Fatalf("the page SQL left the command log too: %v", m.commandLog)
+	}
+
+	// The editor is the way in.
+	m = runQuery(t, m, "SELECT id FROM q")
+	m = runQuery(t, m, "SELECT nope FROM missing")
+	if len(m.history) != 2 {
+		t.Fatalf("history = %#v, want both editor runs including the failed one", m.history)
+	}
+	entries, err := history.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].SQL != "SELECT nope FROM missing" || entries[1].SQL != "SELECT id FROM q" {
+		t.Fatalf("history file = %#v, want the two editor runs, newest first", entries)
+	}
+}
+
+// Committing staged changes generates UPDATE/DELETE statements; they are
+// audit-trail material for the command log, not queries to recall.
+func TestCommittedChangesStayOutOfHistory(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	m := queryable(t)
+	m = send(t, m, changesCommittedMsg{stmts: []db.Statement{{SQL: `UPDATE "q" SET "name" = 'x' WHERE "id" = 1`}}})
+	if len(m.history) != 0 {
+		t.Fatalf("history = %#v, want the commit to record nothing", m.history)
+	}
+	if entries, err := history.Load(); err != nil || len(entries) != 0 {
+		t.Fatalf("history file = %#v (err %v), want it untouched by a commit", entries, err)
 	}
 }

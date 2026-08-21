@@ -1802,3 +1802,10 @@ Chronological history of wiki changes, newest last.
 - `refreshConnections` now prunes `connState` to the rows that exist, so a
   status cannot outlive its connection (found by the second-file-replaces-the-
   first test, where the previous ephemeral row's status came back as idle).
+- Issue #190: the query history stopped recording generated SQL. `reloadPage`
+  and the `changesCommittedMsg` commit loop no longer emit `historyEntryMsg`,
+  so only editor runs and `H`-pane re-runs are recorded; the command log is
+  untouched and still gets every executed statement through the Driver's
+  `Logger`. Origin is decided by the emitting call site, never by matching
+  `LIMIT`/`OFFSET` in the SQL, which would eat real user queries. See
+  [design/query-editor-and-history](design/query-editor-and-history.md).

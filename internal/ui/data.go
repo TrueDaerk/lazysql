@@ -375,8 +375,6 @@ func (m *Model) reloadPage() tea.Cmd {
 	m.clearSelection()
 	d := m.data
 
-	pageSQL := db.PageSQL(m.driver.Dialect(), d.database, d.table, d.filter, d.sort, dataPageSize, d.offset())
-
 	var cmds []tea.Cmd
 	// The warning goes first so it is not lost above the statement it
 	// is about.
@@ -384,8 +382,10 @@ func (m *Model) reloadPage() tea.Cmd {
 		cmds = append(cmds, logCmd(
 			"-- WARNING: filter %q could not be parameterized — appended verbatim", d.filter.Raw))
 	}
+	// The page SQL is generated, not typed: QueryPage logs it through the
+	// Driver's Logger, and it deliberately never reaches the query
+	// history, which only holds statements the user submitted.
 	cmds = append(cmds,
-		historyCmd(pageSQL),
 		loadPageCmd(m.driver, d, m.data.req),
 		countRowsCmd(m.driver, d, m.data.req),
 	)

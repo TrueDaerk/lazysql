@@ -9,9 +9,11 @@ import (
 	"lazysql/internal/history"
 )
 
-// The query history is the on-disk record of every statement lazysql
-// executed — a browsing page, a committed changeset, a script from the
-// editor — newest first. It has no panel of its own: the editor's normal
+// The query history is the on-disk record of the statements the user
+// submitted — a run from the editor, a re-run from the pane itself —
+// newest first. Statements lazysql generates on its own (browsing pages,
+// introspection, committed changesets) never reach it; they belong to
+// the command log. It has no panel of its own: the editor's normal
 // mode opens it as a floating pane (see historypane.go) with `backspace`,
 // where an entry can be re-executed directly.
 

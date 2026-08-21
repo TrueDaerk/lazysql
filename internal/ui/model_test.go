@@ -746,7 +746,7 @@ func TestActionsMenuDispatchesSameActionAsKey(t *testing.T) {
 	}
 }
 
-func TestDrillInLogsAndRecordsHistory(t *testing.T) {
+func TestDrillInLogsThePageWithoutRecordingHistory(t *testing.T) {
 	// Drilling in from [1] Connections opens a live connection, which the
 	// dedicated connect tests cover; this one starts from a connected
 	// model and walks database -> table -> data.
@@ -767,9 +767,10 @@ func TestDrillInLogsAndRecordsHistory(t *testing.T) {
 	if m.focus != panelMain {
 		t.Fatalf("focus = %v, want the data grid", m.focus)
 	}
-	// The entry holds the statement as it ran.
-	if len(m.history) != 1 || !strings.Contains(m.history[0].SQL, "SELECT * FROM ") {
-		t.Fatalf("history = %v, want one SELECT entry", m.history)
+	// Browsing is generated SQL: the command log gets it, the query
+	// history — which only holds what the user submitted — does not.
+	if len(m.history) != 0 {
+		t.Fatalf("history = %v, want drilling in to record nothing", m.history)
 	}
 	if !logContains(m, `SELECT * FROM "drill" LIMIT 100 OFFSET 0;`) {
 		t.Fatalf("command log = %v", m.commandLog)

@@ -1780,3 +1780,25 @@ Chronological history of wiki changes, newest last.
   (`editorCompletion()` → `completionKeys()`, the narrowed selection-keeping
   rule) and [design/inline-where-filter](design/inline-where-filter.md) (the
   popup now sits ahead of the line's four keys).
+
+## 2026-08-21 — Ephemeral file connections (issue #188)
+
+- Added [design/ephemeral-file-connections](design/ephemeral-file-connections.md):
+  the two entry points (`lazysql <file>`, `o` on panel [1]) that meet in one
+  `openEphemeral`, why the unsaved profile lives in `Model.ephem` and is looked
+  up through `Model.findConn` instead of being a flag on `config.Connection`,
+  and what "ephemeral" costs each panel action (no edit/delete/duplicate, no
+  reorder, no session restore, disconnect removes the row).
+- Recorded the magic-byte sniffing table (`internal/db/sniff.go`): SQLite at
+  offset 0, Parquet's `PAR1`, DuckDB's `DUCK` at offset 8 behind its checksum,
+  extension only as a fallback — and `.db` deliberately absent from it, since
+  that is the ambiguity sniffing exists for. The file must already exist: both
+  file drivers create a database on open, so a typo must not leave one behind.
+- Recorded the Parquet-via-DuckDB decision and the `db.Options.Setup` hook it
+  needed: the view statement has to run past the read-only guard
+  ([design/read-only-connections](design/read-only-connections.md)) that the
+  same session applies to the user, so it runs inside `conn.Connect`, logs
+  through the normal `Logger`, and fails the connect when it fails.
+- `refreshConnections` now prunes `connState` to the rows that exist, so a
+  status cannot outlive its connection (found by the second-file-replaces-the-
+  first test, where the previous ephemeral row's status came back as idle).

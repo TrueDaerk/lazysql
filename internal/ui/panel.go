@@ -75,6 +75,13 @@ type sidePanel struct {
 	// working on the undecorated names.
 	decor map[string]string
 
+	// suffix annotates a row behind its name, keyed the same way as decor
+	// — panel [1] marks its ephemeral connection that way. Like a tree
+	// row's note it is rendered on its own, muted, so the selection
+	// highlight cannot swallow it, and it never reaches the filter or the
+	// cursor.
+	suffix map[string]string
+
 	// tagColor renders a colored bullet ahead of decor, keyed the same
 	// way — panel [1] marks its color-tagged connections that way. It is
 	// styled on its own rather than folded into decor because its color
@@ -323,6 +330,9 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 			if text, st := r.note(); text != "" {
 				note, noteSt = " "+text, st
 			}
+		}
+		if note == "" && p.suffix[item] != "" {
+			note = " " + p.suffix[item]
 		}
 		name := prefix + p.decor[item] + item
 		if noteSt == noteStats {

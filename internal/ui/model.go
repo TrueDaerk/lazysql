@@ -168,8 +168,13 @@ type Model struct {
 	// is the transient per-connection status the panel colors itself by.
 	cfg       *config.Config
 	connState map[string]connState
-	driver    db.Driver
-	active    string // name of the connected profile, "" when none
+	// ephem is the file opened for this run only — `lazysql <file>` or `o`
+	// in panel [1] — and nil for the ordinary saved-connections view. It
+	// lives here rather than in cfg because it is never persisted: see
+	// ephemeral.go.
+	ephem  *ephemeralConn
+	driver db.Driver
+	active string // name of the connected profile, "" when none
 	// tunnel is the SSH tunnel the active driver runs through, nil for a
 	// direct connection. Its lifetime is the connection's: it is closed
 	// whenever driver is, including on quit.
@@ -392,6 +397,14 @@ func (m Model) Init() tea.Cmd {
 	if m.restoreSess != nil {
 		cmds = append(cmds, logCmd("-- restoring session: %s …", m.restoreSess.Connection), restoreStartCmd())
 	}
+	// A file named on the command line is dialled from here, not from
+	// OpenFileOnStart: the connect reports through the normal UI, so it
+	// has to start once the program is running.
+	if m.ephem != nil {
+		cmds = append(cmds,
+			logCmd("-- open %s (%s, ephemeral)", m.ephem.path, m.ephem.engineLabel()),
+			redialCmd(m.dialRequestFor(m.ephem.conn, false)))
+	}
 	return tea.Batch(cmds...)
 }
 
@@ -413,31 +426,47 @@ func (m Model) readOnly() bool { return m.driver != nil && m.driver.ReadOnly() }
 // It answers for connections that are not open, which is what the panel's
 // lock marks need.
 func (m Model) connReadOnly(name string) bool {
-	c, ok := m.cfg.Find(name)
+	c, ok := m.findConn(name)
 	return ok && c.ReadOnly
 }
 
-// refreshConnections rebuilds the [1] Connections panel from the config plus
-// the live status map, keeping (or moving to) the named selection.
+// refreshConnections rebuilds the [1] Connections panel from the ephemeral
+// file (when one is open) plus the config, and the live status map, keeping
+// (or moving to) the named selection.
 func (m *Model) refreshConnections(selectName string) {
-	names := m.cfg.Names()
+	names := m.connNames()
 	status := make([]itemStatus, len(names))
 	marks := map[string]string{}
+	notes := map[string]string{}
 	tags := map[string]color.Color{}
+	live := make(map[string]bool, len(names))
 	for i, n := range names {
+		live[n] = true
 		status[i] = m.connState[n].status
 		if m.connReadOnly(n) {
 			marks[n] = lockMark + " "
 		}
-		if c, ok := m.cfg.Find(n); ok {
+		if m.isEphemeral(n) {
+			notes[n] = ephemeralTag
+		}
+		if c, ok := m.findConn(n); ok {
 			if tc, ok := connTagColor(c); ok {
 				tags[n] = tc
 			}
 		}
 	}
+	// A status belongs to a row: one whose connection is gone — removed,
+	// renamed, or an ephemeral file that was closed — is dropped here
+	// rather than lingering to color a later namesake.
+	for n := range m.connState {
+		if !live[n] {
+			delete(m.connState, n)
+		}
+	}
 	p := m.panels[panelConnections]
 	prev := p.selected()
 	p.decor = marks
+	p.suffix = notes
 	p.tagColor = tags
 	p.setItemsWithStatus(names, status)
 	if selectName == "" {
@@ -618,7 +647,7 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 	if name == "" {
 		return config.Connection{}, false
 	}
-	return m.cfg.Find(name)
+	return m.findConn(name)
 }
 
 // Update routes in a fixed order: WindowSizeMsg → open modal (swallows all
@@ -1481,6 +1510,12 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		m.driver, m.tunnel, m.active = nil, nil, ""
 		m.resetBrowse()
 		m.setConnStatus(name, statusIdle, "")
+		if m.isEphemeral(name) {
+			// An ephemeral connection has nothing to go back to being:
+			// disconnecting it drops the row and leaves the panel showing
+			// the saved profiles alone.
+			m.dropEphemeral()
+		}
 		return m, tea.Batch(closeSessionCmd(driver, tunnel), logCmd("-- disconnect %s", name))
 
 	case actTestConnection:
@@ -1491,13 +1526,22 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		// form — see newConnectionWizard.
 		m.modal = newConnectionWizard()
 
+	case actOpenFile:
+		m.modal = newOpenFileModal()
+
 	case actEditConnection:
 		if c, ok := m.selectedConnection(); ok {
+			if m.isEphemeral(c.Name) {
+				return m, logCmd("-- %s is ephemeral: nothing to edit (n saves a profile)", c.Name)
+			}
 			m.modal = newConnectionForm("Edit connection — "+c.Name, c, c.Name)
 		}
 
 	case actDuplicateConnection:
 		if c, ok := m.selectedConnection(); ok {
+			if m.isEphemeral(c.Name) {
+				return m, logCmd("-- %s is ephemeral: not in config.toml", c.Name)
+			}
 			source := c.Name
 			c.Name = duplicateName(m.cfg, c.Name)
 			m.modal = newDuplicateConnectionForm("Duplicate connection — "+source, c, source)
@@ -1506,6 +1550,11 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actDropConnection:
 		if c, ok := m.selectedConnection(); ok {
 			name := c.Name
+			if m.isEphemeral(name) {
+				// There is nothing on disk to remove: x (disconnect) is
+				// what makes an ephemeral connection go away.
+				return m, logCmd("-- %s is ephemeral: press x to close it", name)
+			}
 			m.modal = &confirmModal{
 				title: "Remove connection",
 				body: fmt.Sprintf(
@@ -1549,13 +1598,15 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actMoveConnUp:
-		if c, ok := m.selectedConnection(); ok && m.cfg.MoveUp(c.Name) {
+		// The ephemeral row is not part of the saved order; MoveUp/MoveDown
+		// simply do not find it in the config and report false.
+		if c, ok := m.selectedConnection(); ok && !m.isEphemeral(c.Name) && m.cfg.MoveUp(c.Name) {
 			m.refreshConnections(c.Name)
 			return m, reorderCmd(m.cfg.Clone(), c.Name)
 		}
 
 	case actMoveConnDown:
-		if c, ok := m.selectedConnection(); ok && m.cfg.MoveDown(c.Name) {
+		if c, ok := m.selectedConnection(); ok && !m.isEphemeral(c.Name) && m.cfg.MoveDown(c.Name) {
 			m.refreshConnections(c.Name)
 			return m, reorderCmd(m.cfg.Clone(), c.Name)
 		}
@@ -1633,7 +1684,7 @@ func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	req := dialRequest{conn: c, test: test}
+	req := m.dialRequestFor(c, test)
 	if c.NeedsPassword() && c.AskPassword {
 		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
 			next := req
@@ -1680,7 +1731,10 @@ func (m *Model) closeSession() {
 // must not clobber a real session with an empty one. Best-effort: a write
 // failure has nowhere to report to on the way out, so it is dropped.
 func (m Model) saveSession() {
-	if m.active == "" {
+	// An ephemeral connection is never restored: it is not in the config,
+	// so a restore could not find it, and writing it would also clobber
+	// the last real session with one.
+	if m.active == "" || m.isEphemeral(m.active) {
 		return
 	}
 	_ = session.Save(session.Session{

@@ -78,7 +78,7 @@ func (m Model) backupConnection() (config.Connection, bool) {
 		}
 	}
 	if m.active != "" {
-		if c, ok := m.cfg.Find(m.active); ok {
+		if c, ok := m.findConn(m.active); ok {
 			return c, true
 		}
 	}

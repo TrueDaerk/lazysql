@@ -231,6 +231,12 @@ miss `snippets`.
 | `XDG_STATE_HOME` | Where history, snippets, filters and the session live |
 | `LAZYSQL_NO_OSC52` | Set to `1` to never emit an OSC 52 clipboard escape — the copy goes to a temp file instead |
 
+## Command-line arguments
+
+| Argument | Effect |
+|---|---|
+| `<file>` | Open a SQLite, DuckDB or Parquet file for this session only; nothing is saved to `config.toml` (see [Your first connection](../getting-started/first-connection.md)) |
+
 ## Command-line flags
 
 | Flag | Effect |

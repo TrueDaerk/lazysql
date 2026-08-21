@@ -88,7 +88,13 @@ func (m *Model) openSchemaDiff() tea.Cmd {
 	if m.diff != nil && m.diff.running {
 		return logCmd("-- schema diff skipped: one is already running")
 	}
+	// Only saved profiles can be the other side: the picker lists the
+	// config, and an ephemeral connection is not in it. With nothing
+	// saved there is no B to compare against at all.
 	names := m.cfg.Names()
+	if len(names) == 0 {
+		return logCmd("-- schema diff skipped: no saved connection to compare with")
+	}
 	// The same connection is a valid other side — two databases of one
 	// server diff fine — so the list is not filtered.
 	other := names[0]
@@ -111,7 +117,9 @@ func (m *Model) openSchemaDiff() tea.Cmd {
 				f.err = "connection " + f.rawValue("other") + " no longer exists"
 				return false, nil
 			}
-			specA := diffSideSpec{req: dialRequest{conn: a}, database: f.rawValue("db_a")}
+			// A's dial goes through dialRequestFor so an ephemeral side
+			// brings its session setup (a Parquet view) along.
+			specA := diffSideSpec{req: mm.dialRequestFor(a, false), database: f.rawValue("db_a")}
 			specB := diffSideSpec{req: dialRequest{conn: b}, database: f.rawValue("db_b")}
 			return true, mm.promptDiffSecrets(specA, specB)
 		})

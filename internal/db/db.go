@@ -382,6 +382,15 @@ type Options struct {
 	// the engine's own read-only parameters too (ConnParams.ReadOnly),
 	// but this flag is what enforces the mode.
 	ReadOnly bool
+	// Setup are statements run once at Connect, before the session is
+	// handed to anyone. They are how a session is given something to
+	// browse that the file itself does not carry — the DuckDB view over
+	// a Parquet file (ParquetViewSQL) is the only one so far. They run
+	// past the ReadOnly guard on purpose: they are lazysql's own SQL,
+	// not the user's, and a read-only Parquet session could not be set
+	// up at all otherwise. Each one is logged like every other
+	// statement, and a failing one fails the connect.
+	Setup []string
 }
 
 // Open creates an unconnected Driver for the engine. Call Connect on it.
@@ -398,7 +407,7 @@ func OpenOpts(engine Engine, o Options) (Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &conn{dialect: d, logger: NewLogger(), dial: o.Dial, readOnly: o.ReadOnly}, nil
+	return &conn{dialect: d, logger: NewLogger(), dial: o.Dial, readOnly: o.ReadOnly, setup: o.Setup}, nil
 }
 
 // Tunnelled reports whether an engine can be reached through an SSH tunnel.

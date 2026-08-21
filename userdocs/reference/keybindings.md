@@ -58,6 +58,7 @@ mode it runs the statement the caret is in.
 | `enter` · `space` | Connect | `connect` |
 | `x` | Disconnect (only the active connection) | `disconnect` |
 | `n` | New connection | `new-connection` |
+| `o` | Open a file for this session only (SQLite/DuckDB/Parquet) | `open-file` |
 | `e` | Edit connection | `edit-connection` |
 | `d` | Remove connection | `drop-connection` |
 | `y` | Duplicate connection | `duplicate-connection` |

@@ -46,7 +46,10 @@ type keyMap struct {
 	Quit        key.Binding
 
 	// Context actions, keyed by panel.
-	NewConnection       key.Binding
+	NewConnection key.Binding
+	// OpenFile opens a local SQLite/DuckDB/Parquet file for this session
+	// only, without saving a profile — see actOpenFile and ephemeral.go.
+	OpenFile            key.Binding
 	EditConnection      key.Binding
 	DropConnection      key.Binding
 	DuplicateConnection key.Binding
@@ -56,9 +59,9 @@ type keyMap struct {
 	// Disconnect closes the active connection from panel [1]. It only acts
 	// on the currently connected row — see actDisconnect.
 	Disconnect key.Binding
-	Refresh             key.Binding
-	Actions             key.Binding
-	Filter              key.Binding
+	Refresh    key.Binding
+	Actions    key.Binding
+	Filter     key.Binding
 
 	// The server activity report, opened from panel [1]. ServerActivity
 	// opens (and re-reads) it; the other two only act while it is on
@@ -330,7 +333,10 @@ func newKeyMap() keyMap {
 		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
-		NewConnection:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
+		NewConnection: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
+		// `o` for open, free on panel [1]: n saves a profile, o just
+		// opens a file.
+		OpenFile:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open file…")),
 		EditConnection: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit connection")),
 		DropConnection: key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "remove connection")),
 		// `y` for "yank" — free in this panel; the data grid's own `y` (copy
@@ -341,9 +347,9 @@ func newKeyMap() keyMap {
 		Connect:             key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
 		// `x` is free in this panel — `d` already means remove connection.
 		Disconnect: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "disconnect")),
-		Refresh:             key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
-		Actions:             key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
-		Filter:              key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
+		Refresh:    key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
+		Actions:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
+		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),
 
 		// `A` for activity: free on panel [1], and uppercase like the
 		// other two server-wide reports there (`D` schema diff, `B`
@@ -796,6 +802,7 @@ const (
 	actConnect
 	actDisconnect
 	actNewConnection
+	actOpenFile
 	actEditConnection
 	actDropConnection
 	actDuplicateConnection
@@ -894,6 +901,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actConnect, k.Connect},
 			{actDisconnect, k.Disconnect},
 			{actNewConnection, k.NewConnection},
+			{actOpenFile, k.OpenFile},
 			{actEditConnection, k.EditConnection},
 			{actDropConnection, k.DropConnection},
 			{actDuplicateConnection, k.DuplicateConnection},
@@ -1086,7 +1094,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
 		{"help", &k.Help}, {"quit", &k.Quit},
 
-		{"new-connection", &k.NewConnection}, {"edit-connection", &k.EditConnection},
+		{"new-connection", &k.NewConnection}, {"open-file", &k.OpenFile},
+		{"edit-connection", &k.EditConnection},
 		{"drop-connection", &k.DropConnection}, {"duplicate-connection", &k.DuplicateConnection},
 		{"test-connection", &k.TestConnection},
 		{"schema-diff", &k.SchemaDiff},

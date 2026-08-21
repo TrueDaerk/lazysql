@@ -170,7 +170,7 @@ func databaseArg(name string) string {
 // privileges to see but may still be allowed to use, and a truly wrong name
 // surfaces as an error on expand.
 func (m *Model) scopeDatabases(conn string, dbs []string) []string {
-	c, ok := m.cfg.Find(conn)
+	c, ok := m.findConn(conn)
 	if !ok || c.Database == "" || !db.DatabaseNamespaces(c.Engine) {
 		return dbs
 	}

@@ -628,11 +628,13 @@ func (k keyMap) editorNormal() []key.Binding {
 	}
 }
 
-// editorCompletion are the keys the autocomplete popup owns while it is
-// open. Like editorInsert they are dispatched by updateEditor rather than
-// through panelActions — they only mean anything inside the editor — so
-// this slice is what the options bar shows and what `?` lists for them.
-func (k keyMap) editorCompletion() []key.Binding {
+// completionKeys are the keys the autocomplete popup owns while it is
+// open, on either of the lines that can drive it — the query editor's
+// buffer and the grid's inline WHERE line. Like editorInsert they are
+// dispatched by the line's own update rather than through panelActions,
+// so this slice is what the options bar shows and what `?` lists for
+// them.
+func (k keyMap) completionKeys() []key.Binding {
 	return []key.Binding{
 		k.CompleteNext, k.CompletePrev, k.AcceptCompletion, k.CloseCompletion,
 	}
@@ -769,10 +771,15 @@ func (k keyMap) jsonCellKeys() []key.Binding {
 // filterInput are the keys the grid's inline WHERE line owns while it is
 // open. Every other key types into the clause, which is why this slice —
 // not the grid's action list — is what the options bar and `?` show
-// there, the same deal the editor's insert mode gets.
+// there, the same deal the editor's insert mode gets. Complete comes
+// last rather than first: the bar truncates to the width it is given,
+// and the two keys that decide the clause's fate — apply and cancel —
+// outrank the one that helps write it. The popup's own keys are not in
+// here at all; while one is open the bar swaps to completionKeys, which
+// is when they mean anything.
 func (k keyMap) filterInput() []key.Binding {
 	return []key.Binding{
-		k.FilterHistPrev, k.FilterHistNext, k.ApplyFilter, k.CancelFilter,
+		k.FilterHistPrev, k.FilterHistNext, k.ApplyFilter, k.CancelFilter, k.Complete,
 	}
 }
 
@@ -1032,7 +1039,7 @@ func (k keyMap) helpGroups(id panelID) []helpGroup {
 		groups = append(groups,
 			helpGroup{"In vim normal mode:", k.editorNormal()},
 			helpGroup{"In insert mode:", k.editorInsert()},
-			helpGroup{"In the completion popup:", k.editorCompletion()},
+			helpGroup{"In the completion popup:", k.completionKeys()},
 			helpGroup{"In history & snippets:", k.historyPane()},
 			helpGroup{"Result grid (under the editor):", k.queryResultKeys()},
 		)

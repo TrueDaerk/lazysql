@@ -144,7 +144,11 @@ Three rules keep it from becoming a second source of stalls:
 - **Nothing waits.** A miss starts a `tea.Cmd` and the popup opens on
   what is already cached, saying `loading columns…` while the rest is in
   flight. When the reply lands, `restackCompletion` rebuilds the list —
-  carrying the selection across by name, because the user did not move.
+  carrying the selection across by name **if the user picked it** with
+  `↑`/`↓`. A selection nobody picked is only the top row of a list that
+  was missing its columns, and pinning it would rank the arriving columns
+  below whatever keyword happened to match first (see
+  [filter-line-autocomplete](filter-line-autocomplete.md#4-key-precedence-on-a-line-that-already-used-those-keys)).
 - **A keystroke opens at most `maxSchemaFetch` (4) requests.** A
   twelve-way join would otherwise open twelve round trips on the first
   character typed; the rest are picked up by the next keystroke, which is
@@ -221,12 +225,21 @@ and with nothing but whitespace before the caret `tab` stays an ordinary
 tab, so indentation still works. `ctrl+@` is bound alongside
 `ctrl+space` because that is what some terminals send for it.
 
-The four popup keys live in `keyMap.editorCompletion()`, the sibling of
-`editorInsert()`: both are dispatched by `updateEditor` rather than
-through `panelActions`, because they only mean anything inside the
-buffer. The options bar shows whichever group is live, `?` lists both as
-extra groups for `panelQuery`, and `TestEveryDocumentedKeyIsBound` was
-taught that these two groups are bound without being actions.
+The four popup keys live in `keyMap.completionKeys()`, the sibling of
+`editorInsert()`: both are dispatched by the update function of the line
+taking text rather than through `panelActions`, because they only mean
+anything inside it. The options bar shows whichever group is live, `?`
+lists both as extra groups for `panelQuery`, and
+`TestEveryDocumentedKeyIsBound` was taught that these two groups are
+bound without being actions.
+
+Since issue #183 the same popup opens over the data grid's inline WHERE
+line, which is why the slice is no longer called `editorCompletion()`.
+What that took — a `completionSite` derived from the focus, a
+`completionScope` pairing the word under the caret with the statement
+around it, and an anchor of its own — is
+[filter-line-autocomplete](filter-line-autocomplete.md). Everything in
+this document is what the two lines share.
 
 ## Consequences
 

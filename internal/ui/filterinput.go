@@ -48,6 +48,14 @@ type filterInput struct {
 	// itself.
 	offset int
 
+	// caret is how many cells into the line the caret was last drawn,
+	// marker and prefix included. The completion popup anchors on it,
+	// and only the code that lays the line out knows where the caret
+	// landed once the prefix has been fitted and the clause scrolled —
+	// so view() records it, the same way an open form records the offset
+	// of the field it is completing (see formModal.view).
+	caret int
+
 	// hist are the filters recorded for this relation, newest first, and
 	// idx walks them: -1 is the line being typed, which draft holds while
 	// a recalled entry sits on screen. Recalling is therefore
@@ -120,15 +128,17 @@ func (fi *filterInput) view(w int) string {
 	if w <= 0 {
 		return ""
 	}
-	marker, rest := "", w
+	marker, markerW := "", 0
 	// A box too narrow for both keeps the clause: the caret sitting in
 	// highlighted text is a focus cue of its own, the bar is the louder
 	// one, and neither is worth a cell taken off the clause here.
 	if w >= 4 {
-		marker, rest = fi.st.filterFocus.Render(filterMarker), w-lipgloss.Width(filterMarker)
+		marker, markerW = fi.st.filterFocus.Render(filterMarker), lipgloss.Width(filterMarker)
 	}
-	prefix, clauseW := fitFilterPrefix(fi.prefix, rest)
-	return marker + fi.st.muted.Render(prefix) + fi.clauseView(clauseW)
+	prefix, clauseW := fitFilterPrefix(fi.prefix, w-markerW)
+	clause := fi.clauseView(clauseW)
+	fi.caret += markerW + lipgloss.Width(prefix)
+	return marker + fi.st.muted.Render(prefix) + clause
 }
 
 // fitFilterPrefix picks the prefix a w-cell box can afford and gives the
@@ -158,6 +168,9 @@ func (fi *filterInput) clauseView(w int) string {
 	pos := min(maxInt(fi.input.Position(), 0), len(runes))
 
 	start, end := fi.window(cells, len(runes), pos, w)
+	// Where the caret ended up in the visible slice, in cells: what the
+	// popup is anchored under. view() turns it into a cell of the line.
+	fi.caret = cells[pos] - cells[start]
 	body := renderTokens(fi.st, runes[start:end], kindRange(kinds, start, end), pos-start, fi.st.editorCursor)
 
 	drawn := cells[end] - cells[start]
@@ -252,7 +265,15 @@ func (m *Model) openFilterInput() tea.Cmd {
 // the grid is showing goes through it: the prefix names one relation of
 // one connection, so a line that outlived either would be labelled with
 // a statement it no longer belongs to.
-func (m *Model) closeFilterInput() { m.filterInput = nil }
+func (m *Model) closeFilterInput() {
+	m.filterInput = nil
+	// A popup floating over the line goes with it. Only that one: the
+	// editor's popup is not this function's business, and closing the
+	// filter line is on the path a query run takes.
+	if m.completion.site == siteFilter {
+		m.completion = completion{}
+	}
+}
 
 // filterInputOpen reports whether the inline WHERE line owns the
 // keyboard. It is only live on the focused grid — the same line is drawn
@@ -268,6 +289,41 @@ func (m Model) filterInputOpen() bool {
 func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	fi := m.filterInput
 	k := m.keys
+	// An open completion popup claims its four keys ahead of the line's
+	// own, the same deal insert mode gives it. Two of them are the
+	// precedence that matters here: esc closes the popup and leaves the
+	// line typing, so a clause survives dismissing a suggestion list;
+	// and ↑/↓ move the selection instead of walking the relation's
+	// filter history, which is reachable again the moment the popup is
+	// gone (ctrl+p/ctrl+n included — they are the same keys twice over,
+	// and a popup on screen is what decides which meaning is live).
+	if m.completion.open {
+		switch {
+		case key.Matches(msg, k.CloseCompletion):
+			m.closeCompletion()
+			return m, nil
+		case key.Matches(msg, k.CompleteNext):
+			m.moveCompletion(1)
+			return m, nil
+		case key.Matches(msg, k.CompletePrev):
+			m.moveCompletion(-1)
+			return m, nil
+		case key.Matches(msg, k.AcceptCompletion):
+			// `tab` always accepts. `enter` only does once the user has
+			// picked a row with ↑/↓: on this line enter is *the* verb —
+			// it is how a clause is run — and a popup is open over most
+			// of a clause's last word, so an enter that always accepted
+			// would make running a filter a two-key gesture for no
+			// reason. Having moved in the list is the difference between
+			// "take this suggestion" and "I am done typing".
+			if msg.String() == "tab" || m.completion.picked {
+				m.acceptCompletion()
+				return m, nil
+			}
+			// Otherwise it is the line's own enter: the popup goes away
+			// with the line, below.
+		}
+	}
 	switch {
 	case key.Matches(msg, k.CancelFilter):
 		// esc changes nothing: the grid keeps whatever it was showing,
@@ -285,10 +341,24 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.FilterHistNext):
 		fi.recall(-1)
 		return m, nil
+
+	case key.Matches(msg, k.Complete):
+		// `tab` is also the accept key, so it only completes where there
+		// is a word to complete; ctrl+space always does, including on an
+		// empty clause — which on this line is the useful case, since a
+		// popup opened on nothing is the relation's column list.
+		scope, ok := m.completionScopeAt(siteFilter)
+		if msg.String() != "tab" || (ok && scope.ctx.completable()) {
+			cmd := m.refreshCompletion(true)
+			return m, cmd
+		}
 	}
 	var cmd tea.Cmd
 	fi.input, cmd = fi.input.Update(msg)
-	return m, cmd
+	// The popup follows the clause the way it follows the editor's
+	// buffer: every keystroke re-derives it, which is what narrows it as
+	// the word grows and closes it when the word ends.
+	return m, tea.Batch(cmd, m.refreshCompletion(false))
 }
 
 // pasteIntoFilterInput puts pasted text in the clause. The line is one
@@ -298,7 +368,9 @@ func (m Model) pasteIntoFilterInput(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	flat := tea.PasteMsg{Content: flattenPaste(msg.Content)}
 	var cmd tea.Cmd
 	m.filterInput.input, cmd = m.filterInput.input.Update(flat)
-	return m, cmd
+	// A paste is an edit like any other, so the popup follows it rather
+	// than staying on the word that was under the caret before.
+	return m, tea.Batch(cmd, m.refreshCompletion(false))
 }
 
 // applyFilter runs the typed clause: an empty one clears the filter, and

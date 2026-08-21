@@ -558,6 +558,7 @@ func (e *editCellModal) paste(msg tea.PasteMsg, _ *Model) tea.Cmd {
 }
 
 func (e *editCellModal) view(s styles, maxW, maxH int) string {
+	e.input.SetStyles(s.inputStyles)
 	e.input.SetWidth(min(50, maxW-8))
 	change := e.change()
 	title := fmt.Sprintf("Edit %s.%s — %s", change.Table, change.Column, e.rowLabel)

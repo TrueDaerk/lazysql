@@ -1728,6 +1728,19 @@ Chronological history of wiki changes, newest last.
   findable so the page keeps its place; it just stops being the loudest thing
   on screen.
 
+## 2026-08-20
+
+- Added [design/focused-input-highlight](design/focused-input-highlight.md)
+  (issue #182): one shared `textinput.Styles` (`styles.inputStyles`,
+  `internal/ui/styles.go`) for every focused single-line `textinput.Model` —
+  prompt modals, the connection/row-insert forms, the cell-edit modal — a
+  green-tinted background across the field's width plus a bold green prompt
+  and cursor, applied per-render via `SetStyles` rather than threaded through
+  field constructors. Adds the `palette.FocusInputBg` theme slot
+  (`focus-input-bg` in `[theme]`). The quick filter line's own `▌` marker
+  from #180 was left as its own cue rather than folded into this one, since
+  it draws its own SQL-highlighted clause and never calls `textinput.View()`.
+
 ## 2026-08-20 — Autocomplete: per-dialect SQL function catalog (issue #184)
 
 - Added [reference/sql-function-catalog](reference/sql-function-catalog.md):
@@ -1746,6 +1759,27 @@ Chronological history of wiki changes, newest last.
   function catalog is 243 entries, and the old cap silently dropped keywords
   past it on an empty-word `ctrl+space` — caught by the existing
   `TestKeywordSuggestionsDifferPerDriver` before this shipped.
+
+## 2026-08-20 — Autocomplete on the grid's inline WHERE line (issue #183)
+
+- Added [design/filter-line-autocomplete](design/filter-line-autocomplete.md):
+  the editor's popup generalized to a second line rather than duplicated — a
+  `completionSite` derived from the focus (the routing order already decides
+  which line is taking text), a `completionScope` pairing the word under the
+  caret with the statement around it so the filter line's uneditable
+  `SELECT * FROM <relation> WHERE ` prefix is what `referencedRelations` reads
+  the relation out of, `filterInput.view` recording its caret cell for the
+  anchor, and a placement budget that ends at the bottom-pinned line so the box
+  is sized to the rows above it and flipped up there.
+- Key precedence written down: the popup takes `esc` and the arrows from the
+  line (history is one `esc` away again), `tab` accepts, and `enter` stays the
+  line's own verb unless the user picked a row with `↑`/`↓` — tracked by the new
+  `completion.picked`, which also decides whether `restackCompletion` pins a
+  selection across a landed column fetch.
+- Updated [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)
+  (`editorCompletion()` → `completionKeys()`, the narrowed selection-keeping
+  rule) and [design/inline-where-filter](design/inline-where-filter.md) (the
+  popup now sits ahead of the line's four keys).
 
 ## 2026-08-21 — Ephemeral file connections (issue #188)
 
@@ -1768,4 +1802,3 @@ Chronological history of wiki changes, newest last.
 - `refreshConnections` now prunes `connState` to the rows that exist, so a
   status cannot outlive its connection (found by the second-file-replaces-the-
   first test, where the previous ephemeral row's status came back as idle).
-

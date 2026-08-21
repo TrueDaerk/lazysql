@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -24,6 +25,7 @@ var (
 	colorSelectionBg  = lipgloss.Color("237")
 	colorRowCursorBg  = lipgloss.Color("236")
 	colorCellCursorBg = lipgloss.Color("240")
+	colorFocusInputBg = lipgloss.Color("22")
 
 	colorSQLKeyword     = lipgloss.Color("5")
 	colorSQLString      = lipgloss.Color("2")
@@ -86,6 +88,13 @@ type styles struct {
 	// The inline WHERE line's focus bar. It is the panel-focus green,
 	// because it means the same thing the green border means.
 	filterFocus lipgloss.Style
+
+	// inputStyles is the one focused/blurred look shared by every
+	// single-line textinput.Model in the app (prompt modals, form
+	// fields): a green-tinted box while it holds the keyboard, so a
+	// focused field is legible as a highlighted line rather than a
+	// single blinking cursor. See newInputStyles.
+	inputStyles textinput.Styles
 
 	// SQL syntax highlighting. sqlQuoted covers delimited identifiers,
 	// which are neither plain text nor literals; it borrows the accent so
@@ -156,6 +165,7 @@ func newStyles() styles {
 		cellCursorIdle:   lipgloss.NewStyle().Background(colorRowCursorBg),
 
 		filterFocus: lipgloss.NewStyle().Foreground(colorGreen).Bold(true),
+		inputStyles: newInputStyles(),
 
 		sqlKeyword:     lipgloss.NewStyle().Foreground(colorSQLKeyword).Bold(true),
 		sqlString:      lipgloss.NewStyle().Foreground(colorSQLString),
@@ -171,6 +181,30 @@ func newStyles() styles {
 		editorCursorIdle: lipgloss.NewStyle().Background(colorCellCursorBg),
 		editorGutter:     lipgloss.NewStyle().Foreground(colorMuted),
 	}
+}
+
+// newInputStyles builds the focused/blurred look every textinput.Model in
+// the app shares (see styles.inputStyles): a background tint carries the
+// "keyboard is here" cue across the whole field width, not just the
+// cursor cell, so it reads at a glance and survives an empty value. The
+// prompt and cursor pick up the same green a focused panel's border
+// wears, matching the accent filterFocus already draws on the quick
+// filter line. Text stays unstyled — only its background moves — so
+// typed content keeps whatever legibility it already had.
+func newInputStyles() textinput.Styles {
+	var s textinput.Styles
+	s.Focused = textinput.StyleState{
+		Text:        lipgloss.NewStyle().Background(colorFocusInputBg),
+		Placeholder: lipgloss.NewStyle().Background(colorFocusInputBg).Foreground(colorMuted),
+		Prompt:      lipgloss.NewStyle().Background(colorFocusInputBg).Bold(true).Foreground(colorGreen),
+	}
+	s.Blurred = textinput.StyleState{
+		Text:        lipgloss.NewStyle(),
+		Placeholder: lipgloss.NewStyle().Foreground(colorMuted),
+		Prompt:      lipgloss.NewStyle().Foreground(colorMuted),
+	}
+	s.Cursor.Color = colorGreen
+	return s
 }
 
 // titleBorderPad is how many border runes sit between a corner and the

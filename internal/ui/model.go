@@ -199,6 +199,12 @@ type Model struct {
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
 
+	// pageSize is the configured row limit for browsing a table page and
+	// pagination — config.PageSize resolved to its default at New(). Every
+	// dataView is constructed with this as its own pageSize so limit()
+	// never has to reach back through the Model.
+	pageSize int
+
 	// filterInput is the grid's inline `/` line — the WHERE clause being
 	// typed — nil when none is open. filters is the per-relation filter
 	// history behind its recall keys, newest first, across every scope.
@@ -354,6 +360,7 @@ func New(noRestore bool) (Model, error) {
 		cfg:       cfg,
 		editor:    newQueryEditor(),
 		hl:        &editorCache{},
+		pageSize:  cfg.PageSizeOrDefault(),
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {
@@ -1399,15 +1406,7 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case key.Matches(msg, k.Enter):
-		// Connecting can open a password prompt, which drillIn (a plain
-		// tea.Cmd) cannot do — route panel [1] through the action instead.
-		if m.focus == panelConnections {
-			return m.runAction(actConnect)
-		}
-		// Bind the command first: drillIn mutates m and Go would
-		// otherwise copy the pre-call model into the return value.
-		cmd := m.drillIn()
-		return m, cmd
+		return m.activateSelection()
 
 	case key.Matches(msg, k.Back):
 		// esc first drops an active filter; only an unfiltered panel
@@ -1440,14 +1439,33 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// activateSelection acts on the focused panel's current selection the way
+// `enter` does: panel [1] connects (which can open a password prompt, so it
+// routes through the action rather than drillIn's plain tea.Cmd), panel [2]
+// drills into the tree.
+func (m Model) activateSelection() (Model, tea.Cmd) {
+	if m.focus == panelConnections {
+		return m.runAction(actConnect)
+	}
+	// Bind the command first: drillIn mutates m and Go would otherwise
+	// copy the pre-call model into the return value.
+	cmd := m.drillIn()
+	return m, cmd
+}
+
 // updateFilter is the inline `/` editor of the focused panel: every edit
-// re-narrows the list, esc restores it, enter keeps the filter and hands
-// the panel's normal keys back. Everything else — cursor movement, editing
-// at the cursor, word/line delete — is textinput's own keymap; this only
-// intercepts the four keys that mean something else here: esc/enter close
-// the line rather than doing nothing, and up/down move the list cursor
+// re-narrows the list, esc restores it. Cursor movement, editing at the
+// cursor and word/line delete are textinput's own keymap; this only
+// intercepts the keys that mean something else here — esc/enter close the
+// line rather than doing nothing, and up/down move the list cursor
 // (textinput has no rows to walk) rather than a suggestion list it never
-// shows.
+// shows. Enter's behavior also depends on whether the user has already
+// navigated the filtered list (arrow keys or the mouse wheel, tracked by
+// navigated): if so, the selection is unambiguous and enter confirms the
+// filter *and* activates the selection in one step; otherwise it only
+// confirms the filter, so a first enter after typing a pattern that
+// already narrows to one obvious row does not surprise the user by
+// jumping straight in. See wiki/design/panel-filter-enter.md.
 func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	p := m.panels[m.focus]
 	switch msg.Code {
@@ -1456,11 +1474,17 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyEnter:
 		p.filtering = false
+		if p.navigated {
+			p.navigated = false
+			return m.activateSelection()
+		}
 		return m, nil
 	case tea.KeyUp:
+		p.navigated = true
 		p.move(-1)
 		return m, nil
 	case tea.KeyDown:
+		p.navigated = true
 		p.move(1)
 		return m, nil
 	}
@@ -1614,6 +1638,19 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		}
 
 	case actRefresh:
+		if n := m.changes.Len(); n > 0 {
+			m.modal = &confirmModal{
+				title:  "Refresh",
+				body:   fmt.Sprintf("Reload from the server and discard %s?", countChanges(n)),
+				danger: true,
+				onConfirm: func(mm *Model) tea.Cmd {
+					mm.changes.Clear()
+					mm.clampCursor()
+					return mm.reloadFocused()
+				},
+			}
+			return m, nil
+		}
 		return m, m.reloadFocused()
 
 	case actFilter:

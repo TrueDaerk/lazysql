@@ -138,12 +138,31 @@ type Config struct {
 	// navigates back to the last database/table/tab. Opt-in: absent from
 	// the file means false, so a fresh config never auto-connects.
 	RestoreSession bool `toml:"restore_session,omitempty"`
+
+	// PageSize is the LIMIT used when browsing a table page and stepping
+	// through pagination. Zero or absent means DefaultPageSize; an invalid
+	// value (zero, negative, or otherwise unusable) never fails config
+	// load — PageSizeOrDefault degrades it to the default instead.
+	PageSize int `toml:"page_size,omitempty"`
 }
 
 // RestoreSessionEnabled reports whether startup should restore the last
 // session. Absent (false) means no restore.
 func (c *Config) RestoreSessionEnabled() bool {
 	return c.RestoreSession
+}
+
+// DefaultPageSize is the row limit used when the config sets no page size,
+// or sets an invalid one.
+const DefaultPageSize = 100
+
+// PageSizeOrDefault returns the configured page size, falling back to
+// DefaultPageSize when unset or invalid (<= 0).
+func (c *Config) PageSizeOrDefault() int {
+	if c.PageSize <= 0 {
+		return DefaultPageSize
+	}
+	return c.PageSize
 }
 
 // Params converts a profile into the driver-agnostic connection parameters.
@@ -276,6 +295,7 @@ type configFile struct {
 	Keys           map[string]string `toml:"keys,omitempty"`
 	Theme          map[string]string `toml:"theme,omitempty"`
 	RestoreSession bool              `toml:"restore_session,omitempty"`
+	PageSize       int               `toml:"page_size,omitempty"`
 }
 
 func (c *Config) forEncoding() configFile {
@@ -284,6 +304,7 @@ func (c *Config) forEncoding() configFile {
 		Keys:           c.Keys,
 		Theme:          c.Theme,
 		RestoreSession: c.RestoreSession,
+		PageSize:       c.PageSize,
 	}
 	for i, conn := range c.Connections {
 		e := connectionFile{
@@ -579,6 +600,7 @@ func (c *Config) Clone() *Config {
 	out := &Config{
 		Connections:    make([]Connection, len(c.Connections)),
 		RestoreSession: c.RestoreSession,
+		PageSize:       c.PageSize,
 	}
 	copy(out.Connections, c.Connections)
 	if c.Keys != nil {

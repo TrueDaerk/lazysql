@@ -274,7 +274,14 @@ func (m *Model) applyScroll(t scrollTarget, delta int) {
 		if t.panel == panelQuery || t.panel >= panelCount {
 			return
 		}
-		m.panels[t.panel].move(delta)
+		p := m.panels[t.panel]
+		if p.filtering {
+			// The wheel is as unambiguous a navigation as the arrow keys
+			// updateFilter tracks — see navigated and
+			// wiki/design/panel-filter-enter.md.
+			p.navigated = true
+		}
+		p.move(delta)
 	case zoneMain:
 		m.scrollMain(t.row, delta)
 	}

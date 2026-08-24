@@ -144,6 +144,7 @@ func (m *Model) walkRelation() tea.Cmd {
 		database: edge.database,
 		table:    edge.table,
 		req:      m.data.req,
+		pageSize: m.pageSize,
 	}
 	// The [2] tree follows along whenever the target is in the browsed
 	// namespace, so the shell does not claim a different relation is open.

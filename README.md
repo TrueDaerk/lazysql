@@ -493,6 +493,19 @@ progress and drops back to the plain connections panel; a deleted
 connection, an unreachable host or a dropped table degrade the same way,
 with a note in the command log.
 
+### `page_size`
+
+The number of rows fetched per page when browsing a table — the `LIMIT` in
+the query the grid runs on open and on every `ctrl+f`/`ctrl+b` page turn.
+Defaults to 100 when unset:
+
+```toml
+page_size = 500
+```
+
+A missing, zero, negative or otherwise invalid value falls back to the
+default rather than failing to start.
+
 ### Clipboard
 
 `y` copies through the native clipboard (`pbcopy`, `xclip`, `xsel`) when

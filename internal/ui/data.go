@@ -10,9 +10,14 @@ import (
 	"lazysql/internal/db"
 )
 
-// dataPageSize is how many rows one page of the grid holds. The grid
-// never keeps more than one page in memory, which is what makes a
-// 100k-row table exactly as cheap to browse as a 100-row one.
+// dataPageSize is the built-in default for how many rows one page of the
+// grid holds, used when a dataView's own pageSize is unset (zero value) —
+// see dataView.limit. The grid never keeps more than one page in memory,
+// which is what makes a 100k-row table exactly as cheap to browse as a
+// 100-row one. The configured default (config.PageSize) is threaded into
+// each dataView at construction time; this constant is only the fallback
+// for a dataView built without going through that path (e.g. a bare
+// dataView{} reset, or a test fixture).
 const dataPageSize = 100
 
 // queryTimeout bounds a page read. It is longer than the catalog
@@ -103,6 +108,22 @@ type dataView struct {
 	// req is bumped on every reload; a reply carrying an older req
 	// belongs to a query the user has already moved past.
 	req int
+
+	// pageSize is how many rows one page holds, threaded in from the
+	// configured default (config.PageSize) at construction time. Zero
+	// means "unset" rather than "no rows" — limit() is what every reader
+	// goes through so a dataView built without it still behaves like the
+	// built-in default.
+	pageSize int
+}
+
+// limit is how many rows one page holds: the configured pageSize, or the
+// built-in default when it was never set.
+func (d dataView) limit() int {
+	if d.pageSize > 0 {
+		return d.pageSize
+	}
+	return dataPageSize
 }
 
 // selecting reports whether a multi-row selection is up.
@@ -209,11 +230,11 @@ func (d *dataView) setPage(p int) {
 		p = 0
 	}
 	d.page = p
-	start := p * dataPageSize
+	start := p * d.limit()
 	if start > len(d.all) {
 		start = len(d.all)
 	}
-	end := start + dataPageSize
+	end := start + d.limit()
 	if end > len(d.all) {
 		end = len(d.all)
 	}
@@ -223,7 +244,7 @@ func (d *dataView) setPage(p int) {
 }
 
 // offset is the row offset of the current page in the full result.
-func (d dataView) offset() int { return d.page * dataPageSize }
+func (d dataView) offset() int { return d.page * d.limit() }
 
 // pageCount is how many pages the count implies; 0 when unknown.
 func (d dataView) pageCount() int {
@@ -233,7 +254,7 @@ func (d dataView) pageCount() int {
 	if d.total <= 0 {
 		return 1
 	}
-	return int((d.total + dataPageSize - 1) / dataPageSize)
+	return int((d.total + int64(d.limit()) - 1) / int64(d.limit()))
 }
 
 // sortOn returns the sort direction for a column name, if it is the one
@@ -307,7 +328,7 @@ func loadPageCmd(drv db.Driver, d dataView, req int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 		defer cancel()
-		rs, err := drv.QueryPage(ctx, d.database, d.table, d.filter, d.sort, dataPageSize, d.offset())
+		rs, err := drv.QueryPage(ctx, d.database, d.table, d.filter, d.sort, d.limit(), d.offset())
 		return pageLoadedMsg{req: req, conn: d.conn, table: d.table, result: rs, err: err}
 	}
 }
@@ -351,6 +372,7 @@ func (m *Model) openTable(name string) tea.Cmd {
 		database: m.database,
 		table:    name,
 		req:      m.data.req,
+		pageSize: m.pageSize,
 	}
 	// Picking a relation from panel [3] is a fresh start, so the jump
 	// history of whatever chain of references was being followed goes.
@@ -459,7 +481,7 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 	// A query result is already in memory: paging it is a slice, not a
 	// round trip.
 	if m.data.isQuery() {
-		if next > m.data.page && next*dataPageSize >= len(m.data.all) {
+		if next > m.data.page && next*m.data.limit() >= len(m.data.all) {
 			return logCmd("-- already on the last page")
 		}
 		if next == m.data.page {
@@ -470,10 +492,10 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 		return nil
 	}
 	if next > m.data.page {
-		if m.data.hasTotal && next*dataPageSize >= int(m.data.total) {
+		if m.data.hasTotal && next*m.data.limit() >= int(m.data.total) {
 			return logCmd("-- already on the last page")
 		}
-		if !m.data.hasTotal && len(m.data.rows) < dataPageSize {
+		if !m.data.hasTotal && len(m.data.rows) < m.data.limit() {
 			return logCmd("-- already on the last page")
 		}
 	}

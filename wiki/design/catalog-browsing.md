@@ -119,8 +119,11 @@ modal → active filter → global keys → focused panel):
 
 - While the filter is capturing, printable keys are *text*: `2` and `q`
   type into the pattern instead of jumping panels or quitting.
-- `enter` leaves input mode but keeps the filter applied, so the panel's
-  own keys work on the narrowed list.
+- `enter` leaves input mode and keeps the filter applied, so the panel's
+  own keys work on the narrowed list — unless the user has already
+  navigated the filtered list first, in which case the same `enter` also
+  activates the selection in one step; see
+  [design/panel-filter-enter](panel-filter-enter.md).
 - `esc` clears the filter first; only an unfiltered panel passes `esc`
   on to the focus stack.
 

@@ -877,7 +877,8 @@ func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, 
 		hasTotal:  true,
 		// A bumped req invalidates any page or count still in flight
 		// for the relation this result replaced.
-		req: m.data.req + 1,
+		req:      m.data.req + 1,
+		pageSize: m.pageSize,
 	}
 	m.data.setPage(0)
 	m.clampCursor()
@@ -897,6 +898,7 @@ func (m *Model) showQueryError(sql string, err error) {
 		query:    sql,
 		err:      err.Error(),
 		req:      m.data.req + 1,
+		pageSize: m.pageSize,
 	}
 }
 
@@ -913,6 +915,7 @@ func (m *Model) showQueryNotice(sql string, affected int64) {
 		query:    sql,
 		notice:   db.FirstKeyword(sql) + " — " + countAffected(affected),
 		req:      m.data.req + 1,
+		pageSize: m.pageSize,
 	}
 }
 

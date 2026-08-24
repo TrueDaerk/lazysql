@@ -64,6 +64,13 @@ type sidePanel struct {
 	// whether `/` input mode is still capturing keys.
 	filter    string
 	filtering bool
+	// navigated reports whether the user has moved the cursor (arrow keys
+	// or the mouse wheel) since the filter was opened. Enter while
+	// filtering confirms the pattern and acts on the current selection in
+	// the same keypress once this is set — see
+	// wiki/design/panel-filter-enter.md — instead of only confirming the
+	// filter and waiting for a second enter.
+	navigated bool
 	// idx maps a visible row back to its position in all. It is nil
 	// while no filter narrows the list, where the mapping is the
 	// identity.
@@ -162,6 +169,7 @@ func (p *sidePanel) setFilter(pattern string) {
 // clearFilter restores the full list and leaves `/` input mode.
 func (p *sidePanel) clearFilter() {
 	p.filtering = false
+	p.navigated = false
 	if p.filter == "" {
 		return
 	}

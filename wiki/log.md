@@ -1809,3 +1809,18 @@ Chronological history of wiki changes, newest last.
   `Logger`. Origin is decided by the emitting call site, never by matching
   `LIMIT`/`OFFSET` in the SQL, which would eat real user queries. See
   [design/query-editor-and-history](design/query-editor-and-history.md).
+
+## 2026-08-24 — Panel filter: navigated enter opens the selection (issue #193)
+
+- Added [design/panel-filter-enter](design/panel-filter-enter.md): a
+  `sidePanel.navigated` flag, set by arrow-key or mouse-wheel moves while
+  `/` is filtering (`updateFilter`'s `KeyUp`/`KeyDown` in `model.go`, the
+  `zoneSide` branch of `applyScroll` in `mouse.go`) and cleared when a
+  filter opens or is dropped. `enter` while filtering now activates the
+  selection in the same keypress once the user has navigated, instead of
+  only confirming the filter and waiting for a second `enter`; `esc`
+  still cancels regardless. The old inline `enter` body on the focused
+  panel (connect on `[1]`, drill in elsewhere) is now the shared
+  `activateSelection` helper both routes call. Updated
+  [design/catalog-browsing](design/catalog-browsing.md)'s filter section
+  to match.

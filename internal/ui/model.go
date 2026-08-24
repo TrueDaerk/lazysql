@@ -1399,15 +1399,7 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case key.Matches(msg, k.Enter):
-		// Connecting can open a password prompt, which drillIn (a plain
-		// tea.Cmd) cannot do — route panel [1] through the action instead.
-		if m.focus == panelConnections {
-			return m.runAction(actConnect)
-		}
-		// Bind the command first: drillIn mutates m and Go would
-		// otherwise copy the pre-call model into the return value.
-		cmd := m.drillIn()
-		return m, cmd
+		return m.activateSelection()
 
 	case key.Matches(msg, k.Back):
 		// esc first drops an active filter; only an unfiltered panel
@@ -1440,9 +1432,29 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// activateSelection acts on the focused panel's current selection the way
+// `enter` does: panel [1] connects (which can open a password prompt, so it
+// routes through the action rather than drillIn's plain tea.Cmd), panel [2]
+// drills into the tree.
+func (m Model) activateSelection() (Model, tea.Cmd) {
+	if m.focus == panelConnections {
+		return m.runAction(actConnect)
+	}
+	// Bind the command first: drillIn mutates m and Go would otherwise
+	// copy the pre-call model into the return value.
+	cmd := m.drillIn()
+	return m, cmd
+}
+
 // updateFilter is the inline `/` editor of the focused panel: every
-// keystroke re-narrows the list, esc restores it, enter keeps the filter and
-// hands the panel's normal keys back.
+// keystroke re-narrows the list, esc restores it. Enter's behavior depends
+// on whether the user has already navigated the filtered list (arrow keys
+// or the mouse wheel, tracked by navigated): if so, the selection is
+// unambiguous and enter confirms the filter *and* activates the selection
+// in one step; otherwise it only confirms the filter, so a first enter
+// after typing a pattern that already narrows to one obvious row does not
+// surprise the user by jumping straight in. See
+// wiki/design/panel-filter-enter.md.
 func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	p := m.panels[m.focus]
 	switch msg.Code {
@@ -1450,13 +1462,19 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		p.clearFilter()
 	case tea.KeyEnter:
 		p.filtering = false
+		if p.navigated {
+			p.navigated = false
+			return m.activateSelection()
+		}
 	case tea.KeyBackspace:
 		if r := []rune(p.filter); len(r) > 0 {
 			p.setFilter(string(r[:len(r)-1]))
 		}
 	case tea.KeyUp:
+		p.navigated = true
 		p.move(-1)
 	case tea.KeyDown:
+		p.navigated = true
 		p.move(1)
 	default:
 		if msg.Text != "" {
@@ -1613,6 +1631,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		// The filter is inline, not a modal: typing narrows the panel on
 		// every keystroke and esc restores the full list.
 		m.panels[m.focus].filtering = true
+		m.panels[m.focus].navigated = false
 
 	case actExpandNode:
 		cmd := m.expandSelected()

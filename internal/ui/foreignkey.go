@@ -375,6 +375,7 @@ func (m *Model) jumpTo(database, table string, f *db.Filter) tea.Cmd {
 		table:    table,
 		filter:   f,
 		req:      m.data.req,
+		pageSize: m.pageSize,
 	}
 	// The [2] tree follows along whenever the target is in the browsed
 	// namespace, so the shell does not claim a different relation is open.

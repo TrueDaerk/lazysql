@@ -1607,6 +1607,19 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		}
 
 	case actRefresh:
+		if n := m.changes.Len(); n > 0 {
+			m.modal = &confirmModal{
+				title:  "Refresh",
+				body:   fmt.Sprintf("Reload from the server and discard %s?", countChanges(n)),
+				danger: true,
+				onConfirm: func(mm *Model) tea.Cmd {
+					mm.changes.Clear()
+					mm.clampCursor()
+					return mm.reloadFocused()
+				},
+			}
+			return m, nil
+		}
 		return m, m.reloadFocused()
 
 	case actFilter:

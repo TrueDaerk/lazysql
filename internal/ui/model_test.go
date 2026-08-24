@@ -894,6 +894,55 @@ func TestQuitWithStagedChangesAsksToConfirm(t *testing.T) {
 	}
 }
 
+// r/R with a pending changeset must confirm before reloading, so an
+// accidental edit or delete has a discoverable undo — issue #195.
+func TestRefreshWithStagedChangesAsksToConfirm(t *testing.T) {
+	m := dataBrowsing(t)
+	m = stageEdit(t, m, "tmp")
+	if m.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want 1", m.changes.Len())
+	}
+
+	m = send(t, m, press('r'))
+	cm, ok := m.modal.(*confirmModal)
+	if !ok {
+		t.Fatalf("r opened %T, want a confirmation", m.modal)
+	}
+	if !strings.Contains(cm.body, "1 staged change") {
+		t.Fatalf("body = %q", cm.body)
+	}
+
+	// esc keeps the changeset and cancels the refresh.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.modal != nil {
+		t.Fatalf("esc left a modal open: %T", m.modal)
+	}
+	if m.changes.Len() != 1 {
+		t.Fatal("esc on the refresh confirmation dropped the changeset")
+	}
+
+	m = send(t, m, press('r'), special(tea.KeyEnter, 0))
+	if m.changes.Len() != 0 {
+		t.Fatal("confirmed refresh did not clear the changeset")
+	}
+	if !logContains(m, "LIMIT 100 OFFSET 0") {
+		t.Fatalf("confirmed refresh did not reload: %v", m.commandLog)
+	}
+}
+
+// r/R with no pending changes refreshes immediately, no confirmation.
+func TestRefreshWithoutStagedChangesSkipsConfirm(t *testing.T) {
+	m := dataBrowsing(t)
+	if m.changes.Len() != 0 {
+		t.Fatalf("changeset = %d, want 0", m.changes.Len())
+	}
+
+	m = send(t, m, press('r'))
+	if m.modal != nil {
+		t.Fatalf("r opened %T, want an immediate refresh", m.modal)
+	}
+}
+
 // An unknown value in the state file must never block startup: it degrades
 // to screenNormal like a missing file would.
 func TestNewFallsBackToNormalOnUnknownSavedScreenMode(t *testing.T) {

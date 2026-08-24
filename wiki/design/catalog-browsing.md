@@ -81,6 +81,39 @@ keystroke. `fuzzyMatch` is a case-insensitive subsequence test (`usr`
 matches `users` and `user_roles`) — no dependency needed, and cheap
 enough to re-run per key.
 
+**The pattern is a real cursor-editable field (issue #192).**
+`sidePanel.filterIn` (`internal/ui/panel.go`) is a `textinput.Model`, the
+same component `filterInput` wraps for the grid's WHERE line — see
+[inline-where-filter](inline-where-filter.md) for why a `textinput` is
+the right model but the wrong renderer. `sidePanel.filter` stays the
+authoritative pattern string everything else (`applyFilter`, `keepRow`,
+the object tree's `treeKeep`) reads; `filterIn` only supplies cursor
+position and the editing keymap, kept in sync by `setFilter`. That split
+is why a raw string wasn't just replaced outright: every other read site
+in the codebase still wants a plain `string`, and `filterIn.Value()`
+would be one more thing that could drift from it.
+
+`updateFilter` (`internal/ui/model.go`) intercepts only `esc`/`enter`
+(close the line) and `↑`/`↓` (move the list cursor — `textinput`'s own
+up/down are suggestion-list bindings this field never shows) and hands
+everything else to `filterIn.Update`. That is what gives the pattern
+left/right, home/end, `alt+backspace` (word delete) and `ctrl+u` for
+free — `textinput`'s default keymap. The one gesture the default doesn't
+cover, `cmd+backspace` deleting to the line start, is added by aliasing
+`"super+backspace"` (what bubbletea v2 reports for cmd+key on terminals
+with kitty keyboard support, the same rule `acceptKeys` documents for
+cmd+enter) onto `DeleteBeforeCursor`, which already means exactly that
+via `ctrl+u`.
+
+`filterIn.SetVirtualCursor(false)`: nothing ever calls `filterIn.View()`
+— `filterLine` draws the caret itself, a reversed cell like
+`filterInput`'s, not a blinking one. Leaving the virtual cursor on would
+still schedule a real `Blink()` timer from inside `textinput.Update` on
+every keystroke that moves the cursor, for a cursor cell that is never
+drawn — harmless to correctness but a real per-keystroke timer wakeup,
+and the reason the grid's own filter line tests run into the
+double-digit seconds.
+
 Consequences for key routing (the order in `Model.Update` is now
 modal → active filter → global keys → focused panel):
 

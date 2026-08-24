@@ -361,7 +361,7 @@ func New(noRestore bool) (Model, error) {
 	}
 	m.colorWarnings = validateConnectionColors(cfg.Connections)
 	for id := panelID(0); id < panelCount; id++ {
-		m.panels[id] = &sidePanel{id: id}
+		m.panels[id] = &sidePanel{id: id, filterIn: newPanelFilterInput()}
 	}
 	m.tree = newObjectTree(nil)
 
@@ -1440,30 +1440,37 @@ func (m Model) updateFocused(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// updateFilter is the inline `/` editor of the focused panel: every
-// keystroke re-narrows the list, esc restores it, enter keeps the filter and
-// hands the panel's normal keys back.
+// updateFilter is the inline `/` editor of the focused panel: every edit
+// re-narrows the list, esc restores it, enter keeps the filter and hands
+// the panel's normal keys back. Everything else — cursor movement, editing
+// at the cursor, word/line delete — is textinput's own keymap; this only
+// intercepts the four keys that mean something else here: esc/enter close
+// the line rather than doing nothing, and up/down move the list cursor
+// (textinput has no rows to walk) rather than a suggestion list it never
+// shows.
 func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	p := m.panels[m.focus]
 	switch msg.Code {
 	case tea.KeyEscape:
 		p.clearFilter()
+		return m, nil
 	case tea.KeyEnter:
 		p.filtering = false
-	case tea.KeyBackspace:
-		if r := []rune(p.filter); len(r) > 0 {
-			p.setFilter(string(r[:len(r)-1]))
-		}
+		return m, nil
 	case tea.KeyUp:
 		p.move(-1)
+		return m, nil
 	case tea.KeyDown:
 		p.move(1)
-	default:
-		if msg.Text != "" {
-			p.setFilter(p.filter + msg.Text)
-		}
+		return m, nil
 	}
-	return m, nil
+	before := p.filterIn.Value()
+	var cmd tea.Cmd
+	p.filterIn, cmd = p.filterIn.Update(msg)
+	if v := p.filterIn.Value(); v != before {
+		p.setFilter(v)
+	}
+	return m, cmd
 }
 
 // runAction performs a context action. Both a key press and an entry in the
@@ -1612,7 +1619,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actFilter:
 		// The filter is inline, not a modal: typing narrows the panel on
 		// every keystroke and esc restores the full list.
-		m.panels[m.focus].filtering = true
+		m.panels[m.focus].startFilter()
 
 	case actExpandNode:
 		cmd := m.expandSelected()

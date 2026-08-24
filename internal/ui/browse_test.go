@@ -96,6 +96,79 @@ func TestFilterCapturesGlobalKeys(t *testing.T) {
 	}
 }
 
+// Once the user has moved off the filter's default selection with the
+// arrow keys, a single enter both confirms the filter and drills into the
+// row the cursor landed on — see navigated and
+// wiki/design/panel-filter-enter.md. Without a prior move enter only
+// confirms the filter, which TestFilterCapturesGlobalKeys covers.
+func TestFilterNavigateThenEnterOpensSelection(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('2'), press('/'), press('a'), press('c'), press('c'))
+	p := m.panels[panelObjects]
+	if got := p.items; len(got) != 2 || got[0] != "Tables" || got[1] != "accounts" {
+		t.Fatalf("filtered items = %v, want [Tables accounts]", got)
+	}
+	m = send(t, m, special(tea.KeyDown, 0))
+	if !p.navigated {
+		t.Fatal("down did not mark the filter as navigated")
+	}
+	if p.cursor != 1 {
+		t.Fatalf("cursor = %d, want 1 (accounts)", p.cursor)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if p.filtering {
+		t.Fatal("enter left filter input mode open")
+	}
+	if m.focus != panelMain {
+		t.Fatalf("focus = %v, want the single enter to drill straight into the data grid", m.focus)
+	}
+	if m.table != "accounts" {
+		t.Fatalf("table = %q, want %q", m.table, "accounts")
+	}
+}
+
+// The mouse wheel is as unambiguous a navigation as the arrow keys: a
+// single enter after scrolling drills in the same way.
+func TestFilterMouseWheelThenEnterOpensSelection(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('2'), press('/'), press('a'), press('c'), press('c'))
+	p := m.panels[panelObjects]
+
+	m, cmd := raw(m, wheelDown(5, 20)) // over [2] Objects, per TestWheelScrollsHoveredPanelNotFocusedOne
+	if cmd != nil {
+		m, _ = raw(m, wheelFlushMsg{gen: m.wheel.gen})
+	}
+	if !p.navigated {
+		t.Fatal("the wheel did not mark the filter as navigated")
+	}
+	if p.cursor != 1 {
+		t.Fatalf("cursor = %d, want 1 (accounts)", p.cursor)
+	}
+
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.focus != panelMain || m.table != "accounts" {
+		t.Fatalf("wheel navigation + enter: focus = %v, table = %q, want the data grid on accounts", m.focus, m.table)
+	}
+}
+
+// esc still cancels the filter without acting on anything, even after the
+// user has navigated the filtered list.
+func TestFilterNavigateThenEscCancelsWithoutOpening(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('2'), press('/'), press('a'), press('c'), press('c'), special(tea.KeyDown, 0))
+	p := m.panels[panelObjects]
+	if !p.navigated {
+		t.Fatal("down did not mark the filter as navigated")
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if p.filtering || p.filter != "" || p.navigated {
+		t.Fatalf("esc left filter=%q filtering=%v navigated=%v", p.filter, p.filtering, p.navigated)
+	}
+	if m.focus != panelObjects || m.table != "" {
+		t.Fatalf("esc opened something: focus = %v, table = %q", m.focus, m.table)
+	}
+}
+
 // A filter that matches nothing leaves an empty panel, and enter on it is a
 // no-op rather than a crash.
 func TestFilterWithNoMatchIsSafe(t *testing.T) {

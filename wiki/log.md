@@ -1824,3 +1824,18 @@ Chronological history of wiki changes, newest last.
   `activateSelection` helper both routes call. Updated
   [design/catalog-browsing](design/catalog-browsing.md)'s filter section
   to match.
+
+## 2026-08-24 — Side panel filter: cursor editing and word/line delete (issue #192)
+
+- Updated [design/catalog-browsing](design/catalog-browsing.md#fuzzy-filter):
+  `sidePanel.filter` is still the plain-string pattern every match/render
+  site reads, but it is now edited through `sidePanel.filterIn`, a
+  `textinput.Model` kept in sync by `setFilter` — the same component
+  `filterInput` wraps for the grid's WHERE line, reused here for its
+  editing keymap only (left/right, home/end, `alt+backspace` word delete),
+  never its `View()`. `cmd+backspace` deleting to the line start is added
+  by aliasing `"super+backspace"` onto the keymap's existing
+  `DeleteBeforeCursor` (`ctrl+u`). `SetVirtualCursor(false)` keeps
+  `textinput.Update` from scheduling a real `Blink()` timer on every
+  keystroke that moves the cursor, for a caret `filterLine` draws itself
+  and `textinput.View()` never renders.

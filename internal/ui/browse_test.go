@@ -96,6 +96,52 @@ func TestFilterCapturesGlobalKeys(t *testing.T) {
 	}
 }
 
+// The side panel's `/` pattern is a real cursor-editable field, not
+// append/backspace-at-the-end: left/right (via home here) move the cursor
+// and edits land there, alt+backspace deletes the previous word, and
+// cmd+backspace (reported as super+backspace on terminals with kitty
+// keyboard support — see acceptKeys) deletes back to the start.
+func TestFilterCursorEditingAndWordDelete(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press('2'), press('/'), press('s'), press('r'))
+	p := m.panels[panelObjects]
+	if p.filter != "sr" {
+		t.Fatalf("filter = %q, want %q", p.filter, "sr")
+	}
+
+	// home moves the cursor to the start; an append-only editor could
+	// never spell "usr" from "sr" this way.
+	m = send(t, m, special(tea.KeyHome, 0), press('u'))
+	p = m.panels[panelObjects]
+	if p.filter != "usr" {
+		t.Fatalf("filter after cursor-insert = %q, want %q", p.filter, "usr")
+	}
+
+	m = send(t, m, special(tea.KeyEscape, 0))
+	m = send(t, m, press('/'), press('f'), press('o'), press('o'), press(' '), press('b'), press('a'), press('r'))
+	p = m.panels[panelObjects]
+	if p.filter != "foo bar" {
+		t.Fatalf("filter = %q, want %q", p.filter, "foo bar")
+	}
+
+	// alt+backspace ("opt+backspace") deletes the previous word.
+	m = send(t, m, special(tea.KeyBackspace, tea.ModAlt))
+	p = m.panels[panelObjects]
+	if p.filter != "foo " {
+		t.Fatalf("word-delete left %q, want %q", p.filter, "foo ")
+	}
+
+	m = send(t, m, press('b'), press('a'), press('z'))
+	// Back up past "baz" onto "foo " so cmd+backspace has something before
+	// the cursor to delete and something after it to keep.
+	m = send(t, m, special(tea.KeyLeft, 0), special(tea.KeyLeft, 0), special(tea.KeyLeft, 0))
+	m = send(t, m, special(tea.KeyBackspace, tea.ModSuper))
+	p = m.panels[panelObjects]
+	if p.filter != "baz" {
+		t.Fatalf("cmd+backspace left %q, want %q", p.filter, "baz")
+	}
+}
+
 // Once the user has moved off the filter's default selection with the
 // arrow keys, a single enter both confirms the filter and drills into the
 // row the cursor landed on — see navigated and

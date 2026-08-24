@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 )
 
@@ -61,9 +62,17 @@ type sidePanel struct {
 	offset    int // index of the first visible row, for scrolling
 
 	// filter is the fuzzy pattern narrowing the list; filtering reports
-	// whether `/` input mode is still capturing keys.
+	// whether `/` input mode is still capturing keys. filterIn is the
+	// editing widget behind it — the same textinput.Model the data grid's
+	// inline WHERE line wraps (filterinput.go) — so the pattern gets
+	// cursor movement and word/line delete for free instead of the
+	// append/backspace-at-the-end editing a raw string would give it. The
+	// rendered line still owns its own single-line view (filterLine), so
+	// filterIn only ever supplies value + cursor position, never its own
+	// View().
 	filter    string
 	filtering bool
+	filterIn  textinput.Model
 	// navigated reports whether the user has moved the cursor (arrow keys
 	// or the mouse wheel) since the filter was opened. Enter while
 	// filtering confirms the pattern and acts on the current selection in
@@ -105,6 +114,23 @@ type sidePanel struct {
 	// loading marks an in-flight reload: the previous content stays on
 	// screen with a "loading…" marker in the title.
 	loading bool
+}
+
+// newPanelFilterInput builds the textinput.Model backing a side panel's `/`
+// pattern. Its own View() is never drawn — filterLine renders the line, the
+// same split filterInput makes for the grid's WHERE line — so only the
+// editing keymap matters, extended with the one gesture the default
+// doesn't cover: cmd+backspace (reported as "super+backspace" on terminals
+// with kitty keyboard support) deleting to the start, the same meaning
+// ctrl+u already has as DeleteBeforeCursor. The virtual cursor is off for
+// the same reason filterInput's caret does not blink: nothing here ever
+// draws it, so leaving it on would only schedule a real Blink() timer on
+// every keystroke that moves the position, for a cursor cell no one sees.
+func newPanelFilterInput() textinput.Model {
+	ti := textinput.New()
+	ti.SetVirtualCursor(false)
+	ti.KeyMap.DeleteBeforeCursor.SetKeys(append(ti.KeyMap.DeleteBeforeCursor.Keys(), "super+backspace")...)
+	return ti
 }
 
 // statusAt reports the status of row i, defaulting to idle.
@@ -156,14 +182,32 @@ func (p *sidePanel) setItemsWithStatus(items []string, status []itemStatus) {
 	}
 }
 
-// setFilter narrows the visible rows to the fuzzy matches of pattern.
+// setFilter narrows the visible rows to the fuzzy matches of pattern. It
+// keeps filterIn's value in sync, but leaves its cursor alone when the
+// widget already holds pattern — the caller in that case is the key
+// handler relaying an edit it already applied to filterIn, and moving the
+// cursor again would undo the very navigation this type exists for.
 func (p *sidePanel) setFilter(pattern string) {
 	keep := p.selected()
 	p.filter = pattern
+	if p.filterIn.Value() != pattern {
+		p.filterIn.SetValue(pattern)
+		p.filterIn.CursorEnd()
+	}
 	p.applyFilter()
 	if keep != "" {
 		p.selectByName(keep)
 	}
+}
+
+// startFilter opens `/` input mode, seeding the editor with whatever
+// filter is already narrowing the list and placing the cursor at its end.
+func (p *sidePanel) startFilter() {
+	p.filtering = true
+	p.navigated = false
+	p.filterIn.SetValue(p.filter)
+	p.filterIn.CursorEnd()
+	p.filterIn.Focus()
 }
 
 // clearFilter restores the full list and leaves `/` input mode.
@@ -284,20 +328,40 @@ func (p *sidePanel) titleLine(s styles, focused bool) string {
 }
 
 // filterLine is the inline `/` prompt; it only takes a row while a filter is
-// being typed or is still narrowing the list.
+// being typed or is still narrowing the list. While typing, the caret sits
+// wherever filterIn's cursor is — not just at the end — so editing the
+// pattern in the middle reads the same way it does everywhere else in the
+// app.
 func (p *sidePanel) filterLine(s styles) (string, bool) {
 	if !p.filtering && p.filter == "" {
 		return "", false
 	}
-	cursor := ""
+	var line string
 	if p.filtering {
-		cursor = "▏"
+		line = p.filterCaretView(s)
+	} else {
+		line = s.keyHint.Render("/" + p.filter)
 	}
-	line := s.keyHint.Render("/"+p.filter) + cursor
 	if len(p.items) == 0 {
 		line += " " + s.danger.Render("no match")
 	}
 	return line, true
+}
+
+// filterCaretView draws "/"+pattern with the caret reversed over whatever
+// rune it landed on — the empty cell past the end of the pattern included,
+// the same convention the grid's inline WHERE line draws its own caret
+// with (filterInput.clauseView). The slash and the text ahead of the caret
+// render in one style call so the two never straddle an ANSI reset —
+// callers matching on the leading "/x" of the raw string still find it.
+func (p *sidePanel) filterCaretView(s styles) string {
+	runes := []rune(p.filter)
+	pos := clampInt(p.filterIn.Position(), 0, len(runes))
+	cell, rest := " ", ""
+	if pos < len(runes) {
+		cell, rest = string(runes[pos]), string(runes[pos+1:])
+	}
+	return s.keyHint.Render("/"+string(runes[:pos])) + s.editorCursor.Render(cell) + s.keyHint.Render(rest)
 }
 
 // render draws the panel body for a content box of w x h cells. The title

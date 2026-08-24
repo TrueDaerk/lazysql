@@ -368,7 +368,7 @@ func New(noRestore bool) (Model, error) {
 	}
 	m.colorWarnings = validateConnectionColors(cfg.Connections)
 	for id := panelID(0); id < panelCount; id++ {
-		m.panels[id] = &sidePanel{id: id}
+		m.panels[id] = &sidePanel{id: id, filterIn: newPanelFilterInput()}
 	}
 	m.tree = newObjectTree(nil)
 
@@ -1453,42 +1453,48 @@ func (m Model) activateSelection() (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// updateFilter is the inline `/` editor of the focused panel: every
-// keystroke re-narrows the list, esc restores it. Enter's behavior depends
-// on whether the user has already navigated the filtered list (arrow keys
-// or the mouse wheel, tracked by navigated): if so, the selection is
-// unambiguous and enter confirms the filter *and* activates the selection
-// in one step; otherwise it only confirms the filter, so a first enter
-// after typing a pattern that already narrows to one obvious row does not
-// surprise the user by jumping straight in. See
-// wiki/design/panel-filter-enter.md.
+// updateFilter is the inline `/` editor of the focused panel: every edit
+// re-narrows the list, esc restores it. Cursor movement, editing at the
+// cursor and word/line delete are textinput's own keymap; this only
+// intercepts the keys that mean something else here — esc/enter close the
+// line rather than doing nothing, and up/down move the list cursor
+// (textinput has no rows to walk) rather than a suggestion list it never
+// shows. Enter's behavior also depends on whether the user has already
+// navigated the filtered list (arrow keys or the mouse wheel, tracked by
+// navigated): if so, the selection is unambiguous and enter confirms the
+// filter *and* activates the selection in one step; otherwise it only
+// confirms the filter, so a first enter after typing a pattern that
+// already narrows to one obvious row does not surprise the user by
+// jumping straight in. See wiki/design/panel-filter-enter.md.
 func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	p := m.panels[m.focus]
 	switch msg.Code {
 	case tea.KeyEscape:
 		p.clearFilter()
+		return m, nil
 	case tea.KeyEnter:
 		p.filtering = false
 		if p.navigated {
 			p.navigated = false
 			return m.activateSelection()
 		}
-	case tea.KeyBackspace:
-		if r := []rune(p.filter); len(r) > 0 {
-			p.setFilter(string(r[:len(r)-1]))
-		}
+		return m, nil
 	case tea.KeyUp:
 		p.navigated = true
 		p.move(-1)
+		return m, nil
 	case tea.KeyDown:
 		p.navigated = true
 		p.move(1)
-	default:
-		if msg.Text != "" {
-			p.setFilter(p.filter + msg.Text)
-		}
+		return m, nil
 	}
-	return m, nil
+	before := p.filterIn.Value()
+	var cmd tea.Cmd
+	p.filterIn, cmd = p.filterIn.Update(msg)
+	if v := p.filterIn.Value(); v != before {
+		p.setFilter(v)
+	}
+	return m, cmd
 }
 
 // runAction performs a context action. Both a key press and an entry in the
@@ -1650,8 +1656,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actFilter:
 		// The filter is inline, not a modal: typing narrows the panel on
 		// every keystroke and esc restores the full list.
-		m.panels[m.focus].filtering = true
-		m.panels[m.focus].navigated = false
+		m.panels[m.focus].startFilter()
 
 	case actExpandNode:
 		cmd := m.expandSelected()

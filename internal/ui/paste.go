@@ -47,10 +47,13 @@ func (m Model) updatePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// 2. An open `/` filter is a one-line pattern: a multi-line paste
-	// collapses rather than losing everything after the first newline.
+	// collapses rather than losing everything after the first newline, and
+	// lands at the cursor like every other edit to the pattern does.
 	if m.focus < panelCount && m.panels[m.focus].filtering {
 		p := m.panels[m.focus]
-		p.setFilter(p.filter + flattenPaste(msg.Content))
+		flat := tea.PasteMsg{Content: flattenPaste(msg.Content)}
+		p.filterIn, _ = p.filterIn.Update(flat)
+		p.setFilter(p.filterIn.Value())
 		return m, nil
 	}
 	// 2b. The grid's inline WHERE line is one line for the same reason,

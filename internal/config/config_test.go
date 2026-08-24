@@ -493,6 +493,72 @@ func TestRestoreSessionAbsentStaysAbsent(t *testing.T) {
 	}
 }
 
+func TestPageSizeDefaultsWhenAbsent(t *testing.T) {
+	cfg := &Config{}
+	if got := cfg.PageSizeOrDefault(); got != DefaultPageSize {
+		t.Fatalf("PageSizeOrDefault() = %d with the key absent, want %d", got, DefaultPageSize)
+	}
+}
+
+// Zero, negative and other invalid values degrade to the default rather
+// than propagating — a malformed page_size must never crash startup.
+func TestPageSizeFallsBackOnInvalidValues(t *testing.T) {
+	for _, v := range []int{0, -1, -500} {
+		cfg := &Config{PageSize: v}
+		if got := cfg.PageSizeOrDefault(); got != DefaultPageSize {
+			t.Fatalf("PageSizeOrDefault() with page_size=%d = %d, want %d", v, got, DefaultPageSize)
+		}
+	}
+}
+
+func TestPageSizeRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{PageSize: 500}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "page_size = 500") {
+		t.Fatalf("page_size not written:\n%s", raw)
+	}
+	back, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := back.PageSizeOrDefault(); got != 500 {
+		t.Fatalf("PageSizeOrDefault() = %d after loading page_size = 500, want 500", got)
+	}
+}
+
+// A config file without the key at all never writes it back out, and
+// Clone does not share state with the original.
+func TestPageSizeAbsentStaysAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := &Config{Connections: []Connection{
+		{Name: "dev", Engine: db.EngineSQLite, File: "/tmp/dev.sqlite"},
+	}}
+	if err := cfg.SaveTo(path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "page_size") {
+		t.Fatalf("page_size written despite being unset:\n%s", raw)
+	}
+
+	cfg.PageSize = 500
+	clone := cfg.Clone()
+	cfg.PageSize = 0
+	if got := clone.PageSizeOrDefault(); got != 500 {
+		t.Fatal("Clone shared PageSize state with the original")
+	}
+}
+
 func TestStatePathHonoursXDGConfigHome(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
 	got, err := StatePath()

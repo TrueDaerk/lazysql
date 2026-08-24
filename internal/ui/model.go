@@ -199,6 +199,12 @@ type Model struct {
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
 
+	// pageSize is the configured row limit for browsing a table page and
+	// pagination — config.PageSize resolved to its default at New(). Every
+	// dataView is constructed with this as its own pageSize so limit()
+	// never has to reach back through the Model.
+	pageSize int
+
 	// filterInput is the grid's inline `/` line — the WHERE clause being
 	// typed — nil when none is open. filters is the per-relation filter
 	// history behind its recall keys, newest first, across every scope.
@@ -354,6 +360,7 @@ func New(noRestore bool) (Model, error) {
 		cfg:       cfg,
 		editor:    newQueryEditor(),
 		hl:        &editorCache{},
+		pageSize:  cfg.PageSizeOrDefault(),
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {

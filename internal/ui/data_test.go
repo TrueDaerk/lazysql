@@ -72,6 +72,75 @@ func TestOpenTableFetchesOnePage(t *testing.T) {
 	}
 }
 
+// A configured page_size flows into the LIMIT of the open and every
+// pagination step, and offsets step by the same amount.
+func TestConfiguredPageSizeControlsLimitAndOffset(t *testing.T) {
+	m := browsing(t)
+	m.cfg.PageSize = 60
+	m.pageSize = m.cfg.PageSizeOrDefault()
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS grid`,
+		`CREATE TABLE grid (id INTEGER PRIMARY KEY, name TEXT)`,
+		`INSERT INTO grid (id, name)
+		 WITH RECURSIVE seq(n) AS (
+			SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 250
+		 )
+		 SELECT n, 'name-' || n FROM seq`,
+	} {
+		if _, err := m.driver.Exec(ctx, stmt); err != nil {
+			t.Fatalf("fixture %q: %v", stmt, err)
+		}
+	}
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("grid") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	if got := len(m.data.rows); got != 60 {
+		t.Fatalf("rows in memory = %d, want 60", got)
+	}
+	if !logContains(m, "LIMIT 60 OFFSET 0") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+
+	m = send(t, m, ctrl('f'))
+	if m.data.page != 1 {
+		t.Fatalf("page = %d, want 1", m.data.page)
+	}
+	if !logContains(m, "LIMIT 60 OFFSET 60") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// An invalid page_size (zero, negative) never reaches the query: it falls
+// back to the built-in default rather than crashing or emitting a bad
+// LIMIT.
+func TestInvalidPageSizeFallsBackToDefault(t *testing.T) {
+	m := browsing(t)
+	m.cfg.PageSize = -5
+	m.pageSize = m.cfg.PageSizeOrDefault()
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS grid`,
+		`CREATE TABLE grid (id INTEGER PRIMARY KEY, name TEXT)`,
+		`INSERT INTO grid (id, name) VALUES (1, 'a')`,
+	} {
+		if _, err := m.driver.Exec(ctx, stmt); err != nil {
+			t.Fatalf("fixture %q: %v", stmt, err)
+		}
+	}
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("grid") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if !logContains(m, "LIMIT 100 OFFSET 0") {
+		t.Fatalf("command log = %v, want the default LIMIT 100", m.commandLog)
+	}
+}
+
 // The grid shows the header, the types, the values, a dim NULL and a
 // status line naming the page.
 func TestGridRendersHeaderRowsAndStatus(t *testing.T) {

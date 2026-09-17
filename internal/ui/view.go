@@ -160,6 +160,25 @@ func (m Model) panelHeights(bodyH int) [panelCount]int {
 	return out
 }
 
+// sidePanelPageSize is the number of item rows the focused side panel
+// currently shows — the step pgup/pgdown move its cursor by, so paging
+// tracks whatever screen mode and filter line are in effect instead of a
+// fixed guess. It mirrors the content-height math renderPanel and
+// panelHeights use to lay the panel out, without needing a render to have
+// already happened.
+func (m Model) sidePanelPageSize() int {
+	id := m.focus
+	h := m.height - 1 // options bar
+	if m.screen != screenFull {
+		h = m.panelHeights(h)[id]
+	}
+	rows := maxInt(h-2, 1) // border rows
+	if p := m.panels[id]; p.filtering || p.filter != "" {
+		rows = maxInt(rows-1, 1) // the `/` filter line
+	}
+	return rows
+}
+
 func (m Model) renderPanel(id panelID, w, h int) string {
 	border := m.style.blurredBorder
 	if id == m.focus {

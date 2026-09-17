@@ -67,6 +67,8 @@ mode it runs the statement the caret is in.
 | `A` | Server activity (processes, locks) | `server-activity` |
 | `K` | Move up | `move-conn-up` |
 | `J` | Move down | `move-conn-down` |
+| `pgdown` · `ctrl+f` | Page down | `page-down` |
+| `pgup` · `ctrl+b` | Page up | `page-up` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |
 | `a` | Actions menu | `actions` |
@@ -149,6 +151,8 @@ On the `File` field of a SQLite or DuckDB profile.
 | `h` · `←` | Collapse | `collapse-node` |
 | `R` · `r` | Reload from server | `refresh` |
 | `/` | Fuzzy filter | `filter` |
+| `pgdown` · `ctrl+f` | Page down (over the filtered rows, while filtering) | `page-down` |
+| `pgup` · `ctrl+b` | Page up (over the filtered rows, while filtering) | `page-up` |
 | `E` | Export the database's DDL | `export-database-ddl` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |

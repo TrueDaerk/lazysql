@@ -1487,6 +1487,17 @@ func (m Model) updateFilter(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		p.navigated = true
 		p.move(1)
 		return m, nil
+	// pgup/pgdown page the filtered rows the same as unfiltered browsing;
+	// ctrl+f/ctrl+b are left alone here — textinput already binds them to
+	// move the pattern's own cursor, and typing must not be disturbed.
+	case tea.KeyPgDown:
+		p.navigated = true
+		p.move(m.sidePanelPageSize())
+		return m, nil
+	case tea.KeyPgUp:
+		p.navigated = true
+		p.move(-m.sidePanelPageSize())
+		return m, nil
 	}
 	before := p.filterIn.Value()
 	var cmd tea.Cmd
@@ -1657,6 +1668,12 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		// The filter is inline, not a modal: typing narrows the panel on
 		// every keystroke and esc restores the full list.
 		m.panels[m.focus].startFilter()
+
+	case actPageDown:
+		m.panels[m.focus].move(m.sidePanelPageSize())
+
+	case actPageUp:
+		m.panels[m.focus].move(-m.sidePanelPageSize())
 
 	case actExpandNode:
 		cmd := m.expandSelected()

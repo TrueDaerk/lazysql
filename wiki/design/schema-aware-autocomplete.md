@@ -19,8 +19,10 @@ sources:
 
 The query editor completes SQL keywords, table and view names, and the
 columns of the tables the buffer mentions. The popup is a **layer, not a
-modal**; its suggestion list is **derived on every keystroke** from a
-token scan of the buffer; the column metadata behind it lives in a cache
+modal**; its suggestion list is **derived on every keystroke that changes
+the buffer's text** — not on caret movement alone, see
+[completion-triggers-on-text-change](completion-triggers-on-text-change.md)
+— from a token scan of the buffer; the column metadata behind it lives in a cache
 keyed by connection + database that **invalidates itself**; and every
 fetch is a `tea.Cmd`, so `Update` never waits for a server.
 

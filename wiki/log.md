@@ -1851,3 +1851,15 @@ Chronological history of wiki changes, newest last.
   `ctrl+f`/`pgdown` already reach the query result grid under the editor
   through the existing `next-page`/`prev-page` fall-through, and binding
   them a second time for the editor's own caret would shadow it.
+
+## 2026-09-18 — Query editor: autocomplete no longer opens on caret navigation (issue #202)
+
+- Added [design/completion-triggers-on-text-change](design/completion-triggers-on-text-change.md):
+  `updateEditor`'s fallthrough now diffs `m.script()` before and after the
+  textarea's own `Update` and only calls `refreshCompletion(false)` when the
+  text actually changed; a caret-only key that reaches this point closes an
+  already-open popup instead of leaving it stale over a word the caret left.
+  `ctrl+space`/`tab` explicit completion is untouched, since both return
+  earlier in the switch. Updated
+  [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)'s
+  summary line to match.

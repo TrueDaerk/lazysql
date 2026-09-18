@@ -18,6 +18,19 @@ type keyMap struct {
 	Enter key.Binding
 	Back  key.Binding
 
+	// PageDown/PageUp move [1] Connections' or [2] Objects' cursor by one
+	// visible page. ctrl+f/ctrl+b are aliases, the same pair the data
+	// grid's NextPage/PrevPage bind, so the gesture reads the same
+	// everywhere — but these are their own bindings rather than a reuse
+	// of NextPage/PrevPage: that pair means "ask the server for the next
+	// slice of rows", while this one only moves a cursor already held in
+	// memory. [3] Query has no list of its own to page — ctrl+f/pgdown
+	// there already reach the query result grid under the editor (see
+	// queryResultKeys), which is this same page-by-page gesture aimed at
+	// the one scrollable thing that panel has.
+	PageDown key.Binding
+	PageUp   key.Binding
+
 	// AcceptChanges is ctrl+enter / cmd+enter, matched alongside plain enter
 	// everywhere enter accepts, confirms, submits or commits a change: the
 	// edit cell modal, the insert row form, the generic form, confirm
@@ -309,6 +322,9 @@ func newKeyMap() keyMap {
 		Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
 		Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "drill in")),
 		Back:  key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+
+		PageDown: key.NewBinding(key.WithKeys("pgdown", "ctrl+f"), key.WithHelp("pgdn", "page down")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup", "ctrl+b"), key.WithHelp("pgup", "page up")),
 
 		AcceptChanges: key.NewBinding(
 			key.WithKeys(acceptKeys...),
@@ -817,6 +833,8 @@ const (
 	actFilter
 	actExpandNode
 	actCollapseNode
+	actPageDown
+	actPageUp
 	actEditQuery
 	actRunEditor
 	actRunStatement
@@ -910,6 +928,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actServerActivity, k.ServerActivity},
 			{actMoveConnUp, k.MoveConnUp},
 			{actMoveConnDown, k.MoveConnDown},
+			{actPageDown, k.PageDown},
+			{actPageUp, k.PageUp},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
 		}
@@ -919,6 +939,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actCollapseNode, k.CollapseNode},
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+			{actPageDown, k.PageDown},
+			{actPageUp, k.PageUp},
 			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
@@ -1086,6 +1108,7 @@ type bindingSlot struct {
 func (k *keyMap) slots() []bindingSlot {
 	return []bindingSlot{
 		{"up", &k.Up}, {"down", &k.Down}, {"enter", &k.Enter}, {"back", &k.Back},
+		{"page-down", &k.PageDown}, {"page-up", &k.PageUp},
 		{"accept-changes", &k.AcceptChanges},
 
 		{"jump", &k.Jump}, {"next-panel", &k.NextPanel}, {"prev-panel", &k.PrevPanel},

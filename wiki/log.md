@@ -1840,6 +1840,18 @@ Chronological history of wiki changes, newest last.
   keystroke that moves the cursor, for a caret `filterLine` draws itself
   and `textinput.View()` never renders.
 
+## 2026-09-17 — Side panels: pgup/pgdown paging (issue #200)
+
+- Updated [design/object-tree-panel](design/object-tree-panel.md#paging-issue-200):
+  `[1] Connections` and `[2] Objects` get new `page-down`/`page-up`
+  actions (`pgdown`/`pgup`, aliased `ctrl+f`/`ctrl+b`) that move the
+  cursor by `Model.sidePanelPageSize()` — the panel's current visible
+  row count — and clamp at the ends, including while a `/` filter is
+  narrowing the list. `[3] Query` was deliberately left out: its
+  `ctrl+f`/`pgdown` already reach the query result grid under the editor
+  through the existing `next-page`/`prev-page` fall-through, and binding
+  them a second time for the editor's own caret would shadow it.
+
 ## 2026-09-18 — Query editor: autocomplete no longer opens on caret navigation (issue #202)
 
 - Added [design/completion-triggers-on-text-change](design/completion-triggers-on-text-change.md):

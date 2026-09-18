@@ -160,6 +160,35 @@ All of them come from `keyMap.panelActions(panelObjects)`, so the
 dispatch, the options bar, the `a` menu and `?` cannot drift apart — see
 [design/keybindings-single-source](keybindings-single-source.md).
 
+### Paging (issue #200)
+
+`pgdown`/`pgup` (aliased `ctrl+f`/`ctrl+b`, matching the data grid's
+`next-page`/`prev-page`) move the cursor by one visible page —
+`Model.sidePanelPageSize()`, the panel's current content-row count —
+and clamp at the first/last row the same way `sidePanel.move` already
+does for a single `j`/`k` step. They are their own `page-down`/`page-up`
+actions rather than a reuse of `next-page`/`prev-page`: that pair means
+"ask the server for the next slice of rows", this one only moves a
+cursor already held in memory. `[1] Connections` gets the same pair for
+the same reason — nothing about paging is Objects-specific, it is just
+where the issue was filed.
+
+`[3] Query` does **not** get its own `page-down`/`page-up`: its normal
+mode has no list of its own to page, and `ctrl+f`/`pgdown` there already
+reach the query result grid under the editor (`queryResultKeys`, the
+same physical keys as `next-page`). Binding them a second time for the
+editor's own caret would shadow that fall-through — confirmed by
+`TestQueryResultPaginatesInMemory` failing when tried — so the existing
+grid pagination stands in for "paging in `[3]`" instead of a second,
+conflicting meaning for the same keys.
+
+An active `/` filter keeps paging over the filtered rows: `page-down`/
+`page-up` are panel actions dispatched through the normal action table
+when the panel is not filtering, and `updateFilter` matches the same
+`pgdown`/`pgup` key codes directly for when it is — `ctrl+f`/`ctrl+b`
+are deliberately left unbound there, since `textinput`'s own keymap
+already uses them for the pattern's cursor.
+
 ### The filter narrows the expanded level, not the whole catalog
 
 `/` keeps a row when its own name fuzzy-matches **or when any row of its

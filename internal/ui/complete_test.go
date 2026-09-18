@@ -337,6 +337,119 @@ func TestPopupTriggers(t *testing.T) {
 	}
 }
 
+// Moving the caret back into an already-written word must not open the
+// popup: only a change to the buffer's text triggers it implicitly. See
+// wiki/design/completion-triggers-on-text-change.md.
+func TestNavigatingIntoAWordDoesNotOpenThePopup(t *testing.T) {
+	m := completing(t)
+	typeInto(&m, "SELECT id FROM customers WHERE id = 1", 38)
+	if m.completion.open {
+		t.Fatal("the popup opened while placing the caret with typeInto")
+	}
+	// Walk the caret left, off the trailing "1" and back through "id =
+	// " and into "customers", which has more than minCompletionPrefix
+	// characters before the caret partway through it.
+	for i := 0; i < 15; i++ {
+		m = send(t, m, special(tea.KeyLeft, 0))
+		if m.completion.open {
+			t.Fatalf("left-arrow #%d opened the popup over %q", i+1, m.editorContext().word)
+		}
+	}
+	if word := m.editorContext().word; word == "" || !strings.HasPrefix("customers", word) {
+		t.Fatalf("caret landed on word %q, want a non-empty prefix of \"customers\"", word)
+	}
+
+	// home/end and the word-jump keys must not open it either.
+	m = send(t, m, special(tea.KeyHome, 0))
+	if m.completion.open {
+		t.Fatal("home opened the popup")
+	}
+	m = send(t, m, special(tea.KeyEnd, 0))
+	if m.completion.open {
+		t.Fatal("end opened the popup")
+	}
+	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
+	if m.completion.open {
+		t.Fatal("ctrl+left opened the popup")
+	}
+}
+
+// Once the popup is legitimately open — because typing changed the
+// buffer — up/down still move the popup's highlight, never the caret.
+func TestUpDownMoveTheCaretOnlyWhenThePopupIsClosed(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press(':'))
+	m.setScript("one\ntwo")
+	moveEditorCursor(&m.editor.area, 1, 3)
+	if m.completion.open {
+		t.Fatal("setting up the fixture opened the popup")
+	}
+	if m.editor.area.Line() != 1 {
+		t.Fatalf("fixture caret is on line %d, want line 1", m.editor.area.Line())
+	}
+	m = send(t, m, special(tea.KeyUp, 0))
+	if m.editor.area.Line() != 0 {
+		t.Fatalf("up did not move the caret to the previous line: line = %d", m.editor.area.Line())
+	}
+
+	// Now open the popup with typing and check up/down drive its cursor
+	// instead of the caret.
+	m2 := sized(120, 40)
+	m2 = send(t, m2, press(':'), press('I'), press('N'))
+	if !m2.completion.open {
+		t.Fatal("typing IN did not open the popup")
+	}
+	m2 = send(t, m2, special(tea.KeyDown, 0))
+	if m2.completion.cursor != 1 {
+		t.Fatalf("down moved the caret instead of the popup cursor: cursor = %d", m2.completion.cursor)
+	}
+}
+
+// An open popup must not survive a caret move the popup does not claim:
+// left/right/home/end all leave the word the popup was built over.
+func TestCaretMovementClosesAnOpenPopup(t *testing.T) {
+	m := sized(120, 40)
+	m = send(t, m, press(':'), press('S'), press('E'), press('L'))
+	if !m.completion.open {
+		t.Fatal("typing SEL did not open the popup")
+	}
+	m = send(t, m, special(tea.KeyLeft, 0))
+	if m.completion.open {
+		t.Fatal("left-arrow left the popup open")
+	}
+	if m.script() != "SEL" {
+		t.Fatalf("buffer = %q, want it untouched by the caret move", m.script())
+	}
+}
+
+// ctrl+space and tab still open the popup explicitly even when the caret
+// got where it is by navigation, not typing.
+func TestExplicitCompletionWorksAfterNavigation(t *testing.T) {
+	m := completing(t)
+	typeInto(&m, "SELECT * FROM customers", 24)
+	for i := 0; i < 6; i++ {
+		m = send(t, m, special(tea.KeyLeft, 0))
+	}
+	if m.completion.open {
+		t.Fatal("navigation opened the popup")
+	}
+	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
+	if !m.completion.open {
+		t.Fatal("ctrl+space after navigation did not open the popup")
+	}
+	m = send(t, m, special(tea.KeyEscape, 0))
+
+	m2 := completing(t)
+	typeInto(&m2, "SELECT * FROM customers", 24)
+	for i := 0; i < 6; i++ {
+		m2 = send(t, m2, special(tea.KeyLeft, 0))
+	}
+	m2 = send(t, m2, special(tea.KeyTab, 0))
+	if !m2.completion.open {
+		t.Fatal("tab after navigation did not open the popup")
+	}
+}
+
 // `tab` completes a word and types a tab where there is none, so
 // indentation still works.
 func TestTabCompletesAWordAndOtherwiseTypes(t *testing.T) {

@@ -379,13 +379,25 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	before := m.script()
 	var cmd tea.Cmd
 	m.editor.area, cmd = m.editor.area.Update(msg)
-	// The popup follows the buffer: every keystroke re-derives it, which
+	// The popup follows the buffer, not the caret: it only re-derives when
+	// the key actually changed the text — typing, deleting, pasting — which
 	// is what narrows it as the word grows and closes it when the word
-	// ends. The fetches it wants are batched behind the textarea's own
+	// ends. A caret-only key (arrows, home/end, word jumps, paging) leaves
+	// the text untouched, so it must not open a popup the user never asked
+	// for; if one is already open, the caret is what moved it away from the
+	// word it was built over, so it closes instead of going stale. The
+	// fetches a refresh wants are batched behind the textarea's own
 	// command, never waited on.
-	return m, tea.Batch(cmd, m.refreshCompletion(false))
+	if m.script() != before {
+		return m, tea.Batch(cmd, m.refreshCompletion(false))
+	}
+	if m.completion.open {
+		m.closeCompletion()
+	}
+	return m, cmd
 }
 
 // vimBuffer reads the textarea into the pure vim engine: its text, its

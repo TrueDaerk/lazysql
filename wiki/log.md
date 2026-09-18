@@ -1839,3 +1839,15 @@ Chronological history of wiki changes, newest last.
   `textinput.Update` from scheduling a real `Blink()` timer on every
   keystroke that moves the cursor, for a caret `filterLine` draws itself
   and `textinput.View()` never renders.
+
+## 2026-09-18 — Query editor: autocomplete no longer opens on caret navigation (issue #202)
+
+- Added [design/completion-triggers-on-text-change](design/completion-triggers-on-text-change.md):
+  `updateEditor`'s fallthrough now diffs `m.script()` before and after the
+  textarea's own `Update` and only calls `refreshCompletion(false)` when the
+  text actually changed; a caret-only key that reaches this point closes an
+  already-open popup instead of leaving it stale over a word the caret left.
+  `ctrl+space`/`tab` explicit completion is untouched, since both return
+  earlier in the switch. Updated
+  [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)'s
+  summary line to match.

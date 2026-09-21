@@ -77,7 +77,7 @@ func TestTitledBoxKeepsTitleAndBorderStylesApart(t *testing.T) {
 func TestPanelBodyGainsTheTitleRow(t *testing.T) {
 	p := &sidePanel{id: panelObjects}
 	p.setItems([]string{"a", "b", "c", "d"})
-	body := p.render(newStyles(), true, 20, 3)
+	body := p.render(newStyles(), true, 20, 3, nil)
 
 	lines := strings.Split(body, "\n")
 	if len(lines) != 3 {

@@ -193,7 +193,7 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 	body := clipHeight(m.queryPanelBody(cw, ch), ch)
 	if id != panelQuery {
 		title = m.panels[id].titleLine(m.style, id == m.focus)
-		body = m.panels[id].render(m.style, id == m.focus, cw, ch)
+		body = m.panels[id].render(m.style, id == m.focus, cw, ch, m.isOpenNode)
 	}
 	return renderTitledBox(border, title, body, w, h)
 }

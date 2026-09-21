@@ -1863,3 +1863,15 @@ Chronological history of wiki changes, newest last.
   earlier in the switch. Updated
   [design/schema-aware-autocomplete](design/schema-aware-autocomplete.md)'s
   summary line to match.
+
+## 2026-09-21 — Highlight the currently open table in the Objects panel (issue #204)
+
+- Added [design/open-table-highlight](design/open-table-highlight.md):
+  `panel.render` gained an `isOpen func(*treeNode) bool` predicate
+  (`Model.isOpenNode`) that marks the `[2]` tree row of the relation the
+  main view is showing with a new `styles.openRow` background — the data
+  grid's row-cursor tint, reused rather than a new palette slot, so it is
+  weaker than the cursor's `s.selected` by construction and the two never
+  compete when a row is both open and under the cursor. The match is by
+  connection/database/name against `m.data`, not `*treeNode` identity,
+  since the tree's nodes are replaced on every relation listing reply.

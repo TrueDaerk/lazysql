@@ -505,6 +505,30 @@ func (p *sidePanel) treeKeep(i int) bool {
 
 // ---------- model wiring ----------
 
+// isOpenNode reports whether n is the tree node of the relation currently
+// open in the main view — the panel [2] row panel.render marks with the
+// persistent "open" tint, independent of cursor and focus (see
+// styles.openRow). The match is by connection, database and name rather
+// than node identity: the tree is rebuilt (and its nodes replaced) on
+// every relation listing reply, so a *treeNode pointer captured when the
+// table was opened would go stale the next time its category reloads.
+//
+// Only a table or view node can match — m.data.table is empty for a query
+// result or an error notice, and a trigger node's name lives in a
+// different namespace of the tree, so leaving cat unchecked here would
+// risk marking a same-named trigger. Comparing against m.data (rather than
+// m.database) is what makes the mark follow a relation opened by a
+// foreign-key jump into a different database than the one browsed in [2].
+func (m Model) isOpenNode(n *treeNode) bool {
+	if n == nil || n.kind != nodeObject || !n.cat.relational() {
+		return false
+	}
+	if m.data.table == "" || m.data.conn != m.active {
+		return false
+	}
+	return n.database == m.data.database && n.name == m.data.table
+}
+
 // selectedNode is the tree node under the [2] panel's cursor.
 func (m Model) selectedNode() *treeNode {
 	p := m.panels[panelObjects]

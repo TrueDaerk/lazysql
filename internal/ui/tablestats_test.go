@@ -181,7 +181,7 @@ func TestNarrowPanelTruncatesAnnotationFirst(t *testing.T) {
 
 		p := m.panels[panelObjects]
 		p.selectByName("Tables") // keep the highlight off the row under test
-		out := ansi.Strip(p.render(m.style, false, w, 10))
+		out := ansi.Strip(p.render(m.style, false, w, 10, m.isOpenNode))
 		line := ""
 		for _, l := range strings.Split(out, "\n") {
 			if strings.Contains(l, "users") {

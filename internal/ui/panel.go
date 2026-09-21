@@ -365,8 +365,10 @@ func (p *sidePanel) filterCaretView(s styles) string {
 }
 
 // render draws the panel body for a content box of w x h cells. The title
-// rides in the top border, so every row here is content.
-func (p *sidePanel) render(s styles, focused bool, w, h int) string {
+// rides in the top border, so every row here is content. isOpen marks the
+// tree row of the relation currently open in the main view — nil for a
+// panel that has no such concept (every side panel but [2]).
+func (p *sidePanel) render(s styles, focused bool, w, h int, isOpen func(*treeNode) bool) string {
 	lines := make([]string, 0, h)
 
 	rows := h
@@ -397,11 +399,13 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 		// color has to survive the selection highlight, not be swallowed
 		// by it.
 		prefix, note, noteSt := "", "", noteMuted
+		open := false
 		if r, ok := p.rowAt(idx); ok {
 			prefix = r.prefix()
 			if text, st := r.note(); text != "" {
 				note, noteSt = " "+text, st
 			}
+			open = isOpen != nil && isOpen(r.node)
 		}
 		if note == "" && p.suffix[item] != "" {
 			note = " " + p.suffix[item]
@@ -420,6 +424,8 @@ func (p *sidePanel) render(s styles, focused bool, w, h int) string {
 		switch {
 		case selected:
 			style = s.selected.Width(avail)
+		case open:
+			style = s.openRow.Width(avail)
 		case noteW > 0 && noteSt == noteStats:
 			// Padding the name to the full width right-aligns the
 			// annotation at the panel's edge instead of letting it hug a

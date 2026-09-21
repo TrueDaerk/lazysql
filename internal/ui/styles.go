@@ -44,6 +44,15 @@ type styles struct {
 	muted        lipgloss.Style
 	keyHint      lipgloss.Style
 
+	// openRow marks the tree row of the relation currently open in the
+	// main view (see objtree.go's isOpenNode). It rides the data grid's
+	// row-cursor tint rather than a color of its own — a background
+	// already themed as "highlighted but weaker than the selection" — so
+	// the open marking and the cursor never compete: the cursor's
+	// selected style is applied instead of this one whenever both land on
+	// the same row.
+	openRow lipgloss.Style
+
 	optionsBar lipgloss.Style
 	modal      lipgloss.Style
 	modalTitle lipgloss.Style
@@ -133,6 +142,7 @@ func newStyles() styles {
 		selected:     lipgloss.NewStyle().Background(colorSelectionBg).Foreground(colorCyan),
 		muted:        lipgloss.NewStyle().Foreground(colorMuted),
 		keyHint:      lipgloss.NewStyle().Foreground(colorCyan),
+		openRow:      lipgloss.NewStyle().Background(colorRowCursorBg),
 
 		optionsBar: lipgloss.NewStyle().Foreground(colorMuted),
 		modal: lipgloss.NewStyle().

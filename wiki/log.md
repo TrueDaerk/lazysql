@@ -1875,3 +1875,26 @@ Chronological history of wiki changes, newest last.
   compete when a row is both open and under the cursor. The match is by
   connection/database/name against `m.data`, not `*treeNode` identity,
   since the tree's nodes are replaced on every relation listing reply.
+
+## 2026-09-22 — Cancel superseded page queries, show the load in the grid (issue #206)
+
+- Added [design/page-query-cancellation](design/page-query-cancellation.md):
+  `loadPageCmd`/`countRowsCmd` no longer build a `context.WithTimeout` of
+  their own inside the `tea.Cmd` — a goroutine nothing in `Update` can
+  reach. `reloadPage` now opens one shared context per request through
+  `pageQueries.start(req)`, a cancel handle hanging off `Model.inflight`
+  as a pointer so a `func (m Model)` value receiver cannot lose it, and
+  the next request (or `resetBrowse`/`openTable` leaving the view)
+  cancels it. `fresh()` is unchanged and deliberately kept: cancelling
+  asks the server to stop, `req` decides what may reach the screen.
+  `context.Canceled` is now an outcome everywhere — `pageLoadedMsg`
+  clears `data.loading` without an error, `rowCountMsg` keeps its total,
+  and `sqlEntryText` spells the statement `-- cancelled (superseded)`
+  with `logLine.err` false so the command log does not colour it as a
+  failure. The `loading…` marker was added to `dataStatus` (the grid's
+  own bottom line) beside the sort and filter markers; the sort
+  indicator already showed the newly requested order, since `buildGrid`
+  derives `▲`/`▼` from `data.sort`, which `toggleSort` sets before the
+  query goes out. Tests: `internal/ui/pagecancel_test.go` drives a
+  `blockingDriver` whose page and count queries return only when their
+  context is cancelled.

@@ -583,6 +583,16 @@ func (m Model) dataStatus() string {
 	parts = append(parts, page+")")
 
 	line := m.style.muted.Render(strings.Join(parts, " "))
+	if d.loading {
+		// The marker sits next to the page counter rather than only in
+		// the border title: the status line is where the sort and the
+		// filter already say what shaped the page, so it is where a
+		// reload in flight for a *newer* sort has to say so too.
+		// Without it, `s` on a slow table looks like it did nothing and
+		// the user presses it again. See
+		// wiki/design/page-query-cancellation.md.
+		line += m.style.pending.Render("  loading…")
+	}
 	if d.truncated {
 		// A capped result looks exactly like a complete one, so the
 		// status line has to say it is not.

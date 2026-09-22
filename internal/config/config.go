@@ -295,7 +295,7 @@ type configFile struct {
 	Keys           map[string]string `toml:"keys,omitempty"`
 	Theme          map[string]string `toml:"theme,omitempty"`
 	RestoreSession bool              `toml:"restore_session,omitempty"`
-	PageSize       int               `toml:"page_size,omitempty"`
+	PageSize       *int              `toml:"page_size,omitempty"`
 }
 
 func (c *Config) forEncoding() configFile {
@@ -304,7 +304,10 @@ func (c *Config) forEncoding() configFile {
 		Keys:           c.Keys,
 		Theme:          c.Theme,
 		RestoreSession: c.RestoreSession,
-		PageSize:       c.PageSize,
+	}
+	if c.PageSize != 0 {
+		pageSize := c.PageSize
+		out.PageSize = &pageSize
 	}
 	for i, conn := range c.Connections {
 		e := connectionFile{

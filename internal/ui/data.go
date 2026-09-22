@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -321,29 +322,122 @@ type rowCountMsg struct {
 
 // ---------- commands ----------
 
-func loadPageCmd(drv db.Driver, d dataView, req int) tea.Cmd {
+// The context is handed in rather than built here: a superseded page
+// query has to be stoppable from Update, and a tea.Cmd runs in a
+// goroutine of its own that nothing outside can reach. See
+// pageQueries and wiki/design/page-query-cancellation.md.
+func loadPageCmd(ctx context.Context, drv db.Driver, d dataView, req int) tea.Cmd {
 	if drv == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
-		defer cancel()
 		rs, err := drv.QueryPage(ctx, d.database, d.table, d.filter, d.sort, d.limit(), d.offset())
 		return pageLoadedMsg{req: req, conn: d.conn, table: d.table, result: rs, err: err}
 	}
 }
 
-func countRowsCmd(drv db.Driver, d dataView, req int) tea.Cmd {
+func countRowsCmd(ctx context.Context, drv db.Driver, d dataView, req int) tea.Cmd {
 	if drv == nil {
 		return nil
 	}
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
-		defer cancel()
 		n, err := drv.CountRows(ctx, d.database, d.table, d.filter)
 		return rowCountMsg{req: req, conn: d.conn, table: d.table, total: n, err: err}
 	}
 }
+
+// ---------- in-flight page queries ----------
+
+// pageQueries is the cancel handle of the page and count queries one
+// reload put in flight. Bumping dataView.req is what makes a reply
+// stale; this is what makes the *query behind it* stop, so a slow table
+// sorted three times in a row leaves one statement running on the server
+// rather than three.
+//
+// The Model holds it through a pointer (Model.inflight): a value
+// receiver — Model.fresh and every `func (m Model)` handler — must not
+// be able to lose the handle by writing it into a copy that is thrown
+// away. It is only ever touched from Update, which is single-threaded,
+// so it needs no lock of its own.
+type pageQueries struct {
+	// req is the dataView.req the context below belongs to. A reply
+	// carrying any other req belongs to a query this handle has already
+	// cancelled.
+	req    int
+	cancel context.CancelFunc
+	// page and count record which of the two replies for req has landed.
+	// The context is shared by both, so it can only be released once
+	// neither is still using it.
+	page, count bool
+}
+
+// start cancels whatever the previous reload left running and opens the
+// context the new page and count queries share. One context for the two
+// of them is deliberate: they are issued together, superseded together
+// and cancelled together, and the count is worthless without the page it
+// annotates.
+func (p *pageQueries) start(req int) context.Context {
+	p.stop()
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	p.req, p.cancel = req, cancel
+	return ctx
+}
+
+// stop cancels the queries in flight, if any. Leaving the view they
+// belong to — a disconnect, another relation opening — is as good a
+// reason to stop the server working as a newer request is.
+func (p *pageQueries) stop() {
+	if p == nil {
+		return
+	}
+	if p.cancel != nil {
+		p.cancel()
+		p.cancel = nil
+	}
+	p.page, p.count = false, false
+}
+
+// done records that one of the two replies for req has landed, and
+// releases the context once both have: a context.WithTimeout holds a
+// timer until its cancel runs, and a page that arrived in 40 ms must not
+// keep one alive for the remaining 30 seconds.
+func (p *pageQueries) done(req int, page bool) {
+	if p == nil || p.cancel == nil || req != p.req {
+		return
+	}
+	if page {
+		p.page = true
+	} else {
+		p.count = true
+	}
+	if p.page && p.count {
+		p.cancel()
+		p.cancel = nil
+	}
+}
+
+// ensureInflight returns the Model's page-query handle, creating it on
+// first use so a Model built by hand (a test fixture) behaves like one
+// that came through New.
+func (m *Model) ensureInflight() *pageQueries {
+	if m.inflight == nil {
+		m.inflight = &pageQueries{}
+	}
+	return m.inflight
+}
+
+// stopPageQueries cancels the page and count queries in flight, if any.
+func (m *Model) stopPageQueries() { m.inflight.stop() }
+
+// pageQueryDone reports one of the two replies of the current request to
+// the cancel handle.
+func (m *Model) pageQueryDone(req int, page bool) { m.inflight.done(req, page) }
+
+// cancelled reports an error that is a context cancellation — a query a
+// newer request superseded, or one the view being closed stopped. It is
+// an outcome, not a failure: nothing may report it in the grid or colour
+// it red in the command log.
+func cancelled(err error) bool { return errors.Is(err, context.Canceled) }
 
 // ---------- model wiring ----------
 
@@ -363,6 +457,9 @@ func (m *Model) openTable(name string) tea.Cmd {
 	// tab survives — walking a table list with Structure open is the
 	// point of the tabs — but its contents and scroll positions do not.
 	m.resetMeta()
+	// The page and count queries of the relation being left run for a
+	// view that is about to be replaced; nothing will ever read them.
+	m.stopPageQueries()
 	if m.driver == nil {
 		m.data = dataView{}
 		return logCmd("-- open %s skipped: not connected", name)
@@ -395,6 +492,10 @@ func (m *Model) reloadPage() tea.Cmd {
 	m.data.loading = true
 	m.data.err = ""
 	m.clearSelection()
+	// Whatever the previous reload left running is superseded: its
+	// context is cancelled so the server stops working on a page nobody
+	// is going to look at. Bumping req above only drops the reply.
+	ctx := m.ensureInflight().start(m.data.req)
 	d := m.data
 
 	var cmds []tea.Cmd
@@ -408,8 +509,8 @@ func (m *Model) reloadPage() tea.Cmd {
 	// Driver's Logger, and it deliberately never reaches the query
 	// history, which only holds statements the user submitted.
 	cmds = append(cmds,
-		loadPageCmd(m.driver, d, m.data.req),
-		countRowsCmd(m.driver, d, m.data.req),
+		loadPageCmd(ctx, m.driver, d, m.data.req),
+		countRowsCmd(ctx, m.driver, d, m.data.req),
 	)
 	return tea.Batch(cmds...)
 }

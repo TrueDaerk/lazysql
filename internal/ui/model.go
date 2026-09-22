@@ -91,7 +91,9 @@ func (m Model) commandLogEntries() []logLine {
 	out := append([]logLine(nil), m.commandLog...)
 	if m.driver != nil {
 		for _, e := range m.driver.Logger().Entries() {
-			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil})
+			// A superseded page or count query is not a failed one: it is
+			// logged, but neither spelled nor coloured as a failure.
+			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil && !cancelled(e.Err)})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].at.Before(out[j].at) })
@@ -113,7 +115,13 @@ func sqlEntryText(e db.LogEntry) string {
 		text += fmt.Sprintf("  -- args %v", e.Args)
 	}
 	text += "  (" + formatTook(e.Duration) + ")"
-	if e.Err != nil {
+	switch {
+	case cancelled(e.Err):
+		// A newer request for the same view stopped this one. Saying so
+		// is the point: the log is where "pressing s again re-issued the
+		// page query" is visible at all.
+		text += "  -- cancelled (superseded)"
+	case e.Err != nil:
 		text += fmt.Sprintf("  -- FAILED: %v", e.Err)
 	}
 	return text
@@ -198,6 +206,14 @@ type Model struct {
 
 	// data is the main view's Data tab: one page of m.table.
 	data dataView
+
+	// inflight is the cancel handle of the page and count queries the
+	// last reload put in flight, so a newer request — a second `s` on a
+	// slow table — stops the server working on the one it supersedes
+	// instead of only dropping its reply. It is a pointer so every copy
+	// of the Model shares one handle, the way changes shares one
+	// changeset. See wiki/design/page-query-cancellation.md.
+	inflight *pageQueries
 
 	// pageSize is the configured row limit for browsing a table page and
 	// pagination — config.PageSize resolved to its default at New(). Every
@@ -526,6 +542,9 @@ func (m *Model) resetBrowse() {
 	if m.run.running && m.run.cancel != nil {
 		m.run.cancel()
 	}
+	// And so do the page and count queries of the grid: the driver they
+	// were issued on is about to close.
+	m.stopPageQueries()
 	// A plan describes a statement against the connection being left.
 	m.plan = nil
 	// So do the sessions of the server it was read from — and closing the
@@ -999,7 +1018,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.fresh(msg.req, msg.conn, msg.table) {
 			return m, nil
 		}
+		m.pageQueryDone(msg.req, true)
 		m.data.loading = false
+		if cancelled(msg.err) {
+			// The query was stopped on purpose — by the view closing,
+			// since a newer request would have bumped req and this reply
+			// would not be fresh. The page on screen stays as it is, and
+			// the loading marker goes: a cancellation must never leave
+			// the grid waiting forever for a reply that will not come.
+			return m, nil
+		}
 		if msg.err != nil {
 			// The previous page stays on screen; the grid and the log
 			// both name the failure.
@@ -1108,6 +1136,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case rowCountMsg:
 		if !m.fresh(msg.req, msg.conn, msg.table) {
+			return m, nil
+		}
+		m.pageQueryDone(msg.req, false)
+		if cancelled(msg.err) {
+			// Cancelled with its page query; the total the grid has
+			// stays whatever it was.
 			return m, nil
 		}
 		if msg.err != nil {

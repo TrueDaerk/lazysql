@@ -1876,6 +1876,29 @@ Chronological history of wiki changes, newest last.
   connection/database/name against `m.data`, not `*treeNode` identity,
   since the tree's nodes are replaced on every relation listing reply.
 
+## 2026-09-22 — Cancel superseded page queries, show the load in the grid (issue #206)
+
+- Added [design/page-query-cancellation](design/page-query-cancellation.md):
+  `loadPageCmd`/`countRowsCmd` no longer build a `context.WithTimeout` of
+  their own inside the `tea.Cmd` — a goroutine nothing in `Update` can
+  reach. `reloadPage` now opens one shared context per request through
+  `pageQueries.start(req)`, a cancel handle hanging off `Model.inflight`
+  as a pointer so a `func (m Model)` value receiver cannot lose it, and
+  the next request (or `resetBrowse`/`openTable` leaving the view)
+  cancels it. `fresh()` is unchanged and deliberately kept: cancelling
+  asks the server to stop, `req` decides what may reach the screen.
+  `context.Canceled` is now an outcome everywhere — `pageLoadedMsg`
+  clears `data.loading` without an error, `rowCountMsg` keeps its total,
+  and `sqlEntryText` spells the statement `-- cancelled (superseded)`
+  with `logLine.err` false so the command log does not colour it as a
+  failure. The `loading…` marker was added to `dataStatus` (the grid's
+  own bottom line) beside the sort and filter markers; the sort
+  indicator already showed the newly requested order, since `buildGrid`
+  derives `▲`/`▼` from `data.sort`, which `toggleSort` sets before the
+  query goes out. Tests: `internal/ui/pagecancel_test.go` drives a
+  `blockingDriver` whose page and count queries return only when their
+  context is cancelled.
+
 ## 2026-09-22 — Fix UI slowdown when the data grid is sorted descending (issue #208)
 
 - Added [design/grid-cell-scan-bound](design/grid-cell-scan-bound.md): the
@@ -1896,4 +1919,6 @@ Chronological history of wiki changes, newest last.
   navigation key descending, against 2.7 ms ascending either way.
   Deliberately not done: caching the rendered grid, narrowing `buildGrid`
   to the visible row window (column widths are sized from the whole page
-  on purpose), and cancelling superseded page queries (issue #206).
+  on purpose), and cancelling superseded page queries — that is issue
+  #206, fixed separately in
+  [design/page-query-cancellation](design/page-query-cancellation.md).

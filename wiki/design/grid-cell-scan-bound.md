@@ -103,9 +103,10 @@ short value it appears to be.
   the visible rows would make columns jump width while scrolling. With
   the per-cell work bounded, a 100-row page is cheap enough that the
   stable layout is worth keeping.
-- **Superseded page queries are still not cancelled.** The laggy
-  *reload* the issue also reports is [issue #206](https://github.com/TrueDaerk/lazysql/issues/206)
-  and is unchanged here.
+- **Nothing about the reload itself.** The laggy *reload* the issue also
+  reports is issue #206 — superseded page queries were not cancelled —
+  and it was fixed separately in
+  [design/page-query-cancellation](page-query-cancellation.md).
 
 ## Measured
 

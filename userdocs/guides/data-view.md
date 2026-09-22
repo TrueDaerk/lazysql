@@ -35,6 +35,13 @@ query, and that stays an explicit key.
 `s` sorts by the cursor column, cycling **ASC → DESC → off**. The sort is part
 of the page query, so it orders the whole table, not the visible page.
 
+On a large table that query can take a while. The `▲`/`▼` marker on the column
+header jumps to the order you just asked for straight away, and a `loading…`
+marker appears in the status line under the grid and in the view's title while
+the rows are on their way. Pressing `s` again is safe: the statement still
+running is cancelled and replaced, so only the sort you settled on is ever paid
+for. The command log shows the superseded ones as `-- cancelled (superseded)`.
+
 ## Filtering rows
 
 `/` (or `f`) opens an input line at the bottom of the grid — not a popup. The

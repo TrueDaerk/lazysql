@@ -1875,3 +1875,25 @@ Chronological history of wiki changes, newest last.
   compete when a row is both open and under the cursor. The match is by
   connection/database/name against `m.data`, not `*treeNode` identity,
   since the tree's nodes are replaced on every relation listing reply.
+
+## 2026-09-22 — Fix UI slowdown when the data grid is sorted descending (issue #208)
+
+- Added [design/grid-cell-scan-bound](design/grid-cell-scan-bound.md): the
+  reported descending-sort sluggishness was not in the sort. `db.PageSQL`
+  emits a plain `ORDER BY <col> DESC LIMIT … OFFSET …` for every dialect
+  (now pinned per engine, and as a shape, by
+  `TestPageSQLDescendingIsPlainPerDialect`), and nothing on the key path
+  reads `data.sort` beyond the header's `▲`/`▼` marker — navigating a
+  descending page runs zero statements. What differs is *which rows* a
+  descending sort by an `AUTO_INCREMENT` key puts on page one: the newest,
+  biggest ones. `buildGrid` runs per frame and formatted every cell of the
+  page in full — `flatten`, `classifyCell` (`json.Valid` included),
+  `lipgloss.Width`, `truncate` — to draw at most `maxColWidth` cells of it.
+  `gridCellText` now works from a `cellScanBytes = 4 * (maxColWidth + 1)`
+  rune-boundary prefix and checks UTF-8 directly instead of going through
+  `classifyCell`, whose JSON arm exists for `v`. Measured on a 714-row
+  fixture whose last hundred rows hold a 64 KB note: 68.6 ms → 2.4 ms per
+  navigation key descending, against 2.7 ms ascending either way.
+  Deliberately not done: caching the rendered grid, narrowing `buildGrid`
+  to the visible row window (column widths are sized from the whole page
+  on purpose), and cancelling superseded page queries (issue #206).

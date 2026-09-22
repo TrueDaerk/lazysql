@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 
@@ -175,16 +176,57 @@ func (m Model) stagedRowKeys() [][]any {
 	return keys
 }
 
+// cellScanBytes bounds how much of a value the grid ever walks. A column
+// is at most maxColWidth cells wide, so nothing past a prefix that
+// already overflows the widest possible column can change what a frame
+// shows — but buildGrid runs on every frame, and without a bound a page
+// of JSON documents or long notes is flattened, UTF-8 checked, measured
+// and truncated in full on every keystroke. Four bytes per cell is the
+// widest a rune gets; a prefix whose display width still falls short of
+// the column (a long run of whitespace that flatten collapses, or
+// combining marks) simply renders as the short value it appears to be.
+// The whole value is never lost: `v` opens it in the cell-detail popup,
+// and the copy scopes read m.data.rows, not the rendered grid. See
+// wiki/design/grid-cell-scan-bound.md.
+const cellScanBytes = 4 * (maxColWidth + 1)
+
 // gridCellText formats a cell's value for the grid, standing a placeholder
 // in for BLOBs: raw bytes carry control characters that break the row and
 // misalign the right border, and the cell-detail popup (`v`) already gives
 // binary values a proper hex dump, so the grid does not need to show them.
+//
+// Only the first cellScanBytes of the value are looked at. The binary
+// check is the same one classifyCell makes — the JSON arm it has is for
+// the popup, which pretty-prints; the grid flattens either way.
 func gridCellText(v any, null string) string {
 	raw := db.FormatValue(v, null)
-	if classifyCell(raw) == cellBinary {
+	head := cellHead(raw)
+	if !utf8.ValidString(head) {
+		// The placeholder reports the size of the whole value, not of
+		// the prefix that gave it away.
 		return fmt.Sprintf("<blob %d B>", len(raw))
 	}
-	return flatten(raw)
+	return flatten(head)
+}
+
+// cellHead cuts s to the prefix the grid renders from, ending it on a
+// rune boundary: a multi-byte rune the cut split would read as binary
+// and turn a perfectly good text cell into a <blob> placeholder.
+func cellHead(s string) string {
+	if len(s) <= cellScanBytes {
+		return s
+	}
+	head := s[:cellScanBytes]
+	// At most one rune's worth of bytes goes. On binary data every one
+	// of them decodes as RuneError and the loop stops on its own count;
+	// the bytes before them have already settled the question.
+	for i := 0; i < utf8.UTFMax-1 && head != ""; i++ {
+		if r, size := utf8.DecodeLastRuneInString(head); r != utf8.RuneError || size > 1 {
+			break
+		}
+		head = head[:len(head)-1]
+	}
+	return head
 }
 
 // flatten collapses whitespace that would otherwise break the row into

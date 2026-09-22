@@ -53,6 +53,65 @@ func TestLimitOffset(t *testing.T) {
 	}
 }
 
+// A descending page must be the same statement as an ascending one with
+// one word changed: a plain `ORDER BY <col> DESC` over the relation, with
+// the dialect's own LIMIT/OFFSET clause and nothing wrapped around it. A
+// subquery, a window function or a reversed keyset would defeat the index
+// the sort column usually has and make `s`-twice slower than `s`-once for
+// no reason — see wiki/design/grid-cell-scan-bound.md, where issue #208
+// established that the descending page query is *not* where the grid's
+// descending-sort slowness came from.
+func TestPageSQLDescendingIsPlainPerDialect(t *testing.T) {
+	want := map[Engine][2]string{
+		EngineMySQL: {
+			"SELECT * FROM `app`.`orders` ORDER BY `id` ASC LIMIT 100 OFFSET 200",
+			"SELECT * FROM `app`.`orders` ORDER BY `id` DESC LIMIT 100 OFFSET 200",
+		},
+		EngineMariaDB: {
+			"SELECT * FROM `app`.`orders` ORDER BY `id` ASC LIMIT 100 OFFSET 200",
+			"SELECT * FROM `app`.`orders` ORDER BY `id` DESC LIMIT 100 OFFSET 200",
+		},
+		EnginePostgres: {
+			`SELECT * FROM "app"."orders" ORDER BY "id" ASC LIMIT 100 OFFSET 200`,
+			`SELECT * FROM "app"."orders" ORDER BY "id" DESC LIMIT 100 OFFSET 200`,
+		},
+		EngineSQLite: {
+			`SELECT * FROM "app"."orders" ORDER BY "id" ASC LIMIT 100 OFFSET 200`,
+			`SELECT * FROM "app"."orders" ORDER BY "id" DESC LIMIT 100 OFFSET 200`,
+		},
+		EngineDuckDB: {
+			`SELECT * FROM "app"."orders" ORDER BY "id" ASC LIMIT 100 OFFSET 200`,
+			`SELECT * FROM "app"."orders" ORDER BY "id" DESC LIMIT 100 OFFSET 200`,
+		},
+	}
+	for _, e := range Engines() {
+		sql, ok := want[e]
+		if !ok {
+			t.Fatalf("%s has no expected page SQL — a new engine needs one here", e)
+		}
+		d, err := DialectFor(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		asc := PageSQL(d, "app", "orders", nil, &Sort{Column: "id"}, 100, 200)
+		if asc != sql[0] {
+			t.Errorf("%s ascending PageSQL = %q, want %q", e, asc, sql[0])
+		}
+		desc := PageSQL(d, "app", "orders", nil, &Sort{Column: "id", Desc: true}, 100, 200)
+		if desc != sql[1] {
+			t.Errorf("%s descending PageSQL = %q, want %q", e, desc, sql[1])
+		}
+		// Said once more as a shape rather than a literal, so a future
+		// rewrite that keeps the literals passing by accident still trips.
+		if strings.Count(desc, "SELECT") != 1 || strings.Contains(desc, "(") {
+			t.Errorf("%s descending PageSQL wraps the relation: %q", e, desc)
+		}
+		if strings.Replace(desc, " DESC ", " ASC ", 1) != asc {
+			t.Errorf("%s descending PageSQL differs from the ascending one by more than the direction:\n desc %q\n  asc %q", e, desc, asc)
+		}
+	}
+}
+
 func TestDisplayNames(t *testing.T) {
 	want := map[Engine]string{
 		EngineMySQL:    "MySQL",

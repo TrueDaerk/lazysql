@@ -1922,3 +1922,30 @@ Chronological history of wiki changes, newest last.
   on purpose), and cancelling superseded page queries — that is issue
   #206, fixed separately in
   [design/page-query-cancellation](design/page-query-cancellation.md).
+
+## 2026-09-23 — Export table and database DDL to the clipboard (issue #212)
+
+- Added [design/ddl-destinations](design/ddl-destinations.md): DDL could
+  previously reach the clipboard only from the grid's `y` → `d`, with the
+  relation already open, while `E` on `[2]` could only write a file. `E` now
+  opens a destination menu (`f` file / `c` clipboard / `esc`) rather than
+  taking a second top-level key — the choice is a destination for one
+  operation, the shape `B` (dump / restore) already uses. `runDatabaseDDLScan`
+  was split so `buildDatabaseDDL` assembles the combined document once and the
+  two workers only choose a sink; `TestExportDatabaseDDLToClipboardMatchesTheFile`
+  compares a real file against a real clipboard write, so "byte-identical" is
+  checked and not merely intended, and `ddlExportFootnotes` keeps the cycle
+  notice and the failed-relation tally from drifting apart. The clipboard write
+  runs on the worker goroutine (it shells out) and its `copiedMsg` rides back in
+  `databaseDDLExportedMsg.copied`, because only the program may write the OSC 52
+  sequence to its own tty — oversized output spills through `writeSpillFile`
+  like every other copy. `y`, unbound on `[2]`, now opens a node-scoped copy
+  menu sharing the grid's `copy-menu` binding: `d` (relation DDL, fetched
+  straight from `Driver.TableDDL` rather than through `deferUntilMeta`, which
+  would clobber the open relation's metadata cache) and `D` (database DDL) on a
+  relation node, `D` on a database node, and one skip line for a category header
+  or a trigger.
+- Updated [design/ddl-export](design/ddl-export.md): its mechanics are
+  unchanged, but `E` reaches the path prompt one keystroke later now, so it
+  points at the new concept for the destination step.
+

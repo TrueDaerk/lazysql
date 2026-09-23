@@ -522,8 +522,17 @@ func (m Model) copyActions(id actionID) (Model, tea.Cmd, bool) {
 	}
 	switch id {
 	case actCopyMenu:
+		// `y` means "copy what is under the cursor", and on the Objects
+		// panel that is a tree node, not a grid cell. One key, two menus —
+		// see wiki/design/ddl-destinations.md.
+		if m.focus == panelObjects {
+			cmd := m.treeCopyMenu()
+			return m, cmd, true
+		}
 		cmd := m.copyMenu()
 		return m, cmd, true
+	case actCopyNodeDDL:
+		return m, m.copyNodeDDL(), true
 	case actCopyCell:
 		return m, m.copyCell(), true
 	case actCopyRowCSV:

@@ -894,6 +894,13 @@ const (
 	actExportDDL
 	actCancelExport
 	actExportDatabaseDDL
+	// The destination entries of actExportDatabaseDDL's menu, and the
+	// Objects panel's own copy-menu entry for one relation. None is bound
+	// to a key of its own — they are dispatched from a menu through
+	// runAction like every other menu entry.
+	actExportDatabaseDDLFile
+	actExportDatabaseDDLClipboard
+	actCopyNodeDDL
 
 	// Dump and restore through the engine's own external tool. actBackup
 	// opens the menu; the two directions are its entries, dispatched
@@ -941,6 +948,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actFilter, k.Filter},
 			{actPageDown, k.PageDown},
 			{actPageUp, k.PageUp},
+			{actCopyMenu, k.CopyMenu},
 			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},

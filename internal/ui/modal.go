@@ -717,3 +717,14 @@ func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())
 }
+
+// runActionEntry is a menu entry that dispatches an action through
+// runAction, the way the `a` actions menu does — so a key press, the
+// actions menu and a menu pick all reach exactly the same code.
+func runActionEntry(k, label string, id actionID) menuEntry {
+	return menuEntry{key: k, label: label, action: func(mm *Model) tea.Cmd {
+		next, cmd := mm.runAction(id)
+		*mm = next
+		return cmd
+	}}
+}

@@ -153,7 +153,8 @@ On the `File` field of a SQLite or DuckDB profile.
 | `/` | Fuzzy filter | `filter` |
 | `pgdown` · `ctrl+f` | Page down (over the filtered rows, while filtering) | `page-down` |
 | `pgup` · `ctrl+b` | Page up (over the filtered rows, while filtering) | `page-up` |
-| `E` | Export the database's DDL | `export-database-ddl` |
+| `y` | Copy menu — DDL of the selected table/view (`d`) or of the whole database (`D`) | `copy-menu` |
+| `E` | Export the database's DDL — to a file (`f`) or the clipboard (`c`) | `export-database-ddl` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |
 | `a` | Actions menu | `actions` |

@@ -1720,6 +1720,14 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		cmd := m.startDatabaseDDLExport()
 		return m, cmd
 
+	case actExportDatabaseDDLFile:
+		cmd := m.promptDatabaseDDLExportPath()
+		return m, cmd
+
+	case actExportDatabaseDDLClipboard:
+		cmd := m.copyDatabaseDDL()
+		return m, cmd
+
 	case actBackup:
 		cmd := m.openBackupMenu()
 		return m, cmd

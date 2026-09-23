@@ -12,6 +12,12 @@ sources:
 
 # DDL export to file
 
+> Since issue #212 the whole-database export picks a destination first —
+> `E` on `[2]` opens an `f` file / `c` clipboard menu, and the path prompt
+> described below is what `f` leads to. The text assembly moved into
+> `buildDatabaseDDL`, shared with the clipboard sink. See
+> [design/ddl-destinations](ddl-destinations.md).
+
 ## Decision
 
 `E` already exports a relation's data — see

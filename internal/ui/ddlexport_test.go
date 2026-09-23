@@ -124,7 +124,7 @@ func TestExportDatabaseDDLOrdersByForeignKey(t *testing.T) {
 	if m.focus != panelObjects {
 		t.Fatalf("focus = %v, want the Tables panel", m.focus)
 	}
-	m = send(t, m, press('E'))
+	m = send(t, m, press('E'), press('f'))
 	m = typePath(t, m, path)
 
 	if !logContains(m, "export DDL of") || !logContains(m, "wrote") {
@@ -183,7 +183,7 @@ func TestExportDatabaseDDLFallsBackOnCycle(t *testing.T) {
 	})
 	m = send(t, m, press('R'))
 
-	m = send(t, m, press('E'))
+	m = send(t, m, press('E'), press('f'))
 	m = typePath(t, m, path)
 
 	if !logContains(m, "cycle") {

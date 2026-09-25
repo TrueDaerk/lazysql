@@ -1982,3 +1982,12 @@ Chronological history of wiki changes, newest last.
   (`x`). Copy/export and the `e` date picker were already correct through
   separate paths (`QuoteLiteral`'s own `time.Time` switch, `kind.Layout()`)
   and needed no change.
+
+## 2026-09-25 — Truncate the main view's tab strip before the relation name (issue #217)
+
+- Updated [design/main-view-tabs](design/main-view-tabs.md) with a new
+  section: `mainTabBar` now shortens the `‹Data|Structure|…›` strip through
+  three levels (full, focused-name-only, focused-letter-only) before
+  appending the relation name, instead of letting `renderTitledBox`'s blind
+  right-truncation eat the name first. `mainTabHit` re-derives the same
+  level from the same width so mouse clicks agree with what was drawn.

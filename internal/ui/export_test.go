@@ -395,10 +395,35 @@ func TestCancelExportKeyCancels(t *testing.T) {
 	if !logContains(m, "cancelling export of orders") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	// `?` lists every binding of the focused panel, X included now.
-	if help := send(t, m, press('?')); !strings.Contains(help.View().Content, "cancel export") {
+	// `?` lists every binding of the focused panel, X included now. The
+	// main view's action list is long enough that it can need `?`'s own
+	// scroll to bring every entry on screen, so this reads the modal's own
+	// binding list (helpGroupsInclude) rather than one scrolled frame of
+	// its rendered view.
+	help := send(t, m, press('?'))
+	hm, ok := help.modal.(*helpModal)
+	if !ok {
+		t.Fatalf("? opened %T, want the help modal", help.modal)
+	}
+	if !helpGroupsInclude(hm.groups, "cancel export") {
 		t.Error("? does not offer X while an export runs")
 	}
+}
+
+// helpGroupsInclude reports whether any group's bindings carry the given
+// help description — the same text `?` renders, but read from the
+// bindings themselves rather than from one scrolled frame of the modal,
+// which a long panel action list (see the main view's) may not fit
+// without scrolling.
+func helpGroupsInclude(groups []helpGroup, desc string) bool {
+	for _, g := range groups {
+		for _, b := range g.bindings {
+			if b.Help().Desc == desc {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Two exports never run at once: the second is refused rather than

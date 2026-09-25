@@ -265,6 +265,9 @@ Live while the main view has the focus.
 | `l` · `→` | Next column | `col-right` |
 | `ctrl+f` · `pgdn` | Next page | `next-page` |
 | `ctrl+b` · `pgup` | Previous page | `prev-page` |
+| `home` | First row (loads the first page) | `first-row` |
+| `end` | Last row (loads the last page) | `last-row` |
+| `P` | Go to page… | `go-to-page` |
 | `s` | Sort the cursor column | `sort-column` |
 | `p` | Pin / unpin the cursor column at the left edge | `pin-column` |
 | `z` | Hide the cursor column | `hide-column` |

@@ -1949,6 +1949,35 @@ Chronological history of wiki changes, newest last.
   unchanged, but `E` reaches the path prompt one keystroke later now, so it
   points at the new concept for the destination step.
 
+## 2026-09-25 — Jump to the first/last row and to a given page (issue #221)
+
+- Added [design/first-last-row-and-goto-page](design/first-last-row-and-goto-page.md):
+  `home`/`end` jump the grid cursor straight to the first row of the first
+  page and the last row of the last page, and `P` opens a page-number prompt
+  built on the existing `promptModal` (`p` was the original pick, but issue
+  #222 landed first and took it for `PinColumn`). All three reuse
+  `Model.reloadPage()` rather than a parallel load path — `turnPage`,
+  `toggleSort` and `setDataFilter` already go through it — so a jump gets the
+  same in-flight-query cancellation
+  ([design/page-query-cancellation](design/page-query-cancellation.md)) and
+  selection drop as `ctrl+f`/`ctrl+b` for free, and respects whatever filter
+  and sort are running since it is the same query at a different offset.
+  `gg`/`G` were considered and rejected: both are already taken, by
+  `g`/`G` (follow/incoming foreign keys,
+  [design/foreign-key-navigation](design/foreign-key-navigation.md)) and by
+  the query editor's own vim layer. `home`, `end` and `P` are unbound in the
+  grid, the filter input, the cell detail popup and the date picker, and
+  need no AltGr alias — the portability rule
+  ([reference/keyboard-layout-portability](reference/keyboard-layout-portability.md))
+  only applies to punctuation bindings. The last-row jump trusts the same
+  total `dataStatus`'s `of ~N` already reads (an estimate on some engines) to
+  pick the last page and to guess the cursor's starting row on it, and lets
+  the existing `clampCursor` settle that guess once the real page lands
+  rather than asserting the count is exact; a table whose count has not
+  arrived yet refuses the jump instead of guessing at page one being last. A
+  page number outside `1..pageCount` is refused with the valid range in the
+  command log, never silently clamped.
+
 ## 2026-09-25
 
 - Added [design/pinned-help-in-options-bar](design/pinned-help-in-options-bar.md)

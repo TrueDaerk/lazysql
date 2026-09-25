@@ -197,6 +197,25 @@ type keyMap struct {
 	ViewCell    key.Binding
 	RowDetail   key.Binding
 
+	// FirstRow/LastRow jump the cursor to row one of the first page, or the
+	// last row of the last page, loading whatever page that lands on —
+	// ctrl+f/ctrl+b only move one page at a time, which is a lot of presses
+	// on a large table (issue #221). `home`/`end` rather than vim's `gg`/`G`:
+	// `g` already follows a foreign key and `G` already lists the rows that
+	// reference this one (see wiki/design/foreign-key-navigation.md), and
+	// the named keys are free everywhere the grid, the filter input, the
+	// cell detail popup and the date picker look, and carry no AltGr risk
+	// (see wiki/reference/keyboard-layout-portability.md — only punctuation
+	// bindings need a layout-neutral alias, and a named key is not one).
+	// GoToPage opens a prompt for a page number: `p` (issue #221's original
+	// pick) collided with PinColumn once issue #222 landed, so it is
+	// `shift+p` instead — still a plain letter, still free everywhere the
+	// grid, the filter input, the cell detail popup and the date picker
+	// look, no AltGr risk either.
+	FirstRow key.Binding
+	LastRow  key.Binding
+	GoToPage key.Binding
+
 	// Column layout of the grid (issue #222). PinColumn pins the cursor
 	// column to the left edge (and unpins it), HideColumn takes it out of
 	// the grid and of every copy/export scope, HiddenColumns lists the
@@ -525,6 +544,10 @@ func newKeyMap() keyMap {
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
+
+		FirstRow: key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "first row")),
+		LastRow:  key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "last row")),
+		GoToPage: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "go to page…")),
 
 		PinColumn:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pin/unpin column")),
 		HideColumn: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "hide column")),
@@ -889,6 +912,9 @@ const (
 	actColRight
 	actNextPage
 	actPrevPage
+	actFirstRow
+	actLastRow
+	actGoToPage
 	actSortColumn
 	actSelectRows
 	actSelectColumns
@@ -1035,6 +1061,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actColRight, k.ColRight},
 			{actNextPage, k.NextPage},
 			{actPrevPage, k.PrevPage},
+			{actFirstRow, k.FirstRow},
+			{actLastRow, k.LastRow},
+			{actGoToPage, k.GoToPage},
 			{actSortColumn, k.SortColumn},
 			{actSelectRows, k.SelectRows},
 			{actSelectColumns, k.SelectColumns},
@@ -1233,6 +1262,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
+		{"first-row", &k.FirstRow}, {"last-row", &k.LastRow}, {"go-to-page", &k.GoToPage},
 		{"pin-column", &k.PinColumn}, {"hide-column", &k.HideColumn},
 		{"hidden-columns", &k.HiddenColumns},
 		{"apply-filter", &k.ApplyFilter}, {"cancel-filter", &k.CancelFilter},

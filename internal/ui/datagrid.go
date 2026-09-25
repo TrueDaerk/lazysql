@@ -340,7 +340,7 @@ func (m Model) gridViewport() (w, h int, ok bool) {
 		return 0, 0, false
 	}
 	w = maxInt(mw-2, 1)
-	h = mh - commandLogHeight(mh) - 2
+	h = mh - m.commandLogHeight(mh) - 2
 	if m.focus == panelQuery {
 		// queryContent stacks the editor, its status line and the Data
 		// tab's own tab bar above the grid.

@@ -55,8 +55,13 @@ type keyMap struct {
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
 	CommandLog  key.Binding
-	Help        key.Binding
-	Quit        key.Binding
+	// ToggleCommandLog collapses the log strip under the main view (issue
+	// #218): collapsed, the main view box takes the full main-column
+	// height instead. `@`/`L` (CommandLog above) still opens the full log
+	// modal either way.
+	ToggleCommandLog key.Binding
+	Help             key.Binding
+	Quit             key.Binding
 
 	// Context actions, keyed by panel.
 	NewConnection key.Binding
@@ -346,8 +351,13 @@ func newKeyMap() keyMap {
 		// layout-neutral alias. It is free in every panel and in the
 		// editor's vim mode, and global keys are matched before either.
 		CommandLog: key.NewBinding(key.WithKeys("@", "L"), key.WithHelp("@/L", "expand command log")),
-		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		// `T` ("toggle"): a plain letter, free in every context (see
+		// wiki/reference/keyboard-layout-portability.md), so it needs no
+		// layout-neutral alias.
+		ToggleCommandLog: key.NewBinding(
+			key.WithKeys("T"), key.WithHelp("T", "toggle command log strip")),
+		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		// `o` for open, free on panel [1]: n saves a profile, o just
@@ -803,7 +813,7 @@ func (k keyMap) filterInput() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.CommandLog, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.ToggleCommandLog, k.Help, k.Quit,
 	}
 }
 
@@ -1126,6 +1136,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
+		{"toggle-command-log", &k.ToggleCommandLog},
 		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"open-file", &k.OpenFile},

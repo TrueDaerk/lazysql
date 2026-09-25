@@ -867,8 +867,8 @@ func TestQuitWithStagedChangesAsksToConfirm(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('l'))
 	m = stageEdit(t, m, "tmp")
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want 1", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want 1", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('q'))
@@ -885,7 +885,7 @@ func TestQuitWithStagedChangesAsksToConfirm(t *testing.T) {
 
 	// esc keeps the changeset and the program running.
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.changes.Len() != 1 {
+	if m.grid.changes.Len() != 1 {
 		t.Fatal("esc on the quit confirmation dropped the changeset")
 	}
 
@@ -900,8 +900,8 @@ func TestQuitWithStagedChangesAsksToConfirm(t *testing.T) {
 func TestRefreshWithStagedChangesAsksToConfirm(t *testing.T) {
 	m := dataBrowsing(t)
 	m = stageEdit(t, m, "tmp")
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want 1", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want 1", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('r'))
@@ -918,12 +918,12 @@ func TestRefreshWithStagedChangesAsksToConfirm(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("esc left a modal open: %T", m.modal)
 	}
-	if m.changes.Len() != 1 {
+	if m.grid.changes.Len() != 1 {
 		t.Fatal("esc on the refresh confirmation dropped the changeset")
 	}
 
 	m = send(t, m, press('r'), special(tea.KeyEnter, 0))
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("confirmed refresh did not clear the changeset")
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 0") {
@@ -934,8 +934,8 @@ func TestRefreshWithStagedChangesAsksToConfirm(t *testing.T) {
 // r/R with no pending changes refreshes immediately, no confirmation.
 func TestRefreshWithoutStagedChangesSkipsConfirm(t *testing.T) {
 	m := dataBrowsing(t)
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d, want 0", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d, want 0", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('r'))

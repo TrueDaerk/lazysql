@@ -2049,3 +2049,12 @@ Chronological history of wiki changes, newest last.
   share the `Change` interface, whose render now returns an error) and
   [design/read-only-connections](design/read-only-connections.md) (the
   stage-time `ErrReadOnly` from `Driver.SchemaSQL`).
+
+## 2026-09-25
+
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 1): the grid state — page, in-flight page queries,
+  filter line and history, changeset, FK caches and jump history — moved
+  off the root `Model` into a `gridModel` sub-model (`grid.go`), kept in
+  `package ui` rather than a sub-package. Documents the rule for what
+  belongs on a sub-model versus the root.

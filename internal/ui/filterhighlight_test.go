@@ -212,8 +212,8 @@ func TestFilterInputShowsWhereTheKeyboardIs(t *testing.T) {
 	if !strings.Contains(open, "\x1b[7m") {
 		t.Error("the open filter line draws no caret")
 	}
-	if m.filterInput.dialect != m.sqlDialect() {
-		t.Errorf("line dialect = %q, want the connection's %q", m.filterInput.dialect, m.sqlDialect())
+	if m.grid.filterInput.dialect != m.sqlDialect() {
+		t.Errorf("line dialect = %q, want the connection's %q", m.grid.filterInput.dialect, m.sqlDialect())
 	}
 	if !m.dataCursor().idle {
 		t.Error("the grid still claims the keyboard while the line is open")

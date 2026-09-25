@@ -107,7 +107,7 @@ func TestFilterCompletionOffersKeywordsAndOpensOnNothing(t *testing.T) {
 		t.Fatalf("suggestions = %v, want the operator keyword", completionTexts(m.completion))
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
-	if got := m.filterInput.value(); got != "carrier LIKE" {
+	if got := m.grid.filterInput.value(); got != "carrier LIKE" {
 		t.Fatalf("clause = %q, want the keyword accepted as it is spelled", got)
 	}
 }
@@ -126,7 +126,7 @@ func TestFilterCompletionQuotesAnAcceptedIdentifier(t *testing.T) {
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
 
-	if got := m.filterInput.input.Value(); got != `"order date"` {
+	if got := m.grid.filterInput.input.Value(); got != `"order date"` {
 		t.Fatalf("clause = %q, want the identifier quoted for the dialect", got)
 	}
 	if m.completion.open {
@@ -137,7 +137,7 @@ func TestFilterCompletionQuotesAnAcceptedIdentifier(t *testing.T) {
 	}
 	// Typing continues where the insertion ended.
 	m = typeKeys(t, m, " IS")
-	if got := m.filterInput.value(); got != `"order date" IS` {
+	if got := m.grid.filterInput.value(); got != `"order date" IS` {
 		t.Fatalf("clause = %q, want the caret left at the end of the insertion", got)
 	}
 }
@@ -147,14 +147,14 @@ func TestFilterCompletionQuotesAnAcceptedIdentifier(t *testing.T) {
 func TestFilterCompletionReplacesTheWordUnderTheCaret(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "ca = 1")
-	m.filterInput.input.SetCursor(2) // just after `ca`
+	m.grid.filterInput.input.SetCursor(2) // just after `ca`
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
 	m = send(t, m, special(tea.KeyTab, 0))
 
-	if got := m.filterInput.value(); got != "carrier = 1" {
+	if got := m.grid.filterInput.value(); got != "carrier = 1" {
 		t.Fatalf("clause = %q, want the word under the caret replaced", got)
 	}
-	if got := m.filterInput.input.Position(); got != len("carrier") {
+	if got := m.grid.filterInput.input.Position(); got != len("carrier") {
 		t.Fatalf("caret = %d, want it after the insertion", got)
 	}
 }
@@ -177,7 +177,7 @@ func TestFilterEscClosesThePopupThenTheLine(t *testing.T) {
 	if !m.filterInputOpen() {
 		t.Fatal("the first esc closed the filter line as well")
 	}
-	if got := m.filterInput.value(); got != "ca" {
+	if got := m.grid.filterInput.value(); got != "ca" {
 		t.Fatalf("clause = %q, want it untouched by the popup's esc", got)
 	}
 
@@ -198,7 +198,7 @@ func TestFilterPopupTakesTheArrowsFromTheHistory(t *testing.T) {
 	m = typeKeys(t, m, "ca")
 
 	m = send(t, m, special(tea.KeyDown, 0))
-	if got := m.filterInput.value(); got != "ca" {
+	if got := m.grid.filterInput.value(); got != "ca" {
 		t.Fatalf("clause = %q, want ↓ to have moved the selection, not recalled", got)
 	}
 	if m.completion.cursor != 1 {
@@ -207,7 +207,7 @@ func TestFilterPopupTakesTheArrowsFromTheHistory(t *testing.T) {
 
 	m = send(t, m, special(tea.KeyEscape, 0))
 	m = send(t, m, special(tea.KeyUp, 0))
-	if got := m.filterInput.value(); got != "id > 0" {
+	if got := m.grid.filterInput.value(); got != "id > 0" {
 		t.Fatalf("clause = %q, want ↑ to recall once the popup is gone", got)
 	}
 }
@@ -225,7 +225,7 @@ func TestFilterEnterAppliesUnlessARowWasPicked(t *testing.T) {
 	if m.filterInputOpen() {
 		t.Fatal("enter accepted a suggestion instead of applying the clause")
 	}
-	if got := m.data.filter; got == nil || got.Raw != "carrier = 'dhl' AND id" {
+	if got := m.grid.data.filter; got == nil || got.Raw != "carrier = 'dhl' AND id" {
 		t.Fatalf("filter = %+v, want the clause as typed", got)
 	}
 
@@ -239,7 +239,7 @@ func TestFilterEnterAppliesUnlessARowWasPicked(t *testing.T) {
 	if !m.filterInputOpen() {
 		t.Fatal("enter on a picked row applied the clause instead of accepting")
 	}
-	if got := m.filterInput.value(); got != "carrier" {
+	if got := m.grid.filterInput.value(); got != "carrier" {
 		t.Fatalf("clause = %q, want the picked suggestion", got)
 	}
 }
@@ -321,7 +321,7 @@ func TestFilterAndEditorPopupsDoNotShareASite(t *testing.T) {
 	// that does it cannot be pressed here — while the line is open a `3`
 	// types into the clause — so this is the focus change itself.)
 	m.setFocus(panelQuery)
-	if m.completion.open || m.filterInput != nil {
+	if m.completion.open || m.grid.filterInput != nil {
 		t.Fatal("the popup outlived the line it was floating over")
 	}
 

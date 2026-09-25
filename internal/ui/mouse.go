@@ -314,7 +314,7 @@ func (m *Model) scrollMain(row, delta int) {
 		}
 		// The editor sits on top of its own result: below the buffer and
 		// its hint line the wheel belongs to the grid.
-		if m.data.open() && row >= m.editorBlockRows() {
+		if m.grid.data.open() && row >= m.editorBlockRows() {
 			m.scrollGrid(delta)
 			return
 		}
@@ -323,7 +323,7 @@ func (m *Model) scrollMain(row, delta int) {
 		// The trigger definition owns the main view while it is up, the
 		// same way the plan does for panel [3].
 		m.scrollTrigger(delta)
-	case m.data.open():
+	case m.grid.data.open():
 		if m.tab.metadata() {
 			mm, _ := m.updateMetaKeys(delta)
 			*m = mm
@@ -338,7 +338,7 @@ func (m *Model) scrollMain(row, delta int) {
 // page boundary rather than turning the page — a page turn is a server
 // round trip, and a wheel must never issue one.
 func (m *Model) scrollGrid(delta int) {
-	m.data.row += delta
+	m.grid.data.row += delta
 	m.clampCursor()
 }
 
@@ -521,7 +521,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 	if h.title {
 		// The Data/Structure/Indexes/DDL/Relations bar rides the title
 		// whenever a relation or a result is open — see mainTitle.
-		if m.focus != panelConnections && m.data.open() {
+		if m.focus != panelConnections && m.grid.data.open() {
 			// mainTitle hands mainTabBar the box width minus the border,
 			// so the hit-test must shrink h.boxW the same way to agree on
 			// which strip level was actually drawn.
@@ -533,7 +533,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if !m.data.open() && m.trigger == nil {
+	if !m.grid.data.open() && m.trigger == nil {
 		// With nothing open the main view has no cursor to give; taking
 		// the focus would only replace the focused panel's summary with
 		// "no relation open".
@@ -554,7 +554,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 // same geometry dataBody renders with: three header rows (names, types,
 // rule) and then the row window.
 func (m *Model) clickGrid(row, col int) {
-	if len(m.data.cols) == 0 || m.data.err != "" || row < 3 {
+	if len(m.grid.data.cols) == 0 || m.grid.data.err != "" || row < 3 {
 		return
 	}
 	w, h, ok := m.gridViewport()
@@ -568,11 +568,11 @@ func (m *Model) clickGrid(row, col int) {
 	if r < g.rs || r >= g.re {
 		return
 	}
-	m.data.row = r
+	m.grid.data.row = r
 	// The pinned columns are drawn first, so a click is mapped through
 	// the same left-to-right run the frame drew.
 	if c, ok := gridColumnAt(g.shownCols(), col); ok {
-		m.data.col = g.shown()[c]
+		m.grid.data.col = g.shown()[c]
 	}
 	m.clampCursor()
 }

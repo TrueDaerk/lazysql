@@ -235,8 +235,8 @@ func TestExportQueryResultStreamsBeyondGridCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = runQuery(t, m, "SELECT id FROM q")
-	if !m.data.truncated {
-		t.Fatalf("grid data = %#v, want the maxQueryRows cap to have kicked in", m.data)
+	if !m.grid.data.truncated {
+		t.Fatalf("grid data = %#v, want the maxQueryRows cap to have kicked in", m.grid.data)
 	}
 
 	dir := t.TempDir()
@@ -264,8 +264,8 @@ func TestExportQueryResultReusesBoundPlaceholderArgs(t *testing.T) {
 	setParam(t, p, 0, "2")
 	setParam(t, p, 1, "row")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if !m.data.isQuery() || len(m.data.rows) != 1 {
-		t.Fatalf("data = %#v, want the one matching row", m.data)
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 1 {
+		t.Fatalf("data = %#v, want the one matching row", m.grid.data)
 	}
 
 	dir := t.TempDir()

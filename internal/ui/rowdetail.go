@@ -40,10 +40,10 @@ type rowDetailModal struct {
 // refuses on the metadata tabs and on an empty result, where there is no
 // data row for the cursor to mean.
 func newRowDetailModal(m Model) (*rowDetailModal, bool) {
-	if m.tab.metadata() || len(m.data.cols) == 0 {
+	if m.tab.metadata() || len(m.grid.data.cols) == 0 {
 		return nil, false
 	}
-	d := m.data
+	d := m.grid.data
 	rd := &rowDetailModal{subject: m.dataSubject()}
 
 	if ins, ok := m.phantomAtCursor(); ok {
@@ -74,7 +74,7 @@ func newRowDetailModal(m Model) (*rowDetailModal, bool) {
 	var pkVals []any
 	if pkCols := m.pkColumns(); pkCols != nil {
 		pkVals, _ = m.rowKeyVals(pkCols, d.row)
-		if pkVals != nil && m.changes.DeleteStaged(d.database, d.table, pkVals) {
+		if pkVals != nil && m.grid.changes.DeleteStaged(d.database, d.table, pkVals) {
 			rd.status = rowDeleted
 		}
 	}
@@ -86,7 +86,7 @@ func newRowDetailModal(m Model) (*rowDetailModal, bool) {
 		}
 		f := rowDetailField{name: c.Name, typ: c.DataType}
 		if pkVals != nil {
-			if ch, ok := m.changes.Lookup(d.database, d.table, pkVals, c.Name); ok {
+			if ch, ok := m.grid.changes.Lookup(d.database, d.table, pkVals, c.Name); ok {
 				v = ch.NewValue
 				f.isStaged = true
 			}

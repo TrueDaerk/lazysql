@@ -27,7 +27,7 @@ func storedFor(t *testing.T, m Model, table string) []history.Entry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return history.InRelation(stored, m.active, m.data.database, table)
+	return history.InRelation(stored, m.active, m.grid.data.database, table)
 }
 
 // An applied clause is recorded under the relation it ran on, persisted,
@@ -47,30 +47,30 @@ func TestFilterHistoryRecallsWhatWasApplied(t *testing.T) {
 	m = send(t, m, ctrl('u'))
 	m = typeKeys(t, m, "id > 3")
 	m = send(t, m, ctrl('p'))
-	if got := m.filterInput.value(); got != "id > 200" {
+	if got := m.grid.filterInput.value(); got != "id > 200" {
 		t.Fatalf("first recall = %q, want the newest filter", got)
 	}
 	m = send(t, m, ctrl('p'))
-	if got := m.filterInput.value(); got != "id > 100" {
+	if got := m.grid.filterInput.value(); got != "id > 100" {
 		t.Fatalf("second recall = %q, want the older filter", got)
 	}
 	// Nothing older to walk to.
 	m = send(t, m, ctrl('p'))
-	if got := m.filterInput.value(); got != "id > 100" {
+	if got := m.grid.filterInput.value(); got != "id > 100" {
 		t.Fatalf("recall walked past the end: %q", got)
 	}
 	m = send(t, m, ctrl('n'), ctrl('n'))
-	if got := m.filterInput.value(); got != "id > 3" {
+	if got := m.grid.filterInput.value(); got != "id > 3" {
 		t.Fatalf("walking forward = %q, want the draft back", got)
 	}
 
 	// The arrows are the same two keys.
 	m = send(t, m, special(tea.KeyUp, 0))
-	if got := m.filterInput.value(); got != "id > 200" {
+	if got := m.grid.filterInput.value(); got != "id > 200" {
 		t.Fatalf("↑ recall = %q, want the newest filter", got)
 	}
 	m = send(t, m, special(tea.KeyDown, 0))
-	if got := m.filterInput.value(); got != "id > 3" {
+	if got := m.grid.filterInput.value(); got != "id > 3" {
 		t.Fatalf("↓ recall = %q, want the draft back", got)
 	}
 
@@ -97,8 +97,8 @@ func TestFilterHistoryIsPerTable(t *testing.T) {
 	m = send(t, m, press('2'), press('R'))
 	m = treeSelect(t, m, "other")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.table != "other" {
-		t.Fatalf("table = %q, want other", m.data.table)
+	if m.grid.data.table != "other" {
+		t.Fatalf("table = %q, want other", m.grid.data.table)
 	}
 
 	if got := m.filterHistory(); len(got) != 0 {
@@ -106,7 +106,7 @@ func TestFilterHistoryIsPerTable(t *testing.T) {
 	}
 	m = send(t, m, press('/'))
 	m = send(t, m, ctrl('p'))
-	if got := m.filterInput.value(); got != "" {
+	if got := m.grid.filterInput.value(); got != "" {
 		t.Fatalf("recall on an unfiltered relation = %q, want nothing to recall", got)
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
@@ -151,7 +151,7 @@ func TestFilterHistoryRecordsFailuresButNotClears(t *testing.T) {
 	// wiki/reference/sqlite-double-quoted-strings for why the quoted,
 	// bound spelling would not.
 	m = applyWhereFilter(t, m, "no_such_column IN (1, 2)")
-	if m.data.err == "" {
+	if m.grid.data.err == "" {
 		t.Fatal("the fixture clause did not fail")
 	}
 	if got := m.filterHistory(); len(got) != 1 || got[0] != "no_such_column IN (1, 2)" {
@@ -180,8 +180,8 @@ func TestFilterHistoryLoadsAtStartup(t *testing.T) {
 		next, _ := m.Update(msg)
 		m = next.(Model)
 	}
-	if len(m.filters) != 1 {
-		t.Fatalf("filters = %#v, want the file loaded at startup", m.filters)
+	if len(m.grid.filters) != 1 {
+		t.Fatalf("filters = %#v, want the file loaded at startup", m.grid.filters)
 	}
 }
 

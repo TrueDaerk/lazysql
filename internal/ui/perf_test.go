@@ -60,7 +60,7 @@ func benchGridModel(b *testing.B) Model {
 		}
 		rows[r] = row
 	}
-	m.data = dataView{conn: "bench", database: "d", table: "t", cols: cols, rows: rows}
+	m.grid.data = dataView{conn: "bench", database: "d", table: "t", cols: cols, rows: rows}
 	m.table = "t"
 	m.setFocus(panelMain)
 	return m
@@ -165,8 +165,8 @@ func sortPerfModel(t *testing.T) Model {
 	m = send(t, m, press('R'))
 	m = treeSelect(t, m, "sortperf")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if len(m.data.rows) != dataPageSize {
-		t.Fatalf("page holds %d rows, want %d", len(m.data.rows), dataPageSize)
+	if len(m.grid.data.rows) != dataPageSize {
+		t.Fatalf("page holds %d rows, want %d", len(m.grid.data.rows), dataPageSize)
 	}
 	return m
 }
@@ -211,14 +211,14 @@ func TestDescendingSortNavigatesLikeAscending(t *testing.T) {
 	m := sortPerfModel(t)
 
 	m = send(t, m, press('s')) // ascending
-	if m.data.sort == nil || m.data.sort.Desc {
-		t.Fatalf("first s left sort = %+v, want ascending", m.data.sort)
+	if m.grid.data.sort == nil || m.grid.data.sort.Desc {
+		t.Fatalf("first s left sort = %+v, want ascending", m.grid.data.sort)
 	}
 	m, asc, ascStmts := navCost(t, m, 40)
 
 	m = send(t, m, press('s')) // descending
-	if m.data.sort == nil || !m.data.sort.Desc {
-		t.Fatalf("second s left sort = %+v, want descending", m.data.sort)
+	if m.grid.data.sort == nil || !m.grid.data.sort.Desc {
+		t.Fatalf("second s left sort = %+v, want descending", m.grid.data.sort)
 	}
 	m, desc, descStmts := navCost(t, m, 40)
 
@@ -255,7 +255,7 @@ func benchWideCellGrid(b *testing.B) Model {
 	for r := range rows {
 		rows[r] = []any{int64(r), fmt.Sprintf("row %d", r), big}
 	}
-	m.data = dataView{conn: "bench", database: "d", table: "t", cols: cols, rows: rows}
+	m.grid.data = dataView{conn: "bench", database: "d", table: "t", cols: cols, rows: rows}
 	m.table = "t"
 	m.setFocus(panelMain)
 	return m

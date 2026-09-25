@@ -412,13 +412,13 @@ func (m Model) completionScopeAt(site completionSite) (completionScope, bool) {
 	case siteEditor:
 		return completionScope{ctx: m.editorContext(), stmt: m.script()}, true
 	case siteFilter:
-		if m.filterInput == nil {
+		if m.grid.filterInput == nil {
 			return completionScope{}, false
 		}
-		clause := m.filterInput.input.Value()
+		clause := m.grid.filterInput.input.Value()
 		return completionScope{
-			ctx:  completionContextAt(clause, m.filterInput.input.Position()),
-			stmt: m.filterInput.prefix + clause,
+			ctx:  completionContextAt(clause, m.grid.filterInput.input.Position()),
+			stmt: m.grid.filterInput.prefix + clause,
 		}, true
 	}
 	return completionScope{}, false
@@ -628,7 +628,7 @@ func (m *Model) replaceCompletionWord(text string, cursor int) {
 // with no rows to walk — the clause is one line by construction, and the
 // prefix in front of it is not part of the value.
 func (m *Model) replaceFilterWord(text string, cursor int) {
-	fi := m.filterInput
+	fi := m.grid.filterInput
 	if fi == nil {
 		return
 	}

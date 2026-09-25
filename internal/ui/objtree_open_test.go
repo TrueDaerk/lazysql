@@ -14,7 +14,7 @@ import (
 // drives, and hands focus back to [2] so the rest of the test can choose
 // where the cursor sits. openObject only marks the tree once m.driver is
 // set — with it nil, openTable treats the model as disconnected and clears
-// m.data instead — so a driver that is never dialed stands in, the way
+// m.grid.data instead — so a driver that is never dialed stands in, the way
 // serverModel does for the activity report.
 func openTree(t *testing.T, m Model, table string) Model {
 	t.Helper()
@@ -68,10 +68,10 @@ func TestIsOpenNodeTracksOpenRelation(t *testing.T) {
 		t.Error("opening accounts did not mark its node")
 	}
 
-	// Disconnecting (or switching database) clears m.data, which clears it.
-	m.data = dataView{}
+	// Disconnecting (or switching database) clears m.grid.data, which clears it.
+	m.grid.data = dataView{}
 	if m.isOpenNode(accounts) {
-		t.Error("clearing m.data left the mark in place")
+		t.Error("clearing m.grid.data left the mark in place")
 	}
 }
 

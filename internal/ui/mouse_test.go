@@ -354,11 +354,11 @@ func TestClickGridFocusesThenSelectsACell(t *testing.T) {
 	if m.focus != panelMain {
 		t.Fatalf("focus = %v, want the click to focus the main view", m.focus)
 	}
-	if got := m.data.row; got != 0 {
+	if got := m.grid.data.row; got != 0 {
 		t.Fatalf("row = %d, want the focusing click not to move the cursor", got)
 	}
 	m = send(t, m, click(45, 1+3+5))
-	if got := m.data.row; got != 5 {
+	if got := m.grid.data.row; got != 5 {
 		t.Fatalf("row = %d, want the clicked row", got)
 	}
 
@@ -366,7 +366,7 @@ func TestClickGridFocusesThenSelectsACell(t *testing.T) {
 	cols, _ := m.buildGrid()
 	x := 41 + cols[0].width + colGap
 	m = send(t, m, click(x, 1+3+5))
-	if got := m.data.col; got != 1 {
+	if got := m.grid.data.col; got != 1 {
 		t.Fatalf("col = %d, want the clicked column", got)
 	}
 }
@@ -394,7 +394,7 @@ func TestClickKeepsTheHighlightOnTheClickedLine(t *testing.T) {
 				_, line, n := highlightedCell(gridBox(clicked))
 				if n != 1 || line != row {
 					t.Fatalf("%dx%d scrolled %d: a click on content row %d highlighted line %d (%d tinted cells, cursor row %d)",
-						size[0], size[1], scrolled, row, line, n, clicked.data.row)
+						size[0], size[1], scrolled, row, line, n, clicked.grid.data.row)
 				}
 				assertCursorRendered(t, clicked, fmt.Sprintf("%dx%d click on row %d", size[0], size[1], row))
 			}
@@ -407,18 +407,18 @@ func TestClickKeepsTheHighlightOnTheClickedLine(t *testing.T) {
 func TestWheelScrollsGridWithoutTurningThePage(t *testing.T) {
 	m := dataBrowsing(t)
 	m, _ = raw(m, wheelDown(60, 10))
-	if got := m.data.row; got != wheelStep {
+	if got := m.grid.data.row; got != wheelStep {
 		t.Fatalf("row = %d, want %d", got, wheelStep)
 	}
-	page := m.data.page
+	page := m.grid.data.page
 	for i := 0; i < 2*dataPageSize/wheelStep; i++ {
 		m, _ = raw(m, wheelDown(60, 10))
 		m, _ = raw(m, wheelFlushMsg{gen: m.wheel.gen})
 	}
-	if m.data.page != page {
-		t.Fatalf("page = %d, want the wheel to stop at %d", m.data.page, page)
+	if m.grid.data.page != page {
+		t.Fatalf("page = %d, want the wheel to stop at %d", m.grid.data.page, page)
 	}
-	if got := m.data.row; got != m.data.rowCount()-1 {
+	if got := m.grid.data.row; got != m.grid.data.rowCount()-1 {
 		t.Fatalf("row = %d, want it clamped to the last row of the page", got)
 	}
 }

@@ -519,20 +519,20 @@ func (p *sidePanel) treeKeep(i int) bool {
 // every relation listing reply, so a *treeNode pointer captured when the
 // table was opened would go stale the next time its category reloads.
 //
-// Only a table or view node can match — m.data.table is empty for a query
+// Only a table or view node can match — m.grid.data.table is empty for a query
 // result or an error notice, and a trigger node's name lives in a
 // different namespace of the tree, so leaving cat unchecked here would
-// risk marking a same-named trigger. Comparing against m.data (rather than
+// risk marking a same-named trigger. Comparing against m.grid.data (rather than
 // m.database) is what makes the mark follow a relation opened by a
 // foreign-key jump into a different database than the one browsed in [2].
 func (m Model) isOpenNode(n *treeNode) bool {
 	if n == nil || n.kind != nodeObject || !n.cat.relational() {
 		return false
 	}
-	if m.data.table == "" || m.data.conn != m.active {
+	if m.grid.data.table == "" || m.grid.data.conn != m.active {
 		return false
 	}
-	return n.database == m.data.database && n.name == m.data.table
+	return n.database == m.grid.data.database && n.name == m.grid.data.table
 }
 
 // selectedNode is the tree node under the [2] panel's cursor.

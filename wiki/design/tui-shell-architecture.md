@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: TUI shell architecture
-description: How the lazygit-style shell is structured — one root model, cursor-over-slice side panels, message-based actions, and a fixed update routing order.
+description: How the lazygit-style shell is structured — one root model, cursor-over-slice side panels, feature state grouped into sub-models, message-based actions, and a fixed update routing order.
 tags: [tui, bubbletea, architecture]
 generated:
   by: claude-code/opus-5
@@ -78,6 +78,31 @@ them. `logCmd` produces the command-log entry for every statement, which keeps
 the command-log invariant from `CLAUDE.md` in one place and gives real driver
 work an obvious seam: replace `logCmd` with the command that actually executes
 and logs.
+
+## Sub-models under the root (issue #229)
+
+The root still owns terminal size, focus, the side panels, the main view
+state and the modal, but the larger feature states are grouped into
+sub-model structs held as single fields on `Model`, not spread over it. Each
+sub-model is a plain struct in `package ui` — not a `tea.Model`, for the same
+reason side panels are not: keys reach it through the root's dispatch, and
+the root reduces the messages its commands produce. Keeping them in the same
+package was a deliberate call: a sub-package would force the message
+boundary to be explicit, but at the price of exporting most of the currently
+unexported API the rest of the shell reaches into (`view.go`, `mouse.go`,
+`session.go`).
+
+| Field on `Model` | Type | Holds | File |
+| --- | --- | --- | --- |
+| `grid` | `gridModel` | the Data tab page, its in-flight page/count queries, the inline `/` filter line and filter history, the staged changeset, the FK caches, jump history and the action waiting on an FK fetch | `grid.go` |
+
+What moves onto a sub-model is only the state and the helpers that touch
+nothing but that state (`gridModel.pushBrowse`/`popBrowse`/`clearBrowse`,
+`cacheFKs`, the page-query cancel handle). Anything that also reads root
+state — the open relation, the selected tab, the driver — stays a `Model`
+method and reaches in as `m.grid.…`. The pay-off is that the sub-model can
+be unit-tested without a shell (`grid_test.go`), and that a new feature widens
+one struct instead of the root.
 
 See also [keybindings single source](keybindings-single-source.md) and
 [lipgloss v2 sizing](../reference/lipgloss-v2-sizing.md).

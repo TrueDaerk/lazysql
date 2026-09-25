@@ -221,50 +221,15 @@ type Model struct {
 	trigger    *triggerView
 	triggerReq int
 
-	// data is the main view's Data tab: one page of m.table.
-	data dataView
-
-	// inflight is the cancel handle of the page and count queries the
-	// last reload put in flight, so a newer request — a second `s` on a
-	// slow table — stops the server working on the one it supersedes
-	// instead of only dropping its reply. It is a pointer so every copy
-	// of the Model shares one handle, the way changes shares one
-	// changeset. See wiki/design/page-query-cancellation.md.
-	inflight *pageQueries
-
-	// pageSize is the configured row limit for browsing a table page and
-	// pagination — config.PageSize resolved to its default at New(). Every
-	// dataView is constructed with this as its own pageSize so limit()
-	// never has to reach back through the Model.
-	pageSize int
-
-	// filterInput is the grid's inline `/` line — the WHERE clause being
-	// typed — nil when none is open. filters is the per-relation filter
-	// history behind its recall keys, newest first, across every scope.
-	filterInput *filterInput
-	filters     []history.Entry
-
-	// changes is the staged changeset: edits accumulate here and only
-	// execute on explicit commit. It is a pointer so every copied Model
-	// shares one changeset.
-	changes *db.Changeset
-
 	// tab is the main view's selected tab and meta is the metadata the
 	// three introspection tabs render.
 	tab  mainTab
 	meta metaView
 
-	// Foreign-key navigation. fkCache holds one relation's constraints,
-	// refsCache the whole namespace's (keyed by an fkKey with an empty
-	// table) for the reverse direction, and fkLoading marks the fetches
-	// in flight so a repeated key press does not stack round trips.
-	// browseStack is the jump history `ctrl+o`/`esc` walk back, and
-	// fkAfter is the action waiting for a fetch that has not landed yet.
-	fkCache     map[fkKey][]db.ForeignKey
-	refsCache   map[fkKey][]namespaceFK
-	fkLoading   map[fkKey]bool
-	browseStack []browseState
-	fkAfter     actionID
+	// grid is the main view's Data tab — the page on screen, its
+	// queries, filter line, staged changeset and foreign-key navigation.
+	// See grid.go.
+	grid gridModel
 
 	// export is the file export in flight, if any. At most one runs at
 	// a time; `X` cancels it.
@@ -385,15 +350,11 @@ func New(noRestore bool) (Model, error) {
 		help:      help.New(),
 		style:     newStyles(),
 		connState: map[string]connState{},
-		fkCache:   map[fkKey][]db.ForeignKey{},
-		refsCache: map[fkKey][]namespaceFK{},
-		fkLoading: map[fkKey]bool{},
-		changes:   db.NewChangeset(),
+		grid:      newGridModel(cfg.PageSizeOrDefault()),
 		params:    newParamMemory(),
 		cfg:       cfg,
 		editor:    newQueryEditor(),
 		hl:        &editorCache{},
-		pageSize:  cfg.PageSizeOrDefault(),
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {
@@ -542,7 +503,7 @@ func (m *Model) renameConnState(oldName, newName string) {
 func (m *Model) resetBrowse() {
 	// Staged changes reference the connection's tables; they cannot
 	// survive it. They are discarded, not committed.
-	m.changes.Clear()
+	m.grid.changes.Clear()
 	// An export reads through the driver that is about to be closed.
 	if m.export.running && m.export.cancel != nil {
 		m.export.cancel()
@@ -562,7 +523,7 @@ func (m *Model) resetBrowse() {
 	}
 	// And so do the page and count queries of the grid: the driver they
 	// were issued on is about to close.
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 	// A plan describes a statement against the connection being left.
 	m.plan = nil
 	// So do the sessions of the server it was read from — and closing the
@@ -572,18 +533,17 @@ func (m *Model) resetBrowse() {
 	m.trigger = nil
 	m.database = ""
 	m.table = ""
-	m.data = dataView{}
+	m.grid.data = dataView{}
 	m.closeFilterInput()
 	m.tab = mainTabData
 	m.resetMeta()
 	m.relations = nil
 	// The foreign-key caches and the jump history describe relations of
 	// the connection being left behind.
-	m.fkCache = map[fkKey][]db.ForeignKey{}
-	m.refsCache = map[fkKey][]namespaceFK{}
-	m.fkLoading = map[fkKey]bool{}
-	m.browseStack = nil
-	m.fkAfter = actNone
+	m.grid.fkCache = map[fkKey][]db.ForeignKey{}
+	m.grid.refsCache = map[fkKey][]namespaceFK{}
+	m.grid.fkLoading = map[fkKey]bool{}
+	m.grid.clearBrowse()
 	if m.focus == panelMain {
 		m.focus = panelObjects
 	}
@@ -601,11 +561,10 @@ func (m *Model) openDatabase(name string) tea.Cmd {
 	// The open page belongs to the namespace we are leaving, and so does
 	// every state the jump history could go back to.
 	m.table = ""
-	m.data = dataView{}
+	m.grid.data = dataView{}
 	m.closeFilterInput()
 	m.trigger = nil
-	m.browseStack = nil
-	m.fkAfter = actNone
+	m.grid.clearBrowse()
 	m.resetMeta()
 	m.syncRelations()
 	if m.focus == panelMain {
@@ -638,12 +597,12 @@ func (m *Model) reloadFocused() tea.Cmd {
 		if m.tab.metadata() {
 			return m.reloadMeta()
 		}
-		if m.data.isQuery() {
+		if m.grid.data.isQuery() {
 			return m.rerunQuery()
 		}
 		// `R` means "read it again from the server", so the cached
 		// constraints behind the `⇒` marks go too.
-		delete(m.fkCache, m.tableFKKey())
+		delete(m.grid.fkCache, m.tableFKKey())
 		return tea.Batch(m.reloadPage(), m.ensureFKs())
 	}
 	return logCmd("-- refresh %s", panelTitles[m.focus])
@@ -740,7 +699,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// else; the session keeps recording into it.
 			return m, logCmd("-- read filter history FAILED: %v", msg.err)
 		}
-		m.filters = msg.entries
+		m.grid.filters = msg.entries
 		return m, nil
 
 	case filtersWrittenMsg:
@@ -1036,8 +995,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.fresh(msg.req, msg.conn, msg.table) {
 			return m, nil
 		}
-		m.pageQueryDone(msg.req, true)
-		m.data.loading = false
+		m.grid.pageQueryDone(msg.req, true)
+		m.grid.data.loading = false
 		if cancelled(msg.err) {
 			// The query was stopped on purpose — by the view closing,
 			// since a newer request would have bumped req and this reply
@@ -1049,7 +1008,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// The previous page stays on screen; the grid and the log
 			// both name the failure.
-			m.data.err = msg.err.Error()
+			m.grid.data.err = msg.err.Error()
 			if m.restoreSess != nil && m.restoreSess.Table == msg.table {
 				sess := *m.restoreSess
 				m.restoreSess = nil
@@ -1057,12 +1016,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, logCmd("-- select from %s FAILED: %v", msg.table, msg.err)
 		}
-		m.data.cols = msg.result.Columns
-		m.data.rows = msg.result.Rows
+		m.grid.data.cols = msg.result.Columns
+		m.grid.data.rows = msg.result.Rows
 		if m.restoreSess != nil && m.restoreSess.Table == msg.table {
 			sess := *m.restoreSess
 			m.restoreSess = nil
-			m.data.row, m.data.col = sess.Row, sess.Col
+			m.grid.data.row, m.grid.data.col = sess.Row, sess.Col
 			m.clampCursor()
 			return m, tea.Batch(
 				logCmd("-- restored session: %s / %s.%s", sess.Connection, displayDatabase(sess.Database), sess.Table),
@@ -1086,7 +1045,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.meta.cols, m.meta.indexes, m.meta.fks = msg.cols, msg.indexes, msg.fks
 		// The introspection fetch already read the foreign keys, so the
 		// grid's own cache is filled from it rather than re-reading them.
-		m.cacheFKs(fkKey{conn: msg.conn, database: msg.database, table: msg.table}, msg.fks)
+		m.grid.cacheFKs(fkKey{conn: msg.conn, database: msg.database, table: msg.table}, msg.fks)
 		m.meta.ddl, m.meta.ddlErr = msg.ddl, ""
 		if msg.ddlErr != nil {
 			m.meta.ddlErr = msg.ddlErr.Error()
@@ -1105,15 +1064,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.key.conn != m.active {
 			return m, nil
 		}
-		delete(m.fkLoading, msg.key)
+		delete(m.grid.fkLoading, msg.key)
 		if msg.err != nil {
 			// Without the metadata the grid loses the `⇒` marks and the
 			// follow key; browsing itself is unaffected.
 			return m, logCmd("-- foreign keys of %s FAILED: %v", msg.key.table, msg.err)
 		}
-		m.cacheFKs(msg.key, msg.fks)
-		if id := m.fkAfter; id != actNone && msg.key == m.tableFKKey() {
-			m.fkAfter = actNone
+		m.grid.cacheFKs(msg.key, msg.fks)
+		if id := m.grid.fkAfter; id != actNone && msg.key == m.tableFKKey() {
+			m.grid.fkAfter = actNone
 			mm, cmd := m.runAction(id)
 			return mm, cmd
 		}
@@ -1123,16 +1082,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.key.conn != m.active {
 			return m, nil
 		}
-		delete(m.fkLoading, msg.key)
+		delete(m.grid.fkLoading, msg.key)
 		if msg.err != nil {
-			m.fkAfter = actNone
+			m.grid.fkAfter = actNone
 			return m, logCmd("-- scan foreign keys of %s FAILED: %v",
 				displayDatabase(msg.key.database), msg.err)
 		}
-		if m.refsCache == nil {
-			m.refsCache = map[fkKey][]namespaceFK{}
+		if m.grid.refsCache == nil {
+			m.grid.refsCache = map[fkKey][]namespaceFK{}
 		}
-		m.refsCache[msg.key] = msg.refs
+		m.grid.refsCache[msg.key] = msg.refs
 		// The scan read every table's constraints, so the per-table
 		// cache is filled from the same round trips.
 		for _, t := range msg.tables {
@@ -1143,10 +1102,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					fks = append(fks, r.fk)
 				}
 			}
-			m.cacheFKs(k, fks)
+			m.grid.cacheFKs(k, fks)
 		}
-		if id := m.fkAfter; id != actNone && msg.key == m.namespaceFKKey() {
-			m.fkAfter = actNone
+		if id := m.grid.fkAfter; id != actNone && msg.key == m.namespaceFKKey() {
+			m.grid.fkAfter = actNone
 			mm, cmd := m.runAction(id)
 			return mm, cmd
 		}
@@ -1156,7 +1115,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.fresh(msg.req, msg.conn, msg.table) {
 			return m, nil
 		}
-		m.pageQueryDone(msg.req, false)
+		m.grid.pageQueryDone(msg.req, false)
 		if cancelled(msg.err) {
 			// Cancelled with its page query; the total the grid has
 			// stays whatever it was.
@@ -1165,10 +1124,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			// A missing count only costs the "of ~N" part of the status
 			// line, so it never blocks browsing.
-			m.data.hasTotal = false
+			m.grid.data.hasTotal = false
 			return m, logCmd("-- count %s FAILED: %v", msg.table, msg.err)
 		}
-		m.data.total, m.data.hasTotal = msg.total, true
+		m.grid.data.total, m.grid.data.hasTotal = msg.total, true
 		return m, nil
 
 	case changesCommittedMsg:
@@ -1192,7 +1151,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// not typed, and re-running an old UPDATE/DELETE from the
 		// history pane is a footgun.
 		var cmds []tea.Cmd
-		m.changes.Clear()
+		m.grid.changes.Clear()
 		// The phantom rows of the staged inserts are gone with it, and
 		// the fresh page is still a round trip away: the cursor cannot be
 		// left standing on one of them in the meantime.
@@ -1396,7 +1355,7 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, cmd
 
 	case key.Matches(msg, k.Quit):
-		if n := m.changes.Len(); n > 0 {
+		if n := m.grid.changes.Len(); n > 0 {
 			m.modal = &confirmModal{
 				title:  "Quit",
 				body:   fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n)),
@@ -1729,13 +1688,13 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		}
 
 	case actRefresh:
-		if n := m.changes.Len(); n > 0 {
+		if n := m.grid.changes.Len(); n > 0 {
 			m.modal = &confirmModal{
 				title:  "Refresh",
 				body:   fmt.Sprintf("Reload from the server and discard %s?", countChanges(n)),
 				danger: true,
 				onConfirm: func(mm *Model) tea.Cmd {
-					mm.changes.Clear()
+					mm.grid.changes.Clear()
 					mm.clampCursor()
 					return mm.reloadFocused()
 				},
@@ -1886,8 +1845,8 @@ func (m Model) saveSession() {
 		Database:   m.database,
 		Table:      m.table,
 		Tab:        int(m.tab),
-		Row:        m.data.row,
-		Col:        m.data.col,
+		Row:        m.grid.data.row,
+		Col:        m.grid.data.col,
 	})
 }
 
@@ -1922,8 +1881,7 @@ func (m *Model) openObject(n *treeNode) tea.Cmd {
 		m.syncRelations()
 		// The jump history and the schema cache describe the namespace
 		// being left.
-		m.browseStack = nil
-		m.fkAfter = actNone
+		m.grid.clearBrowse()
 		cmds = append(cmds, logCmd("USE %s;", displayDatabase(n.database)))
 	}
 	m.trigger = nil
@@ -1935,7 +1893,7 @@ func (m *Model) openObject(n *treeNode) tea.Cmd {
 // has no cursor to hand over, so tab skips it.
 func (m Model) cycleFocus(delta int) panelID {
 	n := int(panelCount)
-	if m.data.open() || m.trigger != nil || m.activity != nil {
+	if m.grid.data.open() || m.trigger != nil || m.activity != nil {
 		n++
 	}
 	cur := int(m.focus)

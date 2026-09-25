@@ -54,7 +54,7 @@ func (m *Model) copyMenu() tea.Cmd {
 	if m.activityFocused() {
 		return m.activityCopyMenu()
 	}
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		return logCmd("-- copy skipped: nothing open")
 	}
 	var entries []menuEntry
@@ -69,19 +69,19 @@ func (m *Model) copyMenu() tea.Cmd {
 	// A selection outranks the cursor row: with N rows marked, "row" is
 	// no longer what the user means by a copy, so the selection scopes
 	// come first and take the row scope's own keys.
-	sel := m.data.selectedRows()
+	sel := m.grid.data.selectedRows()
 	// A block selection names its columns too, so the entries say what
 	// they will leave out.
 	scope := fmt.Sprintf("%d selected rows", len(sel))
-	if m.data.narrowedToCols() {
-		scope = fmt.Sprintf("%d selected rows × %d columns", len(sel), len(m.data.selectedCols()))
+	if m.grid.data.narrowedToCols() {
+		scope = fmt.Sprintf("%d selected rows × %d columns", len(sel), len(m.grid.data.selectedCols()))
 	}
 	if len(sel) > 0 {
 		add("r", scope+" — CSV", actCopySelectionCSV)
 		add("o", scope+" — JSON array", actCopySelectionJSON)
 		// An INSERT needs a table to insert into, which a free-form result
 		// set does not have.
-		if m.data.browsing() {
+		if m.grid.data.browsing() {
 			add("i", scope+" — INSERT statements", actCopySelectionInsert)
 		}
 		// The one scope only a selection has: the cursor column's value in
@@ -97,7 +97,7 @@ func (m *Model) copyMenu() tea.Cmd {
 		add("o", "row — JSON object", actCopyRowJSON)
 		// An INSERT needs a table to insert into, which a free-form
 		// result set does not have.
-		if m.data.browsing() {
+		if m.grid.data.browsing() {
 			add("i", "row — INSERT statement", actCopyRowInsert)
 		}
 	}
@@ -106,13 +106,13 @@ func (m *Model) copyMenu() tea.Cmd {
 	// so its scope is the loaded page rather than the whole result — `E`
 	// is the way to get the rest.
 	switch {
-	case m.data.browsing():
+	case m.grid.data.browsing():
 		add("C", "table — CSV", actCopyTableCSV)
 		add("O", "table — JSON array", actCopyTableJSON)
 		add("I", "table — INSERT statements", actCopyTableInsert)
 		add("A", "table — CREATE TABLE + INSERTs", actCopyTableSchema)
 		add("d", "DDL statement", actCopyDDL)
-	case m.data.isQuery():
+	case m.grid.data.isQuery():
 		add("C", "page — CSV", actCopyPageCSV)
 		add("O", "page — JSON array", actCopyPageJSON)
 	}
@@ -134,7 +134,7 @@ func (m Model) copyableRow() bool {
 	if m.tab.metadata() || m.onPhantomRow() {
 		return false
 	}
-	return m.data.row >= 0 && m.data.row < len(m.data.rows)
+	return m.grid.data.row >= 0 && m.grid.data.row < len(m.grid.data.rows)
 }
 
 // ---------- cell and row ----------
@@ -144,20 +144,20 @@ func (m Model) copyableRow() bool {
 // Copying what is on screen beats copying what only the server still
 // holds — the same rule `D` (duplicate row) follows.
 func (m Model) rowValues(row int) ([]any, bool) {
-	if row < 0 || row >= len(m.data.rows) {
+	if row < 0 || row >= len(m.grid.data.rows) {
 		return nil, false
 	}
 	var pkVals []any
 	if pkCols := m.pkColumns(); pkCols != nil {
 		pkVals, _ = m.rowKeyVals(pkCols, row)
 	}
-	out := make([]any, len(m.data.cols))
-	for i, c := range m.data.cols {
-		if i < len(m.data.rows[row]) {
-			out[i] = m.data.rows[row][i]
+	out := make([]any, len(m.grid.data.cols))
+	for i, c := range m.grid.data.cols {
+		if i < len(m.grid.data.rows[row]) {
+			out[i] = m.grid.data.rows[row][i]
 		}
 		if pkVals != nil {
-			if ch, ok := m.changes.Lookup(m.data.database, m.data.table, pkVals, c.Name); ok {
+			if ch, ok := m.grid.changes.Lookup(m.grid.data.database, m.grid.data.table, pkVals, c.Name); ok {
 				out[i] = ch.NewValue
 			}
 		}
@@ -256,23 +256,23 @@ func cutColumns(rows [][]any, idx []int) [][]any {
 
 // copyCell copies the raw value under the cursor.
 func (m Model) copyCell() tea.Cmd {
-	values, ok := m.rowValues(m.data.row)
-	if !ok || m.data.col < 0 || m.data.col >= len(values) {
+	values, ok := m.rowValues(m.grid.data.row)
+	if !ok || m.grid.data.col < 0 || m.grid.data.col >= len(values) {
 		return logCmd("-- copy cell skipped: no cell under the cursor")
 	}
-	return copyCellValue(m.dataSubject(), m.data.cols[m.data.col].Name, values[m.data.col])
+	return copyCellValue(m.dataSubject(), m.grid.data.cols[m.grid.data.col].Name, values[m.grid.data.col])
 }
 
 // copyRow copies the row under the cursor in one of the three row
 // formats.
 func (m Model) copyRow(f export.Format) tea.Cmd {
-	values, ok := m.rowValues(m.data.row)
+	values, ok := m.rowValues(m.grid.data.row)
 	if !ok {
 		return logCmd("-- copy row skipped: no row under the cursor")
 	}
 	// The columns on screen, in the order they are drawn: a hidden
 	// column is not silently carried along.
-	cols, idx := m.data.visibleColumns()
+	cols, idx := m.grid.data.visibleColumns()
 	return copyRowValues(f, m.exportOptions(""), m.dataSubject(), cols, cutColumns([][]any{values}, idx)[0])
 }
 
@@ -284,7 +284,7 @@ func (m Model) copyRow(f export.Format) tea.Cmd {
 // apart. The key only exists because `ctrl+c` is what a terminal user
 // reaches for to copy — see wiki/design/grid-multi-row-selection.md.
 func (m *Model) copySelectionMenu() tea.Cmd {
-	sel := m.data.selectedRows()
+	sel := m.grid.data.selectedRows()
 	if m.activityFocused() {
 		sel = m.activity.grid.selectedRows()
 	}
@@ -308,7 +308,7 @@ func (m Model) cursorColumnLabel() string {
 // cell edits included, exactly like rowValues, which is what it is built
 // from.
 func (m Model) selectionValues() [][]any {
-	sel := m.data.selectedRows()
+	sel := m.grid.data.selectedRows()
 	out := make([][]any, 0, len(sel))
 	for _, r := range sel {
 		if values, ok := m.rowValues(r); ok {
@@ -322,11 +322,11 @@ func (m Model) selectionValues() [][]any {
 // unless `shift+←`/`shift+→` narrowed it to a block — together with the
 // indices they sit at, so a row can be cut down to the same shape.
 func (m Model) selectionColumns() ([]db.Column, []int) {
-	idx := m.data.selectedCols()
+	idx := m.grid.data.selectedCols()
 	cols := make([]db.Column, 0, len(idx))
 	for _, c := range idx {
-		if c >= 0 && c < len(m.data.cols) {
-			cols = append(cols, m.data.cols[c])
+		if c >= 0 && c < len(m.grid.data.cols) {
+			cols = append(cols, m.grid.data.cols[c])
 		}
 	}
 	return cols, idx
@@ -346,7 +346,7 @@ func (m Model) copySelectionRows(f export.Format) tea.Cmd {
 		return logCmd("-- copy selection skipped: no columns selected")
 	}
 	scope := fmt.Sprintf("%d selected rows of %s", len(rows), m.dataSubject())
-	if m.data.narrowedToCols() {
+	if m.grid.data.narrowedToCols() {
 		scope = fmt.Sprintf("%d selected rows × %d columns of %s",
 			len(rows), len(cols), m.dataSubject())
 	}
@@ -361,23 +361,23 @@ func (m Model) copySelectionColumn() tea.Cmd {
 	if len(rows) == 0 {
 		return logCmd("-- copy selection skipped: nothing selected")
 	}
-	col := m.data.col
-	if col < 0 || col >= len(m.data.cols) {
+	col := m.grid.data.col
+	if col < 0 || col >= len(m.grid.data.cols) {
 		return logCmd("-- copy selection skipped: no column under the cursor")
 	}
 	values := make([]any, 0, len(rows))
 	for _, r := range cutColumns(rows, []int{col}) {
 		values = append(values, r[0])
 	}
-	return copyColumnValues(m.dataSubject(), m.data.cols[col].Name, values)
+	return copyColumnValues(m.dataSubject(), m.grid.data.cols[col].Name, values)
 }
 
 // dataSubject names what the Data tab is showing, for log lines, copy
 // labels and file names: the open relation, or "query" for a result the
 // editor produced.
 func (m Model) dataSubject() string {
-	if m.data.browsing() {
-		return m.data.table
+	if m.grid.data.browsing() {
+		return m.grid.data.table
 	}
 	return "query"
 }
@@ -385,7 +385,7 @@ func (m Model) dataSubject() string {
 // exportOptions is what the serializers need about the open relation.
 // ddl is non-empty only for the CREATE TABLE + INSERTs variant.
 func (m Model) exportOptions(ddl string) export.Options {
-	o := export.Options{Database: m.data.database, Table: m.data.table, DDL: ddl}
+	o := export.Options{Database: m.grid.data.database, Table: m.grid.data.table, DDL: ddl}
 	if m.driver != nil {
 		o.Dialect = m.driver.Dialect()
 	}
@@ -410,7 +410,7 @@ func copyTextCmd(subject, filename, text string) tea.Cmd {
 // so the cap is what keeps `y` from trying to hold a 100k-row table in
 // memory. Reaching it is reported, never silent.
 func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return logCmd("-- copy table skipped: no relation open")
 	}
 	if m.driver == nil {
@@ -430,7 +430,7 @@ func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
 		ddl = m.meta.ddl
 	}
 
-	d := m.data
+	d := m.grid.data
 	opts := m.exportOptions(ddl)
 	pager := pagerFor(m.driver, d)
 	label := strings.ToUpper(string(f))
@@ -475,16 +475,16 @@ func (m *Model) copyTable(f export.Format, withDDL bool) tea.Cmd {
 // result to a file instead. The log line says so, the same way the
 // table-scope copy's truncation notice does.
 func (m Model) copyQueryPage(f export.Format) tea.Cmd {
-	if !m.data.isQuery() {
+	if !m.grid.data.isQuery() {
 		return logCmd("-- copy skipped: no query result open")
 	}
-	cols, idx := m.data.visibleColumns()
-	text, err := export.Rows(f, m.exportOptions(""), cols, cutColumns(m.data.rows, idx))
+	cols, idx := m.grid.data.visibleColumns()
+	text, err := export.Rows(f, m.exportOptions(""), cols, cutColumns(m.grid.data.rows, idx))
 	if err != nil {
 		return logCmd("-- copy page FAILED: %v", err)
 	}
 	subject := fmt.Sprintf("query page as %s (%d rows, loaded page only — E exports the full result)",
-		strings.ToUpper(string(f)), len(m.data.rows))
+		strings.ToUpper(string(f)), len(m.grid.data.rows))
 	return copyTextCmd(subject, fmt.Sprintf("query-page.%s", f), text)
 }
 

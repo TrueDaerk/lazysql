@@ -30,8 +30,8 @@ func TestEditStageCommitRoundTrip(t *testing.T) {
 	m = send(t, m, press('l')) // cursor onto `name`
 	m = stageEdit(t, m, "renamed")
 
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the edit staged", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the edit staged", m.grid.changes.Len())
 	}
 	if !logContains(m, `-- stage: UPDATE "grid" SET "name" = ? WHERE "id" = ?`) {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -64,8 +64,8 @@ func TestEditStageCommitRoundTrip(t *testing.T) {
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after commit, want it cleared", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after commit, want it cleared", m.grid.changes.Len())
 	}
 	if !logContains(m, `UPDATE "grid" SET "name" = ? WHERE "id" = ?;  -- args [renamed 1]`) ||
 		!logContains(m, "COMMIT;") {
@@ -79,7 +79,7 @@ func TestEditStageCommitRoundTrip(t *testing.T) {
 		t.Fatalf("value = %v, want the committed value", rs.Rows[0][0])
 	}
 	// The page was refreshed, so the grid shows the committed value too.
-	if got := m.data.rows[0][1]; got != "renamed" {
+	if got := m.grid.data.rows[0][1]; got != "renamed" {
 		t.Fatalf("grid value = %v, want the refreshed page", got)
 	}
 }
@@ -98,15 +98,15 @@ func TestEditNullToggleAndReplace(t *testing.T) {
 		t.Fatal("ctrl+n did not toggle NULL")
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if got, _ := m.changes.Lookup("", "grid", []any{int64(1)}, "name"); got.NewValue != nil {
+	if got, _ := m.grid.changes.Lookup("", "grid", []any{int64(1)}, "name"); got.NewValue != nil {
 		t.Fatalf("staged value = %v, want NULL", got.NewValue)
 	}
 
 	m = stageEdit(t, m, "again")
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the re-edit to replace", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the re-edit to replace", m.grid.changes.Len())
 	}
-	got, _ := m.changes.Lookup("", "grid", []any{int64(1)}, "name")
+	got, _ := m.grid.changes.Lookup("", "grid", []any{int64(1)}, "name")
 	if got.NewValue != "again" || got.OldValue != "name-1" {
 		t.Fatalf("change = %+v, want the new value with the original OldValue", got)
 	}
@@ -120,21 +120,21 @@ func TestUnstageAndDiscard(t *testing.T) {
 	m = send(t, m, press('l'))
 	m = stageEdit(t, m, "tmp")
 	m = stageEdit(t, m, "name-1") // original value back
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d, want restoring the original to unstage", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d, want restoring the original to unstage", m.grid.changes.Len())
 	}
 
 	m = stageEdit(t, m, "one")
 	m = send(t, m, press('j'))
 	m = stageEdit(t, m, "two")
-	if m.changes.Len() != 2 {
-		t.Fatalf("changeset = %d, want 2", m.changes.Len())
+	if m.grid.changes.Len() != 2 {
+		t.Fatalf("changeset = %d, want 2", m.grid.changes.Len())
 	}
 	m = send(t, m, press('u'))
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d after u, want 1", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d after u, want 1", m.grid.changes.Len())
 	}
-	if _, ok := m.changes.Lookup("", "grid", []any{int64(1)}, "name"); !ok {
+	if _, ok := m.grid.changes.Lookup("", "grid", []any{int64(1)}, "name"); !ok {
 		t.Fatal("u removed the wrong cell")
 	}
 
@@ -148,11 +148,11 @@ func TestUnstageAndDiscard(t *testing.T) {
 	}
 	// esc keeps the changeset, enter discards it.
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.changes.Len() != 1 {
+	if m.grid.changes.Len() != 1 {
 		t.Fatal("esc on the discard confirmation dropped the changeset")
 	}
 	m = send(t, m, press('U'), special(tea.KeyEnter, 0))
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("U did not discard the changeset")
 	}
 }
@@ -181,7 +181,7 @@ func TestEditDisabledWithoutPrimaryKey(t *testing.T) {
 	if !strings.Contains(cm.body, "no primary key") {
 		t.Fatalf("body = %q, want it to name the missing key", cm.body)
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("something got staged on a PK-less table")
 	}
 }
@@ -207,16 +207,16 @@ func TestCommitFailureKeepsChangeset(t *testing.T) {
 	// Second change violates NOT NULL.
 	m = send(t, m, press('j'), press('e'))
 	m = send(t, m, ctrl('n'), special(tea.KeyEnter, 0))
-	if m.changes.Len() != 2 {
-		t.Fatalf("changeset = %d, want 2", m.changes.Len())
+	if m.grid.changes.Len() != 2 {
+		t.Fatalf("changeset = %d, want 2", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('c'), special(tea.KeyEnter, 0))
 	if !logContains(m, "COMMIT FAILED") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.changes.Len() != 2 {
-		t.Fatalf("changeset = %d after failed commit, want it kept", m.changes.Len())
+	if m.grid.changes.Len() != 2 {
+		t.Fatalf("changeset = %d after failed commit, want it kept", m.grid.changes.Len())
 	}
 	rs, err := m.driver.Query(ctx, "SELECT name FROM strict WHERE id = 1")
 	if err != nil {
@@ -238,8 +238,8 @@ func TestBulkEditStagesEverySelectedRow(t *testing.T) {
 	m = send(t, m, ctrl('v'), press('j'), press('j')) // rows 0-2
 	m = stageEdit(t, m, "bulk")
 
-	if m.changes.Len() != 3 {
-		t.Fatalf("changeset = %d, want one staged change per selected row", m.changes.Len())
+	if m.grid.changes.Len() != 3 {
+		t.Fatalf("changeset = %d, want one staged change per selected row", m.grid.changes.Len())
 	}
 	// One log line carries the parameterized SQL and says how many more
 	// rows ride along with it.
@@ -261,7 +261,7 @@ func TestBulkEditStagesEverySelectedRow(t *testing.T) {
 		t.Error("the status badge does not count the bulk edit")
 	}
 	// The operator consumed the selection, the way vim leaves visual mode.
-	if m.data.selecting() {
+	if m.grid.data.selecting() {
 		t.Error("the selection is still up after the bulk edit staged")
 	}
 
@@ -296,8 +296,8 @@ func TestBulkEditStagesEverySelectedRow(t *testing.T) {
 			t.Fatalf("command log is missing %q: %v", want, m.commandLog)
 		}
 	}
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after the commit, want it cleared", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after the commit, want it cleared", m.grid.changes.Len())
 	}
 }
 
@@ -323,16 +323,16 @@ func TestBulkEditModalNamesTheRowCount(t *testing.T) {
 func TestBulkEditSkipsRowsStagedForDeletion(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('j'), press('d')) // stage the delete of row 1 (id=2)
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the staged delete", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the staged delete", m.grid.changes.Len())
 	}
 	m = send(t, m, press('k'), press('l'))            // back to row 0, column `name`
 	m = send(t, m, ctrl('v'), press('j'), press('j')) // rows 0-2, the deleted one among them
 	m = stageEdit(t, m, "bulk")
 
 	// The delete plus the two edits that were allowed.
-	if m.changes.Len() != 3 {
-		t.Fatalf("changeset = %d, want the delete and 2 cell edits", m.changes.Len())
+	if m.grid.changes.Len() != 3 {
+		t.Fatalf("changeset = %d, want the delete and 2 cell edits", m.grid.changes.Len())
 	}
 	if !logContains(m, "-- bulk edit: 1 row left out") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -356,14 +356,14 @@ func TestBulkEditRestoringOriginalValueUnstages(t *testing.T) {
 	m = send(t, m, ctrl('v'), press('j'))
 	m = stageEdit(t, m, "name-1") // row 0's own value, row 1's is name-2
 
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want only the row that actually changes", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want only the row that actually changes", m.grid.changes.Len())
 	}
 	// And back again: both rows are now at their original value.
 	m = send(t, m, press('k'), ctrl('v'), press('j'))
 	m = stageEdit(t, m, "name-2")
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want row 1 unstaged and row 0 staged", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want row 1 unstaged and row 0 staged", m.grid.changes.Len())
 	}
 	if !logContains(m, "-- unstage 1 row (original value restored)") {
 		t.Fatalf("command log = %v", m.commandLog)

@@ -575,7 +575,7 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.runAction(a.id)
 		}
 	}
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		return m.updateData(msg)
 	}
 	return m, nil
@@ -722,7 +722,7 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	// A new result replaces whatever the tab showed; the notice and the
 	// old rows belong to the previous run. An open plan goes too — the
 	// result is what the run was for.
-	m.data.notice = ""
+	m.grid.data.notice = ""
 	m.plan = nil
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -768,10 +768,10 @@ func (m *Model) runStatementAtCursor() tea.Cmd {
 // rerunQuery is `enter`/`R` on a query result: execute the same script
 // again. It goes through submitQuery so a re-run of DML asks again.
 func (m *Model) rerunQuery() tea.Cmd {
-	if !m.data.isQuery() {
+	if !m.grid.data.isQuery() {
 		return nil
 	}
-	return m.submitQuery(m.data.query)
+	return m.submitQuery(m.grid.data.query)
 }
 
 // cancelQuery is ctrl+c while a run is in flight. The context reaches
@@ -880,7 +880,7 @@ func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, 
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:      m.active,
 		database:  m.database,
 		query:     sql,
@@ -893,10 +893,10 @@ func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, 
 		hasTotal:  true,
 		// A bumped req invalidates any page or count still in flight
 		// for the relation this result replaced.
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
-	m.data.setPage(0)
+	m.grid.data.setPage(0)
 	m.clampCursor()
 }
 
@@ -908,13 +908,13 @@ func (m *Model) showQueryError(sql string, err error) {
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: m.database,
 		query:    sql,
 		err:      err.Error(),
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
 }
 
@@ -925,13 +925,13 @@ func (m *Model) showQueryNotice(sql string, affected int64) {
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: m.database,
 		query:    sql,
 		notice:   db.FirstKeyword(sql) + " — " + countAffected(affected),
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
 }
 
@@ -1085,7 +1085,7 @@ func (m Model) queryContent(w, h int) string {
 	}
 
 	body = append(body, m.queryStatusLine(w))
-	if rows--; rows > 0 && m.data.open() {
+	if rows--; rows > 0 && m.grid.data.open() {
 		body = append(body, m.dataContent(w, rows))
 	}
 	return clipHeight(strings.Join(body, "\n"), h)
@@ -1140,9 +1140,9 @@ func (m Model) queryStatusLine(w int) string {
 	case m.run.running:
 		line += " " + s.pending.Render(m.runningIndicator()+" running — "+
 			m.keys.CancelQuery.Help().Key+" cancels")
-	case m.data.isQuery() && m.data.err != "":
+	case m.grid.data.isQuery() && m.grid.data.err != "":
 		line += " " + s.danger.Render("failed — error below")
-	case m.data.isQuery() && m.run.outcome != "":
+	case m.grid.data.isQuery() && m.run.outcome != "":
 		line += " " + s.keyHint.Render(m.run.outcome+" ↓")
 	}
 	if hint := m.queryStatusHint(); hint != "" {
@@ -1167,7 +1167,7 @@ func (m Model) queryStatusHint() string {
 			"type SQL", pair(k.Complete, "complete"), pair(k.RunEditor, "run"),
 			pair(k.LeaveInsert, "done"),
 		}, " · ")
-	case m.data.isQuery():
+	case m.grid.data.isQuery():
 		// A result sits under the buffer: name the keys that reach it from
 		// here, and the tab that focuses the grid for the full set.
 		return strings.Join([]string{

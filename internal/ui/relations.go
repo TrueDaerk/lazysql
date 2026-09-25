@@ -49,14 +49,14 @@ type relationEdge struct {
 // outgoing constraints first, then the incoming ones, in one flat list
 // so a single cursor indexes both halves.
 func (m Model) relationEdges() []relationEdge {
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return nil
 	}
 	var out []relationEdge
 	for _, fk := range m.meta.fks {
 		database, table := db.SplitQualified(fk.RefTable)
 		if database == "" {
-			database = m.data.database
+			database = m.grid.data.database
 		}
 		out = append(out, relationEdge{
 			database: database,
@@ -66,10 +66,10 @@ func (m Model) relationEdges() []relationEdge {
 			name:     fk.Name,
 		})
 	}
-	for _, ref := range incomingFor(m.refsCache[m.namespaceFKKey()], m.data.table) {
+	for _, ref := range incomingFor(m.grid.refsCache[m.namespaceFKKey()], m.grid.data.table) {
 		out = append(out, relationEdge{
 			incoming: true,
-			database: m.data.database,
+			database: m.grid.data.database,
 			table:    ref.table,
 			cols:     ref.fk.Columns,
 			refCols:  ref.fk.RefColumns,
@@ -107,10 +107,10 @@ func qualify(table string, cols []string) string {
 // read from the server.
 func (m Model) relationsScanning() bool {
 	k := m.namespaceFKKey()
-	if _, ok := m.refsCache[k]; ok {
+	if _, ok := m.grid.refsCache[k]; ok {
 		return false
 	}
-	return m.fkLoading[k]
+	return m.grid.fkLoading[k]
 }
 
 // selectedRelationEdge is the edge under the Relations cursor.
@@ -136,15 +136,15 @@ func (m *Model) walkRelation() tea.Cmd {
 	if m.driver == nil {
 		return logCmd("-- walk to %s skipped: not connected", edge.table)
 	}
-	m.pushBrowse()
+	m.grid.pushBrowse(m.tab)
 	m.table = edge.table
 	m.resetMeta()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: edge.database,
 		table:    edge.table,
-		req:      m.data.req,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req,
+		pageSize: m.grid.pageSize,
 	}
 	// The [2] tree follows along whenever the target is in the browsed
 	// namespace, so the shell does not claim a different relation is open.
@@ -190,7 +190,7 @@ func (m Model) relationsLines(w, h int) []string {
 		lines = append(lines, m.relationLine(e, i == cursor, last, wide, w))
 	}
 
-	lines = append(lines, m.style.title.Render(truncate("Outgoing — "+m.data.table+" references", w)))
+	lines = append(lines, m.style.title.Render(truncate("Outgoing — "+m.grid.data.table+" references", w)))
 	if outgoing == 0 {
 		lines = append(lines, m.style.muted.Render("  none — this relation declares no foreign key"))
 	}
@@ -204,10 +204,10 @@ func (m Model) relationsLines(w, h int) []string {
 	switch {
 	case m.relationsScanning():
 		lines = append(lines, m.style.pending.Render("  scanning the foreign keys of "+
-			displayDatabase(m.data.database)+"…"))
+			displayDatabase(m.grid.data.database)+"…"))
 	case incoming == 0:
 		lines = append(lines, m.style.muted.Render("  none — no table in "+
-			displayDatabase(m.data.database)+" references it"))
+			displayDatabase(m.grid.data.database)+" references it"))
 	}
 	for i := outgoing; i < len(edges); i++ {
 		appendEdge(edges[i], i, i == len(edges)-1)
@@ -247,7 +247,7 @@ func (m Model) relationLine(e relationEdge, selected, last, wide bool, w int) st
 // the arrows that say which way each half points, or — on a terminal too
 // narrow for the box — the bare name.
 func (m Model) hubLines(w int, wide bool) []string {
-	name := m.data.table
+	name := m.grid.data.table
 	if !wide {
 		return []string{"", m.style.titleFocused.Render(truncate(name, w)), ""}
 	}

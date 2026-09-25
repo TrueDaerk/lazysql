@@ -62,15 +62,15 @@ func TestSupersededPageQueryIsCancelled(t *testing.T) {
 	m, drv := blocked(t)
 
 	first := m.reloadPage()
-	firstReq := m.data.req
+	firstReq := m.grid.data.req
 	replies := make(chan []tea.Msg, 1)
 	go func() { replies <- drain(first) }()
 	pageCtx := <-drv.pages
 
 	// A second `s` while the first page query is still running.
 	second := m.reloadPage()
-	if m.data.req == firstReq {
-		t.Fatalf("req = %d, want a newer one than %d", m.data.req, firstReq)
+	if m.grid.data.req == firstReq {
+		t.Fatalf("req = %d, want a newer one than %d", m.grid.data.req, firstReq)
 	}
 	if err := pageCtx.Err(); !errors.Is(err, context.Canceled) {
 		t.Fatalf("superseded page query context: %v, want %v", err, context.Canceled)
@@ -99,7 +99,7 @@ func TestSupersededPageQueryIsCancelled(t *testing.T) {
 	if err := (<-drv.pages).Err(); err != nil {
 		t.Fatalf("new page query starts cancelled: %v", err)
 	}
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // Three presses of `s` in a row leave one page query in flight, not
@@ -110,7 +110,7 @@ func TestRepeatedSortsCoalesceToOneInFlightPair(t *testing.T) {
 	var ctxs []context.Context
 	for i := 0; i < 3; i++ {
 		cmd := m.toggleSort()
-		if !m.data.loading {
+		if !m.grid.data.loading {
 			t.Fatalf("press %d: loading = false, want a load in flight", i+1)
 		}
 		go drain(cmd)
@@ -131,29 +131,29 @@ func TestRepeatedSortsCoalesceToOneInFlightPair(t *testing.T) {
 	if live != 1 {
 		t.Fatalf("page queries still running = %d, want 1", live)
 	}
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // The sort key reacts before its query returns: the requested direction
 // is on the column header and the grid says it is loading.
 func TestSortShowsPendingOrderAndLoadingBeforeTheReplyLands(t *testing.T) {
 	m, drv := blocked(t)
-	col := m.data.cols[m.data.col].Name
+	col := m.grid.data.cols[m.grid.data.col].Name
 
 	cmd := m.toggleSort()
 	go drain(cmd)
 	<-drv.pages
 
-	if !m.data.loading {
+	if !m.grid.data.loading {
 		t.Fatal("loading = false right after the sort key")
 	}
-	desc, ok := m.data.sortOn(col)
+	desc, ok := m.grid.data.sortOn(col)
 	if !ok || desc {
 		t.Fatalf("sortOn(%q) = (%v, %v), want ascending", col, desc, ok)
 	}
 	cols, _ := m.buildGrid()
-	if !strings.Contains(cols[m.data.col].header, "▲") {
-		t.Fatalf("column header = %q, want the ascending marker", cols[m.data.col].header)
+	if !strings.Contains(cols[m.grid.data.col].header, "▲") {
+		t.Fatalf("column header = %q, want the ascending marker", cols[m.grid.data.col].header)
 	}
 	if got := m.dataStatus(); !strings.Contains(got, "loading…") {
 		t.Fatalf("status line = %q, want a loading marker", got)
@@ -161,7 +161,7 @@ func TestSortShowsPendingOrderAndLoadingBeforeTheReplyLands(t *testing.T) {
 	if got := m.mainTabBar(120); !strings.Contains(got, "loading…") {
 		t.Fatalf("tab bar = %q, want a loading marker", got)
 	}
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // A reply that belongs to a request the user has already moved past is
@@ -169,30 +169,30 @@ func TestSortShowsPendingOrderAndLoadingBeforeTheReplyLands(t *testing.T) {
 // and it may not clear the marker of the request that replaced it.
 func TestLateReplyForOldRequestIsDropped(t *testing.T) {
 	m, drv := blocked(t)
-	rows := len(m.data.rows)
+	rows := len(m.grid.data.rows)
 
 	go drain(m.reloadPage())
 	<-drv.pages
-	stale := m.data.req
+	stale := m.grid.data.req
 	go drain(m.reloadPage())
 	<-drv.pages
 
 	m = send(t, m,
-		pageLoadedMsg{req: stale, conn: m.active, table: m.data.table,
+		pageLoadedMsg{req: stale, conn: m.active, table: m.grid.data.table,
 			result: &db.ResultSet{Columns: []db.Column{{Name: "ghost"}}, Rows: [][]any{{1}}}},
-		rowCountMsg{req: stale, conn: m.active, table: m.data.table, total: 99999},
+		rowCountMsg{req: stale, conn: m.active, table: m.grid.data.table, total: 99999},
 	)
 
-	if len(m.data.rows) != rows {
-		t.Fatalf("rows = %d, want the %d the fresh page left", len(m.data.rows), rows)
+	if len(m.grid.data.rows) != rows {
+		t.Fatalf("rows = %d, want the %d the fresh page left", len(m.grid.data.rows), rows)
 	}
-	if m.data.total == 99999 {
+	if m.grid.data.total == 99999 {
 		t.Fatal("a stale count overwrote the total")
 	}
-	if !m.data.loading {
+	if !m.grid.data.loading {
 		t.Fatal("a stale reply cleared the loading marker of the request that replaced it")
 	}
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // A cancelled reply for the request on screen — the view closed under
@@ -203,47 +203,47 @@ func TestCancelledReplyClearsLoadingWithoutAnError(t *testing.T) {
 
 	go drain(m.reloadPage())
 	<-drv.pages
-	req := m.data.req
+	req := m.grid.data.req
 
 	m = send(t, m,
-		pageLoadedMsg{req: req, conn: m.active, table: m.data.table, err: context.Canceled},
-		rowCountMsg{req: req, conn: m.active, table: m.data.table, err: context.Canceled},
+		pageLoadedMsg{req: req, conn: m.active, table: m.grid.data.table, err: context.Canceled},
+		rowCountMsg{req: req, conn: m.active, table: m.grid.data.table, err: context.Canceled},
 	)
 
-	if m.data.loading {
+	if m.grid.data.loading {
 		t.Fatal("loading is still set after the last query was cancelled")
 	}
-	if m.data.err != "" {
-		t.Fatalf("data.err = %q, want a cancellation to read as no failure", m.data.err)
+	if m.grid.data.err != "" {
+		t.Fatalf("data.err = %q, want a cancellation to read as no failure", m.grid.data.err)
 	}
 	if logContains(m, "FAILED") {
 		t.Fatalf("command log reports a cancellation as a failure: %v", m.commandLog)
 	}
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // The loading marker is set the moment the key is pressed and cleared by
 // the reply that finally lands.
 func TestLoadingIsSetOnPressAndClearedByTheFinalReply(t *testing.T) {
 	m := dataBrowsing(t)
-	if m.data.loading {
+	if m.grid.data.loading {
 		t.Fatal("loading is set with nothing in flight")
 	}
 	pressed := m
 	if cmd := pressed.toggleSort(); cmd == nil {
 		t.Fatal("the sort key issued no query")
 	}
-	if !pressed.data.loading {
+	if !pressed.grid.data.loading {
 		t.Fatal("loading = false right after the sort key")
 	}
-	pressed.stopPageQueries()
+	pressed.grid.stopPageQueries()
 
 	m = send(t, m, press('s'))
-	if m.data.loading {
+	if m.grid.data.loading {
 		t.Fatal("loading is still set after the page landed")
 	}
-	if m.data.sort == nil || m.data.sort.Desc {
-		t.Fatalf("sort = %+v, want ascending", m.data.sort)
+	if m.grid.data.sort == nil || m.grid.data.sort.Desc {
+		t.Fatalf("sort = %+v, want ascending", m.grid.data.sort)
 	}
 	if got := m.dataStatus(); strings.Contains(got, "loading…") {
 		t.Fatalf("status line = %q, want no loading marker once the page landed", got)

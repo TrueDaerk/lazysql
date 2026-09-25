@@ -54,13 +54,13 @@ func fkBrowsing(t *testing.T) Model {
 // colCursor moves the cell cursor onto a named column.
 func colCursor(t *testing.T, m Model, name string) Model {
 	t.Helper()
-	for i, c := range m.data.cols {
+	for i, c := range m.grid.data.cols {
 		if c.Name == name {
-			m.data.col = i
+			m.grid.data.col = i
 			return m
 		}
 	}
-	t.Fatalf("column %q not in %v", name, m.data.cols)
+	t.Fatalf("column %q not in %v", name, m.grid.data.cols)
 	return m
 }
 
@@ -92,7 +92,7 @@ func TestGridHeaderMarksForeignKeys(t *testing.T) {
 	cols, _ := m.buildGrid()
 	byName := map[string]string{}
 	for i, c := range cols {
-		byName[m.data.cols[i].Name] = c.header
+		byName[m.grid.data.cols[i].Name] = c.header
 	}
 	if got := byName["customer_id"]; !strings.HasSuffix(got, fkMark) {
 		t.Errorf("customer_id header = %q, want the %q mark", got, fkMark)
@@ -109,19 +109,19 @@ func TestFollowFKSingleColumn(t *testing.T) {
 	m = colCursor(t, m, "customer_id")
 	m = send(t, m, press('g'))
 
-	if m.data.table != "customers" {
-		t.Fatalf("table = %q, want customers", m.data.table)
+	if m.grid.data.table != "customers" {
+		t.Fatalf("table = %q, want customers", m.grid.data.table)
 	}
-	if len(m.data.rows) != 1 {
-		t.Fatalf("got %d rows, want exactly the referenced one: %+v", len(m.data.rows), m.data.rows)
+	if len(m.grid.data.rows) != 1 {
+		t.Fatalf("got %d rows, want exactly the referenced one: %+v", len(m.grid.data.rows), m.grid.data.rows)
 	}
-	if name := db.FormatValue(m.data.rows[0][1], "NULL"); name != "bob" {
+	if name := db.FormatValue(m.grid.data.rows[0][1], "NULL"); name != "bob" {
 		t.Errorf("followed to %q, want bob", name)
 	}
-	if m.data.filter == nil || m.data.filter.Verbatim {
-		t.Errorf("filter = %+v, want a parameterized one", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Verbatim {
+		t.Errorf("filter = %+v, want a parameterized one", m.grid.data.filter)
 	}
-	if got := len(db.FilterArgs(m.data.filter)); got != 1 {
+	if got := len(db.FilterArgs(m.grid.data.filter)); got != 1 {
 		t.Errorf("filter args = %d, want 1", got)
 	}
 	// The [3] panel follows along so the shell does not claim another
@@ -137,16 +137,16 @@ func TestFollowFKComposite(t *testing.T) {
 	m = colCursor(t, m, "code")
 	m = send(t, m, press('g'))
 
-	if m.data.table != "tenants" {
-		t.Fatalf("table = %q, want tenants", m.data.table)
+	if m.grid.data.table != "tenants" {
+		t.Fatalf("table = %q, want tenants", m.grid.data.table)
 	}
-	if got := len(db.FilterArgs(m.data.filter)); got != 2 {
-		t.Fatalf("filter args = %d, want 2: %+v", got, m.data.filter)
+	if got := len(db.FilterArgs(m.grid.data.filter)); got != 2 {
+		t.Fatalf("filter args = %d, want 2: %+v", got, m.grid.data.filter)
 	}
-	if len(m.data.rows) != 1 {
-		t.Fatalf("got %d rows, want exactly the referenced one: %+v", len(m.data.rows), m.data.rows)
+	if len(m.grid.data.rows) != 1 {
+		t.Fatalf("got %d rows, want exactly the referenced one: %+v", len(m.grid.data.rows), m.grid.data.rows)
 	}
-	if label := db.FormatValue(m.data.rows[0][2], "NULL"); label != "two-b" {
+	if label := db.FormatValue(m.grid.data.rows[0][2], "NULL"); label != "two-b" {
 		t.Errorf("followed to %q, want two-b", label)
 	}
 }
@@ -155,14 +155,14 @@ func TestFollowFKComposite(t *testing.T) {
 func TestFollowFKOnNULLExplains(t *testing.T) {
 	m := fkBrowsing(t)
 	m = colCursor(t, m, "customer_id")
-	m.data.row = 1 // the row whose customer_id is NULL
+	m.grid.data.row = 1 // the row whose customer_id is NULL
 	m = send(t, m, press('g'))
 
-	if m.data.table != "orders" {
-		t.Fatalf("table = %q, want to stay on orders", m.data.table)
+	if m.grid.data.table != "orders" {
+		t.Fatalf("table = %q, want to stay on orders", m.grid.data.table)
 	}
-	if len(m.browseStack) != 0 {
-		t.Errorf("a refused jump pushed %d history entries", len(m.browseStack))
+	if len(m.grid.browseStack) != 0 {
+		t.Errorf("a refused jump pushed %d history entries", len(m.grid.browseStack))
 	}
 	if !logContains(m, "customer_id is NULL") {
 		t.Errorf("the log does not explain the NULL: %v", logText(m))
@@ -175,8 +175,8 @@ func TestFollowFKOnPlainColumnExplains(t *testing.T) {
 	m = colCursor(t, m, "id")
 	m = send(t, m, press('g'))
 
-	if m.data.table != "orders" {
-		t.Fatalf("table = %q, want to stay on orders", m.data.table)
+	if m.grid.data.table != "orders" {
+		t.Fatalf("table = %q, want to stay on orders", m.grid.data.table)
 	}
 	if !logContains(m, "not part of a foreign key") {
 		t.Errorf("the log does not explain the no-op: %v", logText(m))
@@ -197,35 +197,35 @@ func TestBrowseBackRestoresPreviousState(t *testing.T) {
 			m := fkBrowsing(t)
 			m = send(t, m, press('s')) // sort on id, so the state is not the default
 			m = colCursor(t, m, "customer_id")
-			m.data.row = 0
-			wantCol, wantSort := m.data.col, m.data.sort
+			m.grid.data.row = 0
+			wantCol, wantSort := m.grid.data.col, m.grid.data.sort
 
 			m = send(t, m, press('g'))
-			if m.data.table != "customers" {
-				t.Fatalf("table = %q, want customers", m.data.table)
+			if m.grid.data.table != "customers" {
+				t.Fatalf("table = %q, want customers", m.grid.data.table)
 			}
 
 			m = send(t, m, back.key)
-			if m.data.table != "orders" {
-				t.Fatalf("table = %q, want orders back", m.data.table)
+			if m.grid.data.table != "orders" {
+				t.Fatalf("table = %q, want orders back", m.grid.data.table)
 			}
 			if m.focus != panelMain {
 				t.Errorf("focus = %v, want the grid to keep it", m.focus)
 			}
-			if m.data.col != wantCol {
-				t.Errorf("column cursor = %d, want %d", m.data.col, wantCol)
+			if m.grid.data.col != wantCol {
+				t.Errorf("column cursor = %d, want %d", m.grid.data.col, wantCol)
 			}
-			if m.data.sort == nil || wantSort == nil || *m.data.sort != *wantSort {
-				t.Errorf("sort = %+v, want %+v", m.data.sort, wantSort)
+			if m.grid.data.sort == nil || wantSort == nil || *m.grid.data.sort != *wantSort {
+				t.Errorf("sort = %+v, want %+v", m.grid.data.sort, wantSort)
 			}
-			if m.data.filter != nil {
-				t.Errorf("filter = %+v, want the unfiltered page back", m.data.filter)
+			if m.grid.data.filter != nil {
+				t.Errorf("filter = %+v, want the unfiltered page back", m.grid.data.filter)
 			}
-			if len(m.data.rows) != 2 {
-				t.Errorf("got %d rows, want the whole table back", len(m.data.rows))
+			if len(m.grid.data.rows) != 2 {
+				t.Errorf("got %d rows, want the whole table back", len(m.grid.data.rows))
 			}
-			if len(m.browseStack) != 0 {
-				t.Errorf("history left %d entries", len(m.browseStack))
+			if len(m.grid.browseStack) != 0 {
+				t.Errorf("history left %d entries", len(m.grid.browseStack))
 			}
 			// With the history empty, the key means what it always meant.
 			m = send(t, m, back.key)
@@ -244,10 +244,10 @@ func TestIncomingRefsJumpsToReferencingRows(t *testing.T) {
 		t.Fatalf("customers not listed: %v", m.panels[panelObjects].items)
 	}
 	m = send(t, m, press('2'), special(tea.KeyEnter, 0))
-	if m.data.table != "customers" {
-		t.Fatalf("table = %q, want customers", m.data.table)
+	if m.grid.data.table != "customers" {
+		t.Fatalf("table = %q, want customers", m.grid.data.table)
 	}
-	m.data.row = 1 // customer 2, the one order 10 points at
+	m.grid.data.row = 1 // customer 2, the one order 10 points at
 
 	m = send(t, m, press('G'))
 	menu, ok := m.modal.(*menuModal)
@@ -265,19 +265,19 @@ func TestIncomingRefsJumpsToReferencingRows(t *testing.T) {
 	}
 
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.table != "orders" {
-		t.Fatalf("table = %q, want orders", m.data.table)
+	if m.grid.data.table != "orders" {
+		t.Fatalf("table = %q, want orders", m.grid.data.table)
 	}
-	if len(m.data.rows) != 1 {
-		t.Fatalf("got %d rows, want only the referencing one: %+v", len(m.data.rows), m.data.rows)
+	if len(m.grid.data.rows) != 1 {
+		t.Fatalf("got %d rows, want only the referencing one: %+v", len(m.grid.data.rows), m.grid.data.rows)
 	}
-	if id := db.FormatValue(m.data.rows[0][0], "NULL"); id != "10" {
+	if id := db.FormatValue(m.grid.data.rows[0][0], "NULL"); id != "10" {
 		t.Errorf("jumped to order %q, want 10", id)
 	}
 	// The jump is undoable like any other.
 	m = send(t, m, ctrl('o'))
-	if m.data.table != "customers" {
-		t.Errorf("table = %q, want customers back", m.data.table)
+	if m.grid.data.table != "customers" {
+		t.Errorf("table = %q, want customers back", m.grid.data.table)
 	}
 }
 

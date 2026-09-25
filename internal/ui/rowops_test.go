@@ -60,10 +60,10 @@ func TestStageRowDeleteAndUnstage(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('d'))
 
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the delete staged", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the delete staged", m.grid.changes.Len())
 	}
-	if !m.changes.DeleteStaged("", "grid", []any{int64(1)}) {
+	if !m.grid.changes.DeleteStaged("", "grid", []any{int64(1)}) {
 		t.Fatal("the delete was not staged for the row under the cursor")
 	}
 	if !logContains(m, `-- stage: DELETE FROM "grid" WHERE "id" = ?;  -- args [1]`) {
@@ -88,16 +88,16 @@ func TestStageRowDeleteAndUnstage(t *testing.T) {
 
 	// Pressing d again says so rather than stacking a second DELETE.
 	m = send(t, m, press('d'))
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the second d to be a no-op", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the second d to be a no-op", m.grid.changes.Len())
 	}
 	if !logContains(m, "-- already staged: delete of grid") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
 
 	m = send(t, m, press('u'))
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after u, want the delete unstaged", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after u, want the delete unstaged", m.grid.changes.Len())
 	}
 }
 
@@ -107,15 +107,15 @@ func TestStagedDeleteSupersedesCellEdits(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('l'))
 	m = stageEdit(t, m, "doomed")
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the edit staged", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the edit staged", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('d'))
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the edit replaced by the delete", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the edit replaced by the delete", m.grid.changes.Len())
 	}
-	if _, ok := m.changes.Lookup("", "grid", []any{int64(1)}, "name"); ok {
+	if _, ok := m.grid.changes.Lookup("", "grid", []any{int64(1)}, "name"); ok {
 		t.Fatal("the edit of the deleted row survived")
 	}
 
@@ -155,7 +155,7 @@ func TestDeleteDisabledWithoutPrimaryKeyInsertAllowed(t *testing.T) {
 	if !strings.Contains(cm.body, "no primary key") {
 		t.Fatalf("body = %q, want it to name the missing key", cm.body)
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("a delete got staged on a PK-less table")
 	}
 
@@ -164,8 +164,8 @@ func TestDeleteDisabledWithoutPrimaryKeyInsertAllowed(t *testing.T) {
 	setField(f, "x", "7")
 	setField(f, "y", "inserted")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d, want the insert staged on the PK-less table", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d, want the insert staged on the PK-less table", m.grid.changes.Len())
 	}
 }
 
@@ -185,7 +185,7 @@ func TestInsertStagesPhantomRow(t *testing.T) {
 	setField(f, "name", "phantom")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	ins := m.changes.InsertsFor("", "grid")
+	ins := m.grid.changes.InsertsFor("", "grid")
 	if len(ins) != 1 {
 		t.Fatalf("staged inserts = %d, want 1", len(ins))
 	}
@@ -198,7 +198,7 @@ func TestInsertStagesPhantomRow(t *testing.T) {
 
 	// It renders as an extra green row after the page.
 	cols, kinds := m.buildGrid()
-	if len(kinds) != len(m.data.rows)+1 || kinds[len(kinds)-1] != rowInserted {
+	if len(kinds) != len(m.grid.data.rows)+1 || kinds[len(kinds)-1] != rowInserted {
 		t.Fatalf("row kinds = %d rows, last = %v", len(kinds), kinds[len(kinds)-1])
 	}
 	if got := cols[1].cells[len(kinds)-1]; got != "phantom" {
@@ -209,16 +209,16 @@ func TestInsertStagesPhantomRow(t *testing.T) {
 	}
 
 	// The cursor reaches it, and `u` there unstages the whole INSERT.
-	m.data.row = len(m.data.rows)
+	m.grid.data.row = len(m.grid.data.rows)
 	m.clampCursor()
-	if m.data.row != len(m.data.rows) {
-		t.Fatalf("cursor row = %d, want the phantom row reachable", m.data.row)
+	if m.grid.data.row != len(m.grid.data.rows) {
+		t.Fatalf("cursor row = %d, want the phantom row reachable", m.grid.data.row)
 	}
 	m = send(t, m, press('u'))
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after u, want the insert unstaged", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after u, want the insert unstaged", m.grid.changes.Len())
 	}
-	if m.data.row >= len(m.data.rows) {
+	if m.grid.data.row >= len(m.grid.data.rows) {
 		t.Fatal("the cursor stayed on a row that no longer exists")
 	}
 }
@@ -238,7 +238,7 @@ func TestInsertFormValidatesNotNull(t *testing.T) {
 	if !strings.Contains(f.err, "name is NOT NULL") {
 		t.Fatalf("error = %q, want it to name the column", f.err)
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("an invalid row got staged")
 	}
 
@@ -250,8 +250,8 @@ func TestInsertFormValidatesNotNull(t *testing.T) {
 
 	setField(f, "name", "valid")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.modal != nil || m.changes.Len() != 1 {
-		t.Fatalf("modal = %T, changeset = %d, want the valid row staged", m.modal, m.changes.Len())
+	if m.modal != nil || m.grid.changes.Len() != 1 {
+		t.Fatalf("modal = %T, changeset = %d, want the valid row staged", m.modal, m.grid.changes.Len())
 	}
 }
 
@@ -272,7 +272,7 @@ func TestDuplicateRowPrefillsAndClearsKey(t *testing.T) {
 	}
 
 	m = send(t, m, special(tea.KeyEnter, 0))
-	ins := m.changes.InsertsFor("", "grid")
+	ins := m.grid.changes.InsertsFor("", "grid")
 	if len(ins) != 1 {
 		t.Fatalf("staged inserts = %d, want 1", len(ins))
 	}
@@ -317,8 +317,8 @@ func TestRowOpsCommitInOneTransaction(t *testing.T) {
 	setField(f, "name", "fresh")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	if m.changes.Len() != 3 {
-		t.Fatalf("changeset = %d, want the edit, the delete and the insert", m.changes.Len())
+	if m.grid.changes.Len() != 3 {
+		t.Fatalf("changeset = %d, want the edit, the delete and the insert", m.grid.changes.Len())
 	}
 
 	m = send(t, m, press('c'))
@@ -336,8 +336,8 @@ func TestRowOpsCommitInOneTransaction(t *testing.T) {
 	}
 
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after commit, want it cleared", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after commit, want it cleared", m.grid.changes.Len())
 	}
 	if !logContains(m, "BEGIN;") || !logContains(m, "COMMIT;") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -380,8 +380,8 @@ func TestRowOpsCommitFailureRollsBack(t *testing.T) {
 	if !logContains(m, "COMMIT FAILED") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.changes.Len() != 3 {
-		t.Fatalf("changeset = %d after a failed commit, want it kept", m.changes.Len())
+	if m.grid.changes.Len() != 3 {
+		t.Fatalf("changeset = %d after a failed commit, want it kept", m.grid.changes.Len())
 	}
 	rs, err := m.driver.Query(context.Background(), "SELECT count(*) FROM strictrows")
 	if err != nil {

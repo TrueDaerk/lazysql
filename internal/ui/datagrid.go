@@ -83,7 +83,7 @@ type gridColumn struct {
 // open table are appended as phantom rows after the page, which is why
 // it also returns what each rendered row is.
 func (m Model) buildGrid() ([]gridColumn, []rowKind) {
-	d := m.data
+	d := m.grid.data
 	rowKeys := m.stagedRowKeys()
 	inserts := m.stagedInserts()
 	n := len(d.rows) + len(inserts)
@@ -91,7 +91,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 	kinds := make([]rowKind, n)
 	for r := range d.rows {
 		if rowKeys != nil && rowKeys[r] != nil &&
-			m.changes.DeleteStaged(d.database, d.table, rowKeys[r]) {
+			m.grid.changes.DeleteStaged(d.database, d.table, rowKeys[r]) {
 			kinds[r] = rowDeleted
 		}
 	}
@@ -142,7 +142,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 			// A staged cell shows its staged value — seeing the pending
 			// edit in place is the point of staging.
 			if rowKeys != nil && rowKeys[r] != nil {
-				if ch, ok := m.changes.Lookup(d.database, d.table, rowKeys[r], c.Name); ok {
+				if ch, ok := m.grid.changes.Lookup(d.database, d.table, rowKeys[r], c.Name); ok {
 					v = ch.NewValue
 					g.staged[r] = true
 				}
@@ -188,8 +188,8 @@ func (m Model) stagedRowKeys() [][]any {
 	if pkCols == nil {
 		return nil
 	}
-	keys := make([][]any, len(m.data.rows))
-	for r := range m.data.rows {
+	keys := make([][]any, len(m.grid.data.rows))
+	for r := range m.grid.data.rows {
 		if vals, ok := m.rowKeyVals(pkCols, r); ok {
 			keys[r] = vals
 		}
@@ -207,7 +207,7 @@ func (m Model) stagedRowKeys() [][]any {
 // the column (a long run of whitespace that flatten collapses, or
 // combining marks) simply renders as the short value it appears to be.
 // The whole value is never lost: `v` opens it in the cell-detail popup,
-// and the copy scopes read m.data.rows, not the rendered grid. See
+// and the copy scopes read m.grid.data.rows, not the rendered grid. See
 // wiki/design/grid-cell-scan-bound.md.
 const cellScanBytes = 4 * (maxColWidth + 1)
 
@@ -422,14 +422,14 @@ func (m Model) gridViewport() (w, h int, ok bool) {
 func (m Model) gridLayout(w, h int) gridLayout {
 	g := gridLayout{}
 	g.cols, g.kinds = m.buildGrid()
-	g.order = m.data.visibleOrder()
-	g.pinned = m.data.pinnedCount()
+	g.order = m.grid.data.visibleOrder()
+	g.pinned = m.grid.data.pinnedCount()
 	g.hidden = len(g.cols) - len(g.order)
 
 	// The pinned columns take their width off the top; the rest of the
 	// box is what the scrolling columns are windowed into. colOff counts
 	// the scrolling part only, so pinning a column does not shift it.
-	pos := slices.Index(g.order, m.data.col)
+	pos := slices.Index(g.order, m.grid.data.col)
 	pinW := 0
 	for _, c := range g.order[:g.pinned] {
 		pinW += g.cols[c].width + colGap
@@ -454,16 +454,16 @@ func (m Model) gridLayout(w, h int) gridLayout {
 	switch {
 	case len(scroll) == 0:
 	case pos >= g.pinned:
-		cs, ce = columnWindow(scroll, pos-g.pinned, sw, m.data.colOff)
+		cs, ce = columnWindow(scroll, pos-g.pinned, sw, m.grid.data.colOff)
 	default:
 		// The cursor is on a pinned column, which is always on screen;
 		// the scrolling part just stays where it was.
-		off := clampInt(m.data.colOff, 0, len(scroll)-1)
+		off := clampInt(m.grid.data.colOff, 0, len(scroll)-1)
 		cs, ce = columnWindow(scroll, off, sw, off)
 	}
 	g.cs, g.ce = g.pinned+cs, g.pinned+ce
 	g.hint = g.cs > g.pinned || g.ce < len(g.order) || g.hidden > 0
-	g.rs, g.re = rowWindow(len(g.kinds), m.data.row, gridBodyRows(h, g.hint), m.data.rowOff)
+	g.rs, g.re = rowWindow(len(g.kinds), m.grid.data.row, gridBodyRows(h, g.hint), m.grid.data.rowOff)
 	return g
 }
 
@@ -496,7 +496,7 @@ func (m Model) dataContent(w, h int) string {
 
 // dataBody renders the grid and its status line into a w x h content box.
 func (m Model) dataBody(w, h int) string {
-	d := m.data
+	d := m.grid.data
 	var lines []string
 
 	switch {
@@ -537,7 +537,7 @@ func (m Model) dataBody(w, h int) string {
 	// exactly the page the clause being typed is about to replace.
 	last := truncate(m.dataStatus(), w)
 	if m.filterInputOpen() {
-		last = m.filterInput.view(w)
+		last = m.grid.filterInput.view(w)
 	}
 	body := joinTruncated(lines, w, maxInt(h-1, 1))
 	pad := h - 1 - lipgloss.Height(body)
@@ -549,7 +549,7 @@ func (m Model) dataBody(w, h int) string {
 
 // gridCursor is where a rendered grid's cell cursor sits, whether the box
 // it is drawn in has the focus, and which of its cells the selection
-// covers. It is what the renderers below read instead of m.data, so the
+// covers. It is what the renderers below read instead of m.grid.data, so the
 // editable data grid and the read-only grids built on roGrid share one
 // set of them — see wiki/design/read-only-grid.md.
 type gridCursor struct {
@@ -574,10 +574,10 @@ func (c gridCursor) cellSelected(r, col int) bool {
 // dataCursor is the Data tab's cursor as the shared renderers want it.
 func (m Model) dataCursor() gridCursor {
 	return gridCursor{
-		row: m.data.row, col: m.data.col,
+		row: m.grid.data.row, col: m.grid.data.col,
 		focused:  m.focus == panelMain,
 		idle:     m.filterInputOpen(),
-		selected: m.data.cellSelector(),
+		selected: m.grid.data.cellSelector(),
 	}
 }
 
@@ -736,7 +736,7 @@ func (m Model) cellStyle(idle, onRow, selected, onCol, isNull, isStaged bool, ki
 // dataStatus is the bottom line: which rows of how many are on screen,
 // which page they are, and the filter and sort that produced them.
 func (m Model) dataStatus() string {
-	d := m.data
+	d := m.grid.data
 	var parts []string
 
 	if d.notice != "" && len(d.cols) == 0 {
@@ -784,7 +784,7 @@ func (m Model) dataStatus() string {
 		// status line has to say it is not.
 		line += m.style.danger.Render(fmt.Sprintf("  capped at %d rows", maxQueryRows))
 	}
-	if n := m.changes.Len(); n > 0 {
+	if n := m.grid.changes.Len(); n > 0 {
 		line += m.style.pending.Render("  " + countChanges(n))
 	}
 	// Selection mode is a mode: the status line says so, the way the

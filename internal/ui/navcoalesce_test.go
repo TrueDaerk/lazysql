@@ -72,7 +72,7 @@ func TestKeyRepeatCoalescesInDataGrid(t *testing.T) {
 	for i := range rows {
 		rows[i] = []any{i}
 	}
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn: "c", database: "d", table: "t",
 		cols: []db.Column{{Name: "id", DataType: "int"}},
 		rows: rows,
@@ -82,12 +82,12 @@ func TestKeyRepeatCoalescesInDataGrid(t *testing.T) {
 	for _, r := range "jjj" {
 		m, _ = raw(m, press(r))
 	}
-	if m.data.row != 1 {
-		t.Fatalf("burst moved the row cursor to %d before the flush, want 1", m.data.row)
+	if m.grid.data.row != 1 {
+		t.Fatalf("burst moved the row cursor to %d before the flush, want 1", m.grid.data.row)
 	}
 	m, _ = raw(m, wheelFlushMsg{gen: m.wheel.gen})
-	if m.data.row != 3 {
-		t.Fatalf("flush left the row cursor on %d, want 3", m.data.row)
+	if m.grid.data.row != 3 {
+		t.Fatalf("flush left the row cursor on %d, want 3", m.grid.data.row)
 	}
 }
 

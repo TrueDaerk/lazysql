@@ -58,13 +58,13 @@ func ctrl(r rune) tea.KeyPressMsg {
 // size, and reports the total separately.
 func TestOpenTableFetchesOnePage(t *testing.T) {
 	m := dataBrowsing(t)
-	if got := len(m.data.rows); got != dataPageSize {
+	if got := len(m.grid.data.rows); got != dataPageSize {
 		t.Fatalf("rows in memory = %d, want %d", got, dataPageSize)
 	}
-	if !m.data.hasTotal || m.data.total != gridRows {
-		t.Fatalf("total = %d (known=%v), want %d", m.data.total, m.data.hasTotal, gridRows)
+	if !m.grid.data.hasTotal || m.grid.data.total != gridRows {
+		t.Fatalf("total = %d (known=%v), want %d", m.grid.data.total, m.grid.data.hasTotal, gridRows)
 	}
-	if got := len(m.data.cols); got != 4 {
+	if got := len(m.grid.data.cols); got != 4 {
 		t.Fatalf("columns = %d, want 4", got)
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 0") {
@@ -77,7 +77,7 @@ func TestOpenTableFetchesOnePage(t *testing.T) {
 func TestConfiguredPageSizeControlsLimitAndOffset(t *testing.T) {
 	m := browsing(t)
 	m.cfg.PageSize = 60
-	m.pageSize = m.cfg.PageSizeOrDefault()
+	m.grid.pageSize = m.cfg.PageSizeOrDefault()
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS grid`,
@@ -98,7 +98,7 @@ func TestConfiguredPageSizeControlsLimitAndOffset(t *testing.T) {
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	if got := len(m.data.rows); got != 60 {
+	if got := len(m.grid.data.rows); got != 60 {
 		t.Fatalf("rows in memory = %d, want 60", got)
 	}
 	if !logContains(m, "LIMIT 60 OFFSET 0") {
@@ -106,8 +106,8 @@ func TestConfiguredPageSizeControlsLimitAndOffset(t *testing.T) {
 	}
 
 	m = send(t, m, ctrl('f'))
-	if m.data.page != 1 {
-		t.Fatalf("page = %d, want 1", m.data.page)
+	if m.grid.data.page != 1 {
+		t.Fatalf("page = %d, want 1", m.grid.data.page)
 	}
 	if !logContains(m, "LIMIT 60 OFFSET 60") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -120,7 +120,7 @@ func TestConfiguredPageSizeControlsLimitAndOffset(t *testing.T) {
 func TestInvalidPageSizeFallsBackToDefault(t *testing.T) {
 	m := browsing(t)
 	m.cfg.PageSize = -5
-	m.pageSize = m.cfg.PageSizeOrDefault()
+	m.grid.pageSize = m.cfg.PageSizeOrDefault()
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS grid`,
@@ -158,8 +158,8 @@ func TestGridRendersHeaderRowsAndStatus(t *testing.T) {
 func TestPagingWalksAndClamps(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, ctrl('f'))
-	if m.data.page != 1 {
-		t.Fatalf("page = %d, want 1", m.data.page)
+	if m.grid.data.page != 1 {
+		t.Fatalf("page = %d, want 1", m.grid.data.page)
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 100") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -170,18 +170,18 @@ func TestPagingWalksAndClamps(t *testing.T) {
 
 	// Last page is partial.
 	m = send(t, m, ctrl('f'))
-	if got := len(m.data.rows); got != 50 {
+	if got := len(m.grid.data.rows); got != 50 {
 		t.Fatalf("last page rows = %d, want 50", got)
 	}
 	// And there is nothing past it.
 	m = send(t, m, ctrl('f'))
-	if m.data.page != 2 {
-		t.Fatalf("page = %d, want to stop at the last page", m.data.page)
+	if m.grid.data.page != 2 {
+		t.Fatalf("page = %d, want to stop at the last page", m.grid.data.page)
 	}
 
 	m = send(t, m, special(tea.KeyPgUp, 0), special(tea.KeyPgUp, 0), special(tea.KeyPgUp, 0))
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want to stop at the first page", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want to stop at the first page", m.grid.data.page)
 	}
 }
 
@@ -190,19 +190,19 @@ func TestPagingWalksAndClamps(t *testing.T) {
 func TestSortCyclesAndReachesTheQuery(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('l')) // cursor onto `name`
-	if m.data.col != 1 {
-		t.Fatalf("column cursor = %d, want 1", m.data.col)
+	if m.grid.data.col != 1 {
+		t.Fatalf("column cursor = %d, want 1", m.grid.data.col)
 	}
 
 	m = send(t, m, press('s'))
-	if m.data.sort == nil || m.data.sort.Column != "name" || m.data.sort.Desc {
-		t.Fatalf("sort = %+v, want name ASC", m.data.sort)
+	if m.grid.data.sort == nil || m.grid.data.sort.Column != "name" || m.grid.data.sort.Desc {
+		t.Fatalf("sort = %+v, want name ASC", m.grid.data.sort)
 	}
 	if !logContains(m, `ORDER BY "name" ASC`) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
 	// Text ordering, so name-1 sorts before name-10 and name-2.
-	if got := m.data.rows[0][1]; got != "name-1" {
+	if got := m.grid.data.rows[0][1]; got != "name-1" {
 		t.Fatalf("first row = %v, want name-1", got)
 	}
 	if !strings.Contains(m.View().Content, "▲") {
@@ -210,19 +210,19 @@ func TestSortCyclesAndReachesTheQuery(t *testing.T) {
 	}
 
 	m = send(t, m, press('s'))
-	if m.data.sort == nil || !m.data.sort.Desc {
-		t.Fatalf("sort = %+v, want name DESC", m.data.sort)
+	if m.grid.data.sort == nil || !m.grid.data.sort.Desc {
+		t.Fatalf("sort = %+v, want name DESC", m.grid.data.sort)
 	}
 	if !logContains(m, `ORDER BY "name" DESC`) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if got := m.data.rows[0][1]; got != "name-99" {
+	if got := m.grid.data.rows[0][1]; got != "name-99" {
 		t.Fatalf("first row = %v, want name-99", got)
 	}
 
 	m = send(t, m, press('s'))
-	if m.data.sort != nil {
-		t.Fatalf("sort = %+v, want the third press to clear it", m.data.sort)
+	if m.grid.data.sort != nil {
+		t.Fatalf("sort = %+v, want the third press to clear it", m.grid.data.sort)
 	}
 }
 
@@ -232,7 +232,7 @@ func TestSortCyclesAndReachesTheQuery(t *testing.T) {
 func applyWhereFilter(t *testing.T, m Model, clause string) Model {
 	t.Helper()
 	m = send(t, m, press('/'))
-	if m.filterInput == nil {
+	if m.grid.filterInput == nil {
 		t.Fatalf("/ opened no filter line (modal = %T)", m.modal)
 	}
 	// The line opens on the filter that is running, so the clause is
@@ -251,20 +251,20 @@ func TestFilterIsBoundAndComposesWithSortAndPaging(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("prompt stayed open")
 	}
-	if m.data.filter == nil || m.data.filter.Verbatim {
-		t.Fatalf("filter = %+v, want a parameterized one", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Verbatim {
+		t.Fatalf("filter = %+v, want a parameterized one", m.grid.data.filter)
 	}
 	if !logContains(m, `WHERE "id" > ?`) || !logContains(m, "-- args [100]") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.data.total != gridRows-100 {
-		t.Fatalf("total = %d, want the filtered count %d", m.data.total, gridRows-100)
+	if m.grid.data.total != gridRows-100 {
+		t.Fatalf("total = %d, want the filtered count %d", m.grid.data.total, gridRows-100)
 	}
 
 	// Paging keeps the filter …
 	m = send(t, m, ctrl('f'))
-	if m.data.filter == nil || m.data.filter.Raw != "id > 100" {
-		t.Fatalf("filter lost across a page turn: %+v", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Raw != "id > 100" {
+		t.Fatalf("filter lost across a page turn: %+v", m.grid.data.filter)
 	}
 	if !logContains(m, `WHERE "id" > ? LIMIT 100 OFFSET 100`) {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -272,11 +272,11 @@ func TestFilterIsBoundAndComposesWithSortAndPaging(t *testing.T) {
 
 	// … and so does sorting, which also returns to the first page.
 	m = send(t, m, press('s'))
-	if m.data.filter == nil || m.data.filter.Raw != "id > 100" {
-		t.Fatalf("filter lost across a sort: %+v", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Raw != "id > 100" {
+		t.Fatalf("filter lost across a sort: %+v", m.grid.data.filter)
 	}
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want a sort to return to the first page", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want a sort to return to the first page", m.grid.data.page)
 	}
 	if !logContains(m, `WHERE "id" > ? ORDER BY "id" ASC LIMIT 100 OFFSET 0`) {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -284,8 +284,8 @@ func TestFilterIsBoundAndComposesWithSortAndPaging(t *testing.T) {
 
 	// An empty fragment clears it.
 	m = applyWhereFilter(t, m, "")
-	if m.data.filter != nil {
-		t.Fatalf("filter = %+v, want it cleared", m.data.filter)
+	if m.grid.data.filter != nil {
+		t.Fatalf("filter = %+v, want it cleared", m.grid.data.filter)
 	}
 }
 
@@ -295,14 +295,14 @@ func TestVerbatimFilterWarns(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "id IN (1,2,3)")
 
-	if m.data.filter == nil || !m.data.filter.Verbatim {
-		t.Fatalf("filter = %+v, want a verbatim one", m.data.filter)
+	if m.grid.data.filter == nil || !m.grid.data.filter.Verbatim {
+		t.Fatalf("filter = %+v, want a verbatim one", m.grid.data.filter)
 	}
 	if !logContains(m, "WARNING") || !logContains(m, "could not be parameterized") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if len(m.data.rows) != 3 {
-		t.Fatalf("rows = %d, want the 3 the fragment selects", len(m.data.rows))
+	if len(m.grid.data.rows) != 3 {
+		t.Fatalf("rows = %d, want the 3 the fragment selects", len(m.grid.data.rows))
 	}
 	if !strings.Contains(m.View().Content, "where (verbatim)") {
 		t.Error("the grid does not flag the verbatim filter")
@@ -314,16 +314,16 @@ func TestBrokenFilterKeepsThePageAndReports(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "no_such_column IN (1, 2)")
 
-	if len(m.data.rows) != dataPageSize {
-		t.Fatalf("rows = %d, want the previous page to survive", len(m.data.rows))
+	if len(m.grid.data.rows) != dataPageSize {
+		t.Fatalf("rows = %d, want the previous page to survive", len(m.grid.data.rows))
 	}
-	if m.data.err == "" {
+	if m.grid.data.err == "" {
 		t.Fatal("the grid does not know the query failed")
 	}
 	if !logContains(m, "FAILED") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.data.loading {
+	if m.grid.data.loading {
 		t.Fatal("loading flag survived the error")
 	}
 }
@@ -375,20 +375,20 @@ func TestFilteredEmptyResultSaysNoRowsMatch(t *testing.T) {
 func TestCellCursorMovesAndClamps(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('l'), press('l'), press('l'), press('l'), press('l'))
-	if got := m.data.col; got != len(m.data.cols)-1 {
-		t.Fatalf("column = %d, want it clamped to %d", got, len(m.data.cols)-1)
+	if got := m.grid.data.col; got != len(m.grid.data.cols)-1 {
+		t.Fatalf("column = %d, want it clamped to %d", got, len(m.grid.data.cols)-1)
 	}
 	m = send(t, m, press('h'), press('h'), press('h'), press('h'), press('h'))
-	if m.data.col != 0 {
-		t.Fatalf("column = %d, want 0", m.data.col)
+	if m.grid.data.col != 0 {
+		t.Fatalf("column = %d, want 0", m.grid.data.col)
 	}
 	m = send(t, m, press('j'), press('j'))
-	if m.data.row != 2 {
-		t.Fatalf("row = %d, want 2", m.data.row)
+	if m.grid.data.row != 2 {
+		t.Fatalf("row = %d, want 2", m.grid.data.row)
 	}
 	m = send(t, m, press('k'), press('k'), press('k'), press('k'))
-	if m.data.row != 0 {
-		t.Fatalf("row = %d, want 0", m.data.row)
+	if m.grid.data.row != 0 {
+		t.Fatalf("row = %d, want 0", m.grid.data.row)
 	}
 }
 
@@ -513,19 +513,19 @@ func TestGridRendersAtManySizes(t *testing.T) {
 // A reply for a query the user has already moved past is dropped.
 func TestStalePageReplyIsIgnored(t *testing.T) {
 	m := dataBrowsing(t)
-	before := len(m.data.rows)
+	before := len(m.grid.data.rows)
 	m = send(t, m, pageLoadedMsg{
-		req:    m.data.req - 1,
+		req:    m.grid.data.req - 1,
 		conn:   m.active,
-		table:  m.data.table,
+		table:  m.grid.data.table,
 		result: &db.ResultSet{Columns: []db.Column{{Name: "ghost"}}, Rows: [][]any{{1}}},
 	})
-	if len(m.data.rows) != before || len(m.data.cols) == 1 {
+	if len(m.grid.data.rows) != before || len(m.grid.data.cols) == 1 {
 		t.Fatal("a stale page reply landed")
 	}
-	m = send(t, m, rowCountMsg{req: m.data.req, conn: "other-connection", table: m.data.table, total: 7})
-	if m.data.total != gridRows {
-		t.Fatalf("total = %d, want the stale count dropped", m.data.total)
+	m = send(t, m, rowCountMsg{req: m.grid.data.req, conn: "other-connection", table: m.grid.data.table, total: 7})
+	if m.grid.data.total != gridRows {
+		t.Fatalf("total = %d, want the stale count dropped", m.grid.data.total)
 	}
 }
 
@@ -546,7 +546,7 @@ func TestTabCycleIncludesTheGridWhenOpen(t *testing.T) {
 		t.Fatalf("shift+tab: focus = %v, want the grid", m.focus)
 	}
 
-	m.data = dataView{}
+	m.grid.data = dataView{}
 	m.focus = panelQuery
 	m = send(t, m, special(tea.KeyTab, 0))
 	if m.focus != panelConnections {
@@ -562,7 +562,7 @@ func TestEscLeavesGridAndDatabaseSwitchClosesIt(t *testing.T) {
 	if m.focus != panelObjects {
 		t.Fatalf("focus = %v, want %v", m.focus, panelObjects)
 	}
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		t.Fatal("esc closed the page instead of only moving focus")
 	}
 
@@ -571,7 +571,7 @@ func TestEscLeavesGridAndDatabaseSwitchClosesIt(t *testing.T) {
 	m = send(t, m, focusPanelMsg{id: panelObjects})
 	cmd := m.openDatabase(pseudoDatabase)
 	_ = drain(cmd)
-	if m.data.open() {
+	if m.grid.data.open() {
 		t.Fatal("the page survived a namespace switch")
 	}
 }
@@ -582,7 +582,7 @@ func TestOpeningAnotherTableResetsQueryShape(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "id > 100")
 	m = send(t, m, press('s'))
-	if m.data.filter == nil || m.data.sort == nil {
+	if m.grid.data.filter == nil || m.grid.data.sort == nil {
 		t.Fatal("fixture did not set up a filter and a sort")
 	}
 
@@ -594,11 +594,11 @@ func TestOpeningAnotherTableResetsQueryShape(t *testing.T) {
 	m.panels[panelObjects].selectByName("other")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	if m.data.table != "other" {
-		t.Fatalf("table = %q, want other", m.data.table)
+	if m.grid.data.table != "other" {
+		t.Fatalf("table = %q, want other", m.grid.data.table)
 	}
-	if m.data.filter != nil || m.data.sort != nil || m.data.page != 0 {
-		t.Fatalf("query shape carried over: %+v", m.data)
+	if m.grid.data.filter != nil || m.grid.data.sort != nil || m.grid.data.page != 0 {
+		t.Fatalf("query shape carried over: %+v", m.grid.data)
 	}
 }
 
@@ -612,28 +612,28 @@ func TestFilterInputShowsTheStatementAsAnImmutablePrefix(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("/ opened %T, want no popup at all", m.modal)
 	}
-	if m.filterInput == nil {
+	if m.grid.filterInput == nil {
 		t.Fatal("/ opened no filter line")
 	}
-	if want := `SELECT * FROM "grid" WHERE `; m.filterInput.prefix != want {
-		t.Fatalf("prefix = %q, want %q", m.filterInput.prefix, want)
+	if want := `SELECT * FROM "grid" WHERE `; m.grid.filterInput.prefix != want {
+		t.Fatalf("prefix = %q, want %q", m.grid.filterInput.prefix, want)
 	}
 	if !strings.Contains(m.View().Content, `SELECT * FROM "grid" WHERE`) {
 		t.Error("the grid does not show the statement the clause goes into")
 	}
 
 	m = typeKeys(t, m, "id > 100")
-	if got := m.filterInput.value(); got != "id > 100" {
+	if got := m.grid.filterInput.value(); got != "id > 100" {
 		t.Fatalf("clause = %q, want only what was typed", got)
 	}
 	// Backspacing past the start eats the clause, never the prefix.
 	for i := 0; i < 20; i++ {
 		m = send(t, m, special(tea.KeyBackspace, 0))
 	}
-	if got := m.filterInput.value(); got != "" {
+	if got := m.grid.filterInput.value(); got != "" {
 		t.Fatalf("clause = %q, want it emptied", got)
 	}
-	if m.filterInput.prefix == "" {
+	if m.grid.filterInput.prefix == "" {
 		t.Fatal("backspace ate the prefix")
 	}
 }
@@ -646,7 +646,7 @@ func TestFilterInputSwallowsTheGlobalKeys(t *testing.T) {
 	m = send(t, m, press('/'))
 	m = typeKeys(t, m, "q = 2")
 
-	if got := m.filterInput.value(); got != "q = 2" {
+	if got := m.grid.filterInput.value(); got != "q = 2" {
 		t.Fatalf("clause = %q, want the global keys typed into it", got)
 	}
 	if m.focus != panelMain {
@@ -669,22 +669,22 @@ func TestFilterInputBindsQuotedLiterals(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = applyWhereFilter(t, m, `name = 'o''%brien'`)
-	if m.data.filter == nil || m.data.filter.Verbatim {
-		t.Fatalf("filter = %+v, want a parameterized one", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Verbatim {
+		t.Fatalf("filter = %+v, want a parameterized one", m.grid.data.filter)
 	}
-	if len(m.data.rows) != 1 {
-		t.Fatalf("rows = %d, want the one literal match", len(m.data.rows))
+	if len(m.grid.data.rows) != 1 {
+		t.Fatalf("rows = %d, want the one literal match", len(m.grid.data.rows))
 	}
 	if !logContains(m, `WHERE "name" = ?`) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
 
 	m = applyWhereFilter(t, m, `name = 'x'' OR 1=1 --'`)
-	if len(m.data.rows) != 0 {
-		t.Fatalf("rows = %d, want none — the literal is data, not SQL", len(m.data.rows))
+	if len(m.grid.data.rows) != 0 {
+		t.Fatalf("rows = %d, want none — the literal is data, not SQL", len(m.grid.data.rows))
 	}
-	if m.data.err != "" {
-		t.Fatalf("the injected value broke the statement: %s", m.data.err)
+	if m.grid.data.err != "" {
+		t.Fatalf("the injected value broke the statement: %s", m.grid.data.err)
 	}
 }
 
@@ -693,26 +693,26 @@ func TestFilterInputBindsQuotedLiterals(t *testing.T) {
 func TestFilterInputBindsNullTestsAndAndedTerms(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "note IS NULL")
-	if m.data.filter == nil || len(m.data.filter.Args) != 0 {
-		t.Fatalf("filter = %+v, want no bound argument", m.data.filter)
+	if m.grid.data.filter == nil || len(m.grid.data.filter.Args) != 0 {
+		t.Fatalf("filter = %+v, want no bound argument", m.grid.data.filter)
 	}
 	if !logContains(m, `WHERE "note" IS NULL`) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.data.total != gridRows {
-		t.Fatalf("total = %d, want all %d rows (note is always NULL)", m.data.total, gridRows)
+	if m.grid.data.total != gridRows {
+		t.Fatalf("total = %d, want all %d rows (note is always NULL)", m.grid.data.total, gridRows)
 	}
 
 	m = applyWhereFilter(t, m, "id > 200 AND name LIKE 'name-24%'")
-	if m.data.filter == nil || len(m.data.filter.Args) != 2 {
-		t.Fatalf("filter = %+v, want both values bound", m.data.filter)
+	if m.grid.data.filter == nil || len(m.grid.data.filter.Args) != 2 {
+		t.Fatalf("filter = %+v, want both values bound", m.grid.data.filter)
 	}
 	if !logContains(m, `WHERE "id" > ? AND "name" LIKE ?`) {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
 	// 240–249 are above 200 and match the pattern.
-	if m.data.total != 10 {
-		t.Fatalf("total = %d, want 10", m.data.total)
+	if m.grid.data.total != 10 {
+		t.Fatalf("total = %d, want 10", m.grid.data.total)
 	}
 }
 
@@ -720,16 +720,16 @@ func TestFilterInputBindsNullTestsAndAndedTerms(t *testing.T) {
 func TestClearFilterRestoresTheFullView(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "id > 200")
-	if m.data.total != 50 {
-		t.Fatalf("total = %d, want 50", m.data.total)
+	if m.grid.data.total != 50 {
+		t.Fatalf("total = %d, want 50", m.grid.data.total)
 	}
 
 	m = send(t, m, press('F'))
-	if m.data.filter != nil {
-		t.Fatalf("filter = %+v, want it cleared", m.data.filter)
+	if m.grid.data.filter != nil {
+		t.Fatalf("filter = %+v, want it cleared", m.grid.data.filter)
 	}
-	if m.data.total != gridRows {
-		t.Fatalf("total = %d, want the unfiltered %d", m.data.total, gridRows)
+	if m.grid.data.total != gridRows {
+		t.Fatalf("total = %d, want the unfiltered %d", m.grid.data.total, gridRows)
 	}
 	if strings.Contains(m.View().Content, "where ") {
 		t.Error("the status line still shows a filter")
@@ -754,14 +754,14 @@ func TestFilterInputEscCancelsWithoutTouchingTheGrid(t *testing.T) {
 	m = typeKeys(t, m, "id > 1")
 	m = send(t, m, special(tea.KeyEscape, 0))
 
-	if m.filterInput != nil {
+	if m.grid.filterInput != nil {
 		t.Fatal("esc left the line open")
 	}
-	if m.data.filter == nil || m.data.filter.Raw != "id > 200" {
-		t.Fatalf("filter = %+v, want the one that was running", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Raw != "id > 200" {
+		t.Fatalf("filter = %+v, want the one that was running", m.grid.data.filter)
 	}
-	if m.data.total != 50 {
-		t.Fatalf("total = %d, want the page untouched", m.data.total)
+	if m.grid.data.total != 50 {
+		t.Fatalf("total = %d, want the page untouched", m.grid.data.total)
 	}
 	// The status line is back now that the line is gone.
 	if !strings.Contains(m.View().Content, "where id > 200") {
@@ -778,7 +778,7 @@ func TestFilterInputFitsEveryBoxWidth(t *testing.T) {
 	m = typeKeys(t, m, "status = 'open'")
 
 	for _, w := range []int{4, 8, 12, 20, 40, 120} {
-		line := m.filterInput.view(w)
+		line := m.grid.filterInput.view(w)
 		if got := lipgloss.Width(line); got > w {
 			t.Errorf("line at w=%d renders %d cells wide", w, got)
 		}
@@ -810,7 +810,7 @@ func TestFilterInputOpensOnTheActiveFilter(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "id > 200")
 	m = send(t, m, press('/'))
-	if got := m.filterInput.value(); got != "id > 200" {
+	if got := m.grid.filterInput.value(); got != "id > 200" {
 		t.Fatalf("line = %q, want the active filter", got)
 	}
 }
@@ -823,15 +823,15 @@ func TestFilterInputClosesWhenTheGridLosesFocus(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('/'))
 	m = send(t, m, special(tea.KeyTab, 0))
-	if m.filterInput == nil || m.focus != panelMain {
-		t.Fatalf("tab left the line: focus = %v, line = %v", m.focus, m.filterInput)
+	if m.grid.filterInput == nil || m.focus != panelMain {
+		t.Fatalf("tab left the line: focus = %v, line = %v", m.focus, m.grid.filterInput)
 	}
 
 	m = send(t, m, click(2, 2)) // panel [1], the top of the side column
 	if m.focus == panelMain {
 		t.Fatal("the click did not move the focus off the grid")
 	}
-	if m.filterInput != nil {
+	if m.grid.filterInput != nil {
 		t.Fatalf("the line survived a focus change to %v", m.focus)
 	}
 }
@@ -847,11 +847,11 @@ func TestFilterInputClosesWhenAnotherRelationOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = send(t, m, press('/'))
-	if m.filterInput == nil {
+	if m.grid.filterInput == nil {
 		t.Fatal("/ opened no filter line")
 	}
 	m.openTable("other")
-	if m.filterInput != nil {
+	if m.grid.filterInput != nil {
 		t.Fatal("the line followed the grid to another relation")
 	}
 }
@@ -860,7 +860,7 @@ func TestFilterInputClosesWhenAnotherRelationOpens(t *testing.T) {
 //
 // The cell cursor is only useful if the cell it points at is the cell the
 // user sees highlighted: `enter`, `e`, `v` and `y` all act on
-// m.data.row/col while the eye reads the tinted cell. The helpers below
+// m.grid.data.row/col while the eye reads the tinted cell. The helpers below
 // read the highlight straight out of the rendered frame, so a test can
 // assert the two agree whatever the navigation, the page or the size.
 
@@ -910,18 +910,18 @@ func highlightedCell(body string) (text string, line, count int) {
 // `v` shows, `e` edits and `y` copies — formatted the way the grid
 // formats it, so it can be compared with what was rendered.
 func cursorCellText(m Model) (string, bool) {
-	if m.data.col < 0 || m.data.col >= len(m.data.cols) {
+	if m.grid.data.col < 0 || m.grid.data.col >= len(m.grid.data.cols) {
 		return "", false
 	}
-	kind := db.ClassifyType(m.data.cols[m.data.col].DataType)
+	kind := db.ClassifyType(m.grid.data.cols[m.grid.data.col].DataType)
 	if ins, ok := m.phantomAtCursor(); ok {
-		v, bound := insertValueFor(ins, m.data.cols[m.data.col].Name)
+		v, bound := insertValueFor(ins, m.grid.data.cols[m.grid.data.col].Name)
 		if !bound {
 			return defaultText, true
 		}
 		return gridCellText(v, kind, nullText), true
 	}
-	v, ok := m.data.cell()
+	v, ok := m.grid.data.cell()
 	if !ok {
 		return "", false
 	}
@@ -935,19 +935,19 @@ func assertCursorRendered(t *testing.T, m Model, what string) {
 	want, ok := cursorCellText(m)
 	if !ok {
 		t.Fatalf("%s: cursor (%d,%d) points outside the page (%d rows, %d columns)",
-			what, m.data.row, m.data.col, m.data.rowCount(), len(m.data.cols))
+			what, m.grid.data.row, m.grid.data.col, m.grid.data.rowCount(), len(m.grid.data.cols))
 	}
 	cols, _ := m.buildGrid()
-	want = strings.TrimRight(truncate(want, cols[m.data.col].width), " ")
+	want = strings.TrimRight(truncate(want, cols[m.grid.data.col].width), " ")
 
 	got, _, n := highlightedCell(gridBox(m))
 	if n != 1 {
 		t.Fatalf("%s: %d cells carry the cursor tint, want exactly 1 (cursor at %d,%d)",
-			what, n, m.data.row, m.data.col)
+			what, n, m.grid.data.row, m.grid.data.col)
 	}
 	if got != want {
 		t.Fatalf("%s: the highlighted cell reads %q, but the cursor is on %q at (%d,%d)",
-			what, got, want, m.data.row, m.data.col)
+			what, got, want, m.grid.data.row, m.grid.data.col)
 	}
 }
 
@@ -1068,17 +1068,17 @@ func TestDiscardingChangesBringsTheCursorBack(t *testing.T) {
 	setField(f, "name", "phantom")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	m.data.row = len(m.data.rows)
+	m.grid.data.row = len(m.grid.data.rows)
 	m.clampCursor()
 	assertCursorRendered(t, m, "on the phantom row")
 
 	m = send(t, m, press('U'), press('y'))
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after U, want it discarded", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after U, want it discarded", m.grid.changes.Len())
 	}
-	if m.data.row >= len(m.data.rows) {
+	if m.grid.data.row >= len(m.grid.data.rows) {
 		t.Fatalf("cursor row = %d, want it back inside the %d-row page",
-			m.data.row, len(m.data.rows))
+			m.grid.data.row, len(m.grid.data.rows))
 	}
 	assertCursorRendered(t, m, "after discarding the changeset")
 }
@@ -1149,7 +1149,7 @@ func TestColumnWindowClampsAroundTheCursor(t *testing.T) {
 // highlight both missed its cell and bled down the frame (issue #132).
 func TestWideColumnKeepsTheCursorCellInItsBox(t *testing.T) {
 	m := sized(120, 40)
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn: "c", database: "d", table: "t",
 		cols: []db.Column{{Name: "note", DataType: "text"}},
 		rows: [][]any{{strings.Repeat("x", 400)}, {strings.Repeat("y", 400)}},
@@ -1208,12 +1208,12 @@ func TestSelectionClearedByEveryQueryShapeChange(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := send(t, dataBrowsing(t), ctrl('v'), press('j'), press('j'))
-			if got := len(m.data.selectedRows()); got != 3 {
+			if got := len(m.grid.data.selectedRows()); got != 3 {
 				t.Fatalf("selected %d rows, want 3 before the %s", got, tc.name)
 			}
 			m = tc.apply(t, m)
-			if m.data.selecting() {
-				t.Fatalf("the selection survived the %s: %+v", tc.name, m.data.sel)
+			if m.grid.data.selecting() {
+				t.Fatalf("the selection survived the %s: %+v", tc.name, m.grid.data.sel)
 			}
 			if m.keys.CopySelection.Enabled() {
 				t.Fatalf("ctrl+c stayed bound to the copy across the %s", tc.name)
@@ -1232,14 +1232,14 @@ func shiftUp() tea.KeyPressMsg   { return special(tea.KeyUp, tea.ModShift) }
 // presses extend it exactly like j does.
 func TestShiftDownStartsAndExtendsSelection(t *testing.T) {
 	m := dataBrowsing(t)
-	if m.data.selecting() {
+	if m.grid.data.selecting() {
 		t.Fatalf("selection already running before any shift+down")
 	}
 	m = send(t, m, shiftDown())
-	if !m.data.selecting() {
+	if !m.grid.data.selecting() {
 		t.Fatalf("shift+down did not start a selection")
 	}
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("selected %d rows after one shift+down, want 2", got)
 	}
 	if !m.keys.CopySelection.Enabled() {
@@ -1247,12 +1247,12 @@ func TestShiftDownStartsAndExtendsSelection(t *testing.T) {
 	}
 
 	m = send(t, m, shiftDown())
-	if got := len(m.data.selectedRows()); got != 3 {
+	if got := len(m.grid.data.selectedRows()); got != 3 {
 		t.Fatalf("selected %d rows after a second shift+down, want 3", got)
 	}
 
 	m = send(t, m, shiftUp())
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("selected %d rows after shift+up shrank it, want 2", got)
 	}
 }
@@ -1261,30 +1261,30 @@ func TestShiftDownStartsAndExtendsSelection(t *testing.T) {
 // just an alias for shift+down.
 func TestShiftUpStartsSelectionUpward(t *testing.T) {
 	m := send(t, dataBrowsing(t), press('j'), press('j'), press('j'))
-	if m.data.row != 3 {
-		t.Fatalf("cursor row = %d, want 3 before shift+up", m.data.row)
+	if m.grid.data.row != 3 {
+		t.Fatalf("cursor row = %d, want 3 before shift+up", m.grid.data.row)
 	}
 	m = send(t, m, shiftUp())
-	if !m.data.selecting() {
+	if !m.grid.data.selecting() {
 		t.Fatalf("shift+up did not start a selection")
 	}
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("selected %d rows after one shift+up, want 2", got)
 	}
-	if m.data.row != 2 {
-		t.Fatalf("cursor row = %d, want 2 after shift+up moved it", m.data.row)
+	if m.grid.data.row != 2 {
+		t.Fatalf("cursor row = %d, want 2 after shift+up moved it", m.grid.data.row)
 	}
 }
 
 // esc clears a shift-started selection the same way it clears a ctrl+v one.
 func TestEscClearsAShiftStartedSelection(t *testing.T) {
 	m := send(t, dataBrowsing(t), shiftDown(), shiftDown())
-	if !m.data.selecting() {
+	if !m.grid.data.selecting() {
 		t.Fatalf("shift+down did not start a selection")
 	}
 	m = send(t, m, special(tea.KeyEsc, 0))
-	if m.data.selecting() {
-		t.Fatalf("esc did not clear the shift-started selection: %+v", m.data.sel)
+	if m.grid.data.selecting() {
+		t.Fatalf("esc did not clear the shift-started selection: %+v", m.grid.data.sel)
 	}
 	if m.keys.CopySelection.Enabled() {
 		t.Fatalf("ctrl+c stayed bound to the copy after esc cleared the selection")
@@ -1296,7 +1296,7 @@ func TestEscClearsAShiftStartedSelection(t *testing.T) {
 // how the running selection behaves.
 func TestShiftExtendsACtrlVSelectionLikeVimKeys(t *testing.T) {
 	m := send(t, dataBrowsing(t), ctrl('v'), shiftDown(), shiftDown())
-	if got := len(m.data.selectedRows()); got != 3 {
+	if got := len(m.grid.data.selectedRows()); got != 3 {
 		t.Fatalf("selected %d rows after ctrl+v and two shift+down, want 3", got)
 	}
 }
@@ -1310,19 +1310,19 @@ func shiftRight() tea.KeyPressMsg { return special(tea.KeyRight, tea.ModShift) }
 // cell and narrows it to columns in one gesture: one row, two columns.
 func TestShiftRightStartsAColumnSelection(t *testing.T) {
 	m := send(t, dataBrowsing(t), shiftRight())
-	if !m.data.selecting() {
+	if !m.grid.data.selecting() {
 		t.Fatalf("shift+right did not start a selection")
 	}
-	if got := len(m.data.selectedRows()); got != 1 {
+	if got := len(m.grid.data.selectedRows()); got != 1 {
 		t.Fatalf("selected %d rows, want the cursor row alone", got)
 	}
-	if got := m.data.selectedCols(); len(got) != 2 || got[0] != 0 || got[1] != 1 {
+	if got := m.grid.data.selectedCols(); len(got) != 2 || got[0] != 0 || got[1] != 1 {
 		t.Fatalf("selected columns = %v, want the first two", got)
 	}
-	if m.data.col != 1 {
-		t.Fatalf("cursor column = %d, want it moved to 1", m.data.col)
+	if m.grid.data.col != 1 {
+		t.Fatalf("cursor column = %d, want it moved to 1", m.grid.data.col)
 	}
-	if !m.data.narrowedToCols() {
+	if !m.grid.data.narrowedToCols() {
 		t.Fatalf("the selection is not reported as narrowed to columns")
 	}
 	if !m.keys.CopySelection.Enabled() {
@@ -1334,17 +1334,17 @@ func TestShiftRightStartsAColumnSelection(t *testing.T) {
 // row span does: shift+left after two shift+rights walks back.
 func TestShiftLeftShrinksAndCrossesTheColumnAnchor(t *testing.T) {
 	m := send(t, dataBrowsing(t), shiftRight(), shiftRight())
-	if got := len(m.data.selectedCols()); got != 3 {
+	if got := len(m.grid.data.selectedCols()); got != 3 {
 		t.Fatalf("selected %d columns after two shift+right, want 3", got)
 	}
 	m = send(t, m, shiftLeft())
-	if got := len(m.data.selectedCols()); got != 2 {
+	if got := len(m.grid.data.selectedCols()); got != 2 {
 		t.Fatalf("selected %d columns after shift+left shrank it, want 2", got)
 	}
 	// Back past the anchor: the span flips to the other side rather than
 	// collapsing to nothing.
 	m = send(t, m, shiftLeft(), shiftLeft())
-	if got := m.data.selectedCols(); len(got) != 1 || got[0] != 0 {
+	if got := m.grid.data.selectedCols(); len(got) != 1 || got[0] != 0 {
 		t.Fatalf("selected columns = %v, want only the anchor column", got)
 	}
 }
@@ -1353,17 +1353,17 @@ func TestShiftLeftShrinksAndCrossesTheColumnAnchor(t *testing.T) {
 // block is opt-in, so ctrl+v and shift+down keep meaning whole rows.
 func TestRowSelectionCoversEveryColumnUntilNarrowed(t *testing.T) {
 	m := send(t, dataBrowsing(t), ctrl('v'), shiftDown())
-	if m.data.narrowedToCols() {
+	if m.grid.data.narrowedToCols() {
 		t.Fatalf("a plain row selection reports itself as narrowed")
 	}
-	if got, want := len(m.data.selectedCols()), len(m.data.cols); got != want {
+	if got, want := len(m.grid.data.selectedCols()), len(m.grid.data.cols); got != want {
 		t.Fatalf("selected %d columns, want all %d", got, want)
 	}
 	m = send(t, m, shiftRight())
-	if !m.data.narrowedToCols() || len(m.data.selectedCols()) != 2 {
-		t.Fatalf("shift+right did not narrow the running selection: %+v", m.data.sel)
+	if !m.grid.data.narrowedToCols() || len(m.grid.data.selectedCols()) != 2 {
+		t.Fatalf("shift+right did not narrow the running selection: %+v", m.grid.data.sel)
 	}
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("selected %d rows, want the row span left alone", got)
 	}
 }
@@ -1372,13 +1372,13 @@ func TestRowSelectionCoversEveryColumnUntilNarrowed(t *testing.T) {
 // not painted as selected.
 func TestOnlySelectedColumnsAreTinted(t *testing.T) {
 	m := send(t, dataBrowsing(t), shiftDown(), shiftRight())
-	if !m.data.cellSelected(0, 0) || !m.data.cellSelected(1, 1) {
-		t.Fatalf("cells inside the block are not selected: %+v", m.data.sel)
+	if !m.grid.data.cellSelected(0, 0) || !m.grid.data.cellSelected(1, 1) {
+		t.Fatalf("cells inside the block are not selected: %+v", m.grid.data.sel)
 	}
-	if m.data.cellSelected(1, 2) {
+	if m.grid.data.cellSelected(1, 2) {
 		t.Fatalf("a column outside the block is painted as selected")
 	}
-	if m.data.cellSelected(2, 0) {
+	if m.grid.data.cellSelected(2, 0) {
 		t.Fatalf("a row outside the block is painted as selected")
 	}
 }
@@ -1388,17 +1388,17 @@ func TestOnlySelectedColumnsAreTinted(t *testing.T) {
 // column span and plain l/h move its open edge.
 func TestUnshiftedSelectionFallbackKeys(t *testing.T) {
 	m := send(t, dataBrowsing(t), press('V'), press('J'), press('C'), press('l'))
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("V then J selected %d rows, want 2", got)
 	}
-	if got := len(m.data.selectedCols()); got != 2 {
+	if got := len(m.grid.data.selectedCols()); got != 2 {
 		t.Fatalf("C then l selected %d columns, want 2", got)
 	}
 	m = send(t, m, press('K'), press('h'))
-	if got := len(m.data.selectedRows()); got != 1 {
+	if got := len(m.grid.data.selectedRows()); got != 1 {
 		t.Fatalf("K shrank the selection to %d rows, want 1", got)
 	}
-	if got := len(m.data.selectedCols()); got != 1 {
+	if got := len(m.grid.data.selectedCols()); got != 1 {
 		t.Fatalf("h shrank the selection to %d columns, want 1", got)
 	}
 }
@@ -1407,14 +1407,14 @@ func TestUnshiftedSelectionFallbackKeys(t *testing.T) {
 // back to every column without dropping the selected rows.
 func TestSelectColumnsTogglesTheSpanOff(t *testing.T) {
 	m := send(t, dataBrowsing(t), press('V'), press('j'), press('C'), press('l'))
-	if !m.data.narrowedToCols() {
-		t.Fatalf("C did not anchor a column span: %+v", m.data.sel)
+	if !m.grid.data.narrowedToCols() {
+		t.Fatalf("C did not anchor a column span: %+v", m.grid.data.sel)
 	}
 	m = send(t, m, press('C'))
-	if m.data.narrowedToCols() {
-		t.Fatalf("a second C did not drop the column span: %+v", m.data.sel)
+	if m.grid.data.narrowedToCols() {
+		t.Fatalf("a second C did not drop the column span: %+v", m.grid.data.sel)
 	}
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("a second C dropped the rows too: %d selected, want 2", got)
 	}
 }
@@ -1423,13 +1423,13 @@ func TestSelectColumnsTogglesTheSpanOff(t *testing.T) {
 // sideways `ctrl+v`, not something that needs one first.
 func TestSelectColumnsStartsASelection(t *testing.T) {
 	m := send(t, dataBrowsing(t), press('C'))
-	if !m.data.selecting() || !m.data.narrowedToCols() {
-		t.Fatalf("C did not start a block selection: %+v", m.data.sel)
+	if !m.grid.data.selecting() || !m.grid.data.narrowedToCols() {
+		t.Fatalf("C did not start a block selection: %+v", m.grid.data.sel)
 	}
-	if got := len(m.data.selectedRows()); got != 1 {
+	if got := len(m.grid.data.selectedRows()); got != 1 {
 		t.Fatalf("C selected %d rows, want the cursor row alone", got)
 	}
-	if got := len(m.data.selectedCols()); got != 1 {
+	if got := len(m.grid.data.selectedCols()); got != 1 {
 		t.Fatalf("C selected %d columns, want the cursor column alone", got)
 	}
 }
@@ -1438,8 +1438,8 @@ func TestSelectColumnsStartsASelection(t *testing.T) {
 // ctrl+v starts full-width again.
 func TestClearingDropsTheColumnSpan(t *testing.T) {
 	m := send(t, dataBrowsing(t), shiftRight(), special(tea.KeyEsc, 0), ctrl('v'))
-	if m.data.narrowedToCols() {
-		t.Fatalf("the column span survived esc: %+v", m.data.sel)
+	if m.grid.data.narrowedToCols() {
+		t.Fatalf("the column span survived esc: %+v", m.grid.data.sel)
 	}
 }
 
@@ -1485,7 +1485,7 @@ func TestGridRendersDateAndTimeColumnsWithoutAnInventedHalf(t *testing.T) {
 		"alarm":    "14:32:07",
 		"created":  "2026-08-02T14:32:07Z",
 	}
-	for i, c := range m.data.cols {
+	for i, c := range m.grid.data.cols {
 		w, ok := want[c.Name]
 		if !ok {
 			continue

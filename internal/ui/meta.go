@@ -33,7 +33,7 @@ func (t mainTab) metadata() bool { return t != mainTabData }
 // result has no relation behind it, so Structure/Indexes/DDL/Relations
 // have nothing to show and are dropped rather than left dead.
 func (m Model) visibleMainTabs() []mainTab {
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		return []mainTab{mainTabData}
 	}
 	tabs := make([]mainTab, mainTabCount)
@@ -154,7 +154,7 @@ func (m *Model) resetMeta() {
 // path that opens a relation already calls ensureMeta, and that keeps
 // the two fetches from needing separate wiring at each call site.
 func (m *Model) ensureMeta() tea.Cmd {
-	if !m.tab.metadata() || m.driver == nil || !m.data.browsing() {
+	if !m.tab.metadata() || m.driver == nil || !m.grid.data.browsing() {
 		return nil
 	}
 	var cmds []tea.Cmd
@@ -173,11 +173,11 @@ func (m *Model) ensureMeta() tea.Cmd {
 // startMetaLoad fires the fetch unconditionally. Callers decide whether
 // the cache made it unnecessary.
 func (m *Model) startMetaLoad() tea.Cmd {
-	if m.driver == nil || !m.data.browsing() {
+	if m.driver == nil || !m.grid.data.browsing() {
 		return nil
 	}
 	m.meta.req++
-	m.meta.conn, m.meta.database, m.meta.table = m.active, m.data.database, m.data.table
+	m.meta.conn, m.meta.database, m.meta.table = m.active, m.grid.data.database, m.grid.data.table
 	m.meta.loaded, m.meta.loading = false, true
 	m.meta.err = ""
 	return tea.Batch(
@@ -195,7 +195,7 @@ func (m *Model) reloadMeta() tea.Cmd {
 	// `R` means "read it again from the server", so the cached incoming
 	// references of the namespace go with it.
 	if m.tab == mainTabRelations {
-		delete(m.refsCache, m.namespaceFKKey())
+		delete(m.grid.refsCache, m.namespaceFKKey())
 	}
 	return m.ensureMeta()
 }
@@ -203,14 +203,14 @@ func (m *Model) reloadMeta() tea.Cmd {
 // freshMeta reports whether a reply still belongs to the relation on
 // screen.
 func (m Model) freshMeta(msg metaLoadedMsg) bool {
-	return msg.req == m.meta.req && msg.conn == m.active && msg.table == m.data.table
+	return msg.req == m.meta.req && msg.conn == m.active && msg.table == m.grid.data.table
 }
 
 // setMainTab switches tabs and loads the metadata the new one needs.
 func (m *Model) setMainTab(t mainTab) tea.Cmd {
 	// The three introspection tabs describe a relation. A query result
 	// has none, so there is nothing to cycle to.
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		m.tab = mainTabData
 		return nil
 	}
@@ -238,14 +238,14 @@ func (m Model) metaActions(id actionID) (Model, tea.Cmd, bool) {
 // copyDDL copies the open relation's DDL, fetching it first when no tab
 // has needed it yet.
 func (m *Model) copyDDL() tea.Cmd {
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return logCmd("-- copy DDL skipped: no relation open")
 	}
 	if m.meta.loaded {
 		if m.meta.ddl == "" {
-			return logCmd("-- copy DDL of %s skipped: %s", m.data.table, m.ddlProblem())
+			return logCmd("-- copy DDL of %s skipped: %s", m.grid.data.table, m.ddlProblem())
 		}
-		return copyDDLCmd(m.data.table, m.meta.ddl)
+		return copyDDLCmd(m.grid.data.table, m.meta.ddl)
 	}
 	if m.driver == nil {
 		return logCmd("-- copy DDL skipped: not connected")

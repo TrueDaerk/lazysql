@@ -55,10 +55,10 @@ func saveFiltersCmd(entries []history.Entry) tea.Cmd {
 // result rather than a browsed relation — which is what makes both
 // recording and recall no-ops there.
 func (m Model) filterScope() (conn, database, table string, ok bool) {
-	if m.active == "" || !m.data.browsing() {
+	if m.active == "" || !m.grid.data.browsing() {
 		return "", "", "", false
 	}
-	return m.active, m.data.database, m.data.table, true
+	return m.active, m.grid.data.database, m.grid.data.table, true
 }
 
 // filterHistory is the recall list of the open relation, newest first.
@@ -67,7 +67,7 @@ func (m Model) filterHistory() []string {
 	if !ok {
 		return nil
 	}
-	entries := history.InRelation(m.filters, conn, database, table)
+	entries := history.InRelation(m.grid.filters, conn, database, table)
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.SQL)
@@ -102,23 +102,23 @@ func (m *Model) recordFilter(where string) tea.Cmd {
 		Table:      table,
 	}
 
-	kept := make([]history.Entry, 0, len(m.filters)+1)
+	kept := make([]history.Entry, 0, len(m.grid.filters)+1)
 	dropped := false
-	for _, old := range m.filters {
+	for _, old := range m.grid.filters {
 		if old.Connection == conn && old.Database == database && old.Table == table && old.SQL == where {
 			dropped = true
 			continue
 		}
 		kept = append(kept, old)
 	}
-	m.filters = append([]history.Entry{e}, kept...)
-	trimmed := history.TrimRelation(m.filters, conn, database, table, history.MaxRelationEntries)
-	if len(trimmed) != len(m.filters) {
-		m.filters = trimmed
+	m.grid.filters = append([]history.Entry{e}, kept...)
+	trimmed := history.TrimRelation(m.grid.filters, conn, database, table, history.MaxRelationEntries)
+	if len(trimmed) != len(m.grid.filters) {
+		m.grid.filters = trimmed
 		dropped = true
 	}
 	if dropped {
-		return saveFiltersCmd(m.filters)
+		return saveFiltersCmd(m.grid.filters)
 	}
 	return appendFilterCmd(e)
 }

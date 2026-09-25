@@ -23,17 +23,17 @@ import (
 // stagedInserts are the pending INSERTs of the open table, in staging
 // order. The grid renders them after the last real row of the page.
 func (m Model) stagedInserts() []db.RowInsert {
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return nil
 	}
-	return m.changes.InsertsFor(m.data.database, m.data.table)
+	return m.grid.changes.InsertsFor(m.grid.data.database, m.grid.data.table)
 }
 
 // phantomAtCursor returns the staged insert the cursor sits on, if the
 // cursor left the real rows of the page.
 func (m Model) phantomAtCursor() (db.RowInsert, bool) {
 	ins := m.stagedInserts()
-	i := m.data.row - len(m.data.rows)
+	i := m.grid.data.row - len(m.grid.data.rows)
 	if i < 0 || i >= len(ins) {
 		return db.RowInsert{}, false
 	}
@@ -52,12 +52,12 @@ func (m Model) onPhantomRow() bool {
 // never leave the cursor pointing past the last rendered row, and the
 // window the next frame draws is the one the cursor just moved in.
 func (m *Model) clampCursor() {
-	m.data.extraRows = len(m.stagedInserts())
-	m.data.clampCursor()
+	m.grid.data.extraRows = len(m.stagedInserts())
+	m.grid.data.clampCursor()
 	// A page that came back with fewer rows than the selection was
 	// anchored in leaves no rows selected; ending the mode outright keeps
 	// `ctrl+c` from staying bound to a copy of nothing.
-	if m.data.selecting() && len(m.data.selectedRows()) == 0 {
+	if m.grid.data.selecting() && len(m.grid.data.selectedRows()) == 0 {
 		m.clearSelection()
 	}
 	m.settleGridWindow()
@@ -75,7 +75,7 @@ func (m *Model) settleGridWindow() {
 	}
 	g := m.gridLayout(w, h)
 	// colOff counts the scrolling columns only, right of the pinned ones.
-	m.data.rowOff, m.data.colOff = g.rs, g.cs-g.pinned
+	m.grid.data.rowOff, m.grid.data.colOff = g.rs, g.cs-g.pinned
 }
 
 // ---------- delete ----------
@@ -83,7 +83,7 @@ func (m *Model) settleGridWindow() {
 // startDelete is `d` on the Data tab. Like `e` it needs the primary key
 // from the metadata, and waits for the fetch when nothing cached it yet.
 func (m *Model) startDelete() tea.Cmd {
-	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
+	if !m.grid.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if m.readOnly() {
@@ -92,7 +92,7 @@ func (m *Model) startDelete() tea.Cmd {
 	if m.onPhantomRow() {
 		return logCmd("-- delete skipped: the row is a staged insert (u unstages it)")
 	}
-	if len(m.data.rows) == 0 {
+	if len(m.grid.data.rows) == 0 {
 		return logCmd("-- delete skipped: no rows on this page")
 	}
 	if m.meta.loaded {
@@ -105,18 +105,18 @@ func (m *Model) startDelete() tea.Cmd {
 // Staging it also drops that row's staged cell edits — see
 // Changeset.StageDelete.
 func (m *Model) stageDeleteAtCursor() tea.Cmd {
-	pkCols, pkVals, problem := m.editIdentity(m.data.row)
+	pkCols, pkVals, problem := m.editIdentity(m.grid.data.row)
 	if problem != "" {
 		m.modal = &confirmModal{title: "Deleting disabled", body: problem, danger: true}
 		return nil
 	}
 	r := db.RowDelete{
-		Database: m.data.database,
-		Table:    m.data.table,
+		Database: m.grid.data.database,
+		Table:    m.grid.data.table,
 		PKCols:   pkCols,
 		PKVals:   pkVals,
 	}
-	if !m.changes.StageDelete(r) {
+	if !m.grid.changes.StageDelete(r) {
 		return logCmd("-- already staged: delete of %s (%s)", r.Table, rowLabel(pkCols, pkVals))
 	}
 	st := db.DeleteSQL(m.driver.Dialect(), r)
@@ -130,7 +130,7 @@ func (m *Model) stageDeleteAtCursor() tea.Cmd {
 // Unlike delete, neither needs a primary key: a PK-less table can still
 // be inserted into.
 func (m *Model) startInsert(duplicate bool) tea.Cmd {
-	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
+	if !m.grid.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if m.readOnly() {
@@ -143,7 +143,7 @@ func (m *Model) startInsert(duplicate bool) tea.Cmd {
 		if m.onPhantomRow() {
 			return logCmd("-- duplicate skipped: the row is itself a staged insert")
 		}
-		if len(m.data.rows) == 0 {
+		if len(m.grid.data.rows) == 0 {
 			return logCmd("-- duplicate skipped: no rows on this page")
 		}
 	}
@@ -167,16 +167,16 @@ func (m *Model) openInsertModal(duplicate bool) tea.Cmd {
 		}
 		return nil
 	}
-	title := "Insert row into " + m.data.table
+	title := "Insert row into " + m.grid.data.table
 	var prefill map[string]any
 	if duplicate {
-		prefill = m.effectiveRow(m.data.row)
+		prefill = m.effectiveRow(m.grid.data.row)
 		if prefill == nil {
 			return logCmd("-- duplicate skipped: no row under the cursor")
 		}
-		title = "Duplicate row of " + m.data.table
+		title = "Duplicate row of " + m.grid.data.table
 	}
-	m.modal = newInsertRowModal(title, m.data.database, m.data.table, m.meta.cols, prefill)
+	m.modal = newInsertRowModal(title, m.grid.data.database, m.grid.data.table, m.meta.cols, prefill)
 	return nil
 }
 
@@ -185,21 +185,21 @@ func (m *Model) openInsertModal(duplicate bool) tea.Cmd {
 // is what `D` duplicates — copying values the user can see beats copying
 // values only the server still holds.
 func (m Model) effectiveRow(row int) map[string]any {
-	if row < 0 || row >= len(m.data.rows) {
+	if row < 0 || row >= len(m.grid.data.rows) {
 		return nil
 	}
 	var pkVals []any
 	if pkCols := m.pkColumns(); pkCols != nil {
 		pkVals, _ = m.rowKeyVals(pkCols, row)
 	}
-	out := make(map[string]any, len(m.data.cols))
-	for i, c := range m.data.cols {
+	out := make(map[string]any, len(m.grid.data.cols))
+	for i, c := range m.grid.data.cols {
 		var v any
-		if i < len(m.data.rows[row]) {
-			v = m.data.rows[row][i]
+		if i < len(m.grid.data.rows[row]) {
+			v = m.grid.data.rows[row][i]
 		}
 		if pkVals != nil {
-			if ch, ok := m.changes.Lookup(m.data.database, m.data.table, pkVals, c.Name); ok {
+			if ch, ok := m.grid.changes.Lookup(m.grid.data.database, m.grid.data.table, pkVals, c.Name); ok {
 				v = ch.NewValue
 			}
 		}
@@ -210,7 +210,7 @@ func (m Model) effectiveRow(row int) map[string]any {
 
 // stageInsert records a confirmed insert form.
 func (m *Model) stageInsert(r db.RowInsert) tea.Cmd {
-	r = m.changes.StageInsert(r)
+	r = m.grid.changes.StageInsert(r)
 	m.clampCursor()
 	st := db.InsertSQL(m.driver.Dialect(), r)
 	return logCmd("-- stage: %s;  -- args %v", st.SQL, st.Args)

@@ -16,8 +16,8 @@ func TestMainTitleKeepsRelationNameAt80Columns(t *testing.T) {
 	m.width, m.height = 80, 24
 	cw := maxInt(m.width-m.sideWidth()-2, 1)
 	title := m.mainTitle(cw)
-	if !strings.Contains(title, m.data.table) {
-		t.Fatalf("main title = %q, want it to contain the relation name %q", title, m.data.table)
+	if !strings.Contains(title, m.grid.data.table) {
+		t.Fatalf("main title = %q, want it to contain the relation name %q", title, m.grid.data.table)
 	}
 }
 
@@ -46,7 +46,7 @@ func TestMainTitleShowsFullStripAndNameWhenWide(t *testing.T) {
 			t.Fatalf("tab bar = %q, want it to contain %q", title, want)
 		}
 	}
-	if !strings.Contains(title, m.data.table) {
-		t.Fatalf("tab bar = %q, want it to contain the relation name %q", title, m.data.table)
+	if !strings.Contains(title, m.grid.data.table) {
+		t.Fatalf("tab bar = %q, want it to contain the relation name %q", title, m.grid.data.table)
 	}
 }

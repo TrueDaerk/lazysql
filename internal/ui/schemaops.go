@@ -77,7 +77,7 @@ func (m *Model) openObjectSchemaMenu() tea.Cmd {
 // operations on the open table. It needs the table's columns and indexes,
 // so a cold cache fetches them first and the menu opens when they land.
 func (m *Model) openTableSchemaMenu() tea.Cmd {
-	if m.driver == nil || !m.data.browsing() {
+	if m.driver == nil || !m.grid.data.browsing() {
 		return logCmd("-- schema changes skipped: no table open")
 	}
 	if m.readOnly() {
@@ -85,7 +85,7 @@ func (m *Model) openTableSchemaMenu() tea.Cmd {
 	}
 	if m.openRelationKind() == db.RelationView {
 		m.modal = &confirmModal{
-			title: "Schema — view " + m.data.table,
+			title: "Schema — view " + m.grid.data.table,
 			body:  "A view has no columns or indexes of its own to change.\n\nRename or drop it from [2] Objects (S there).",
 		}
 		return nil
@@ -96,7 +96,7 @@ func (m *Model) openTableSchemaMenu() tea.Cmd {
 	if m.meta.err != "" {
 		return logCmd("-- schema changes skipped: %s", m.meta.err)
 	}
-	database, table := m.data.database, m.data.table
+	database, table := m.grid.data.database, m.grid.data.table
 	entries := []menuEntry{
 		m.schemaEntry("a", "add column…", []db.SchemaOp{db.OpAddColumn},
 			func(mm *Model) tea.Cmd { return mm.openAddColumn(database, table) }),
@@ -154,7 +154,7 @@ func (m *Model) schemaEntry(k, label string, ops []db.SchemaOp, open func(*Model
 // stagedSchemaEntries is the menu's way into the staged schema changes,
 // present only while there are some.
 func (m *Model) stagedSchemaEntries() []menuEntry {
-	n := len(m.changes.SchemaChanges())
+	n := len(m.grid.changes.SchemaChanges())
 	if n == 0 {
 		return nil
 	}
@@ -166,14 +166,14 @@ func (m *Model) stagedSchemaEntries() []menuEntry {
 // unstages it. The list reopens after each unstage while any remain, so
 // several can be dropped in a row.
 func (m *Model) openStagedSchema() {
-	changes := m.changes.SchemaChanges()
+	changes := m.grid.changes.SchemaChanges()
 	entries := make([]menuEntry, 0, len(changes)+1)
 	for _, c := range changes {
 		c := c
 		entries = append(entries, menuEntry{label: c.Describe(), action: func(mm *Model) tea.Cmd {
-			mm.changes.UnstageSchema(c)
+			mm.grid.changes.UnstageSchema(c)
 			mm.refreshTree()
-			if len(mm.changes.SchemaChanges()) > 0 {
+			if len(mm.grid.changes.SchemaChanges()) > 0 {
 				mm.openStagedSchema()
 			}
 			return logCmd("-- unstage %s", c.Describe())
@@ -197,7 +197,7 @@ func (m *Model) stageSchema(c db.SchemaChange) tea.Cmd {
 
 // stageRendered stages a change already rendered by Driver.SchemaSQL.
 func (m *Model) stageRendered(c db.SchemaChange, stmts []db.Statement) tea.Cmd {
-	m.changes.StageSchema(c)
+	m.grid.changes.StageSchema(c)
 	m.refreshTree()
 	return logCmd("-- stage: %s;  (c commits)", joinSQL(stmts))
 }
@@ -258,8 +258,8 @@ func (m Model) openRelationKind() db.RelationKind {
 	if m.tree == nil {
 		return db.RelationTable
 	}
-	for _, r := range m.tree.relations[m.data.database] {
-		if r.Name == m.data.table {
+	for _, r := range m.tree.relations[m.grid.data.database] {
+		if r.Name == m.grid.data.table {
 			return r.Kind
 		}
 	}
@@ -278,10 +278,10 @@ func (m Model) cursorColumn() (db.Column, bool) {
 		}
 		return db.Column{}, false
 	case mainTabData:
-		if m.data.col < 0 || m.data.col >= len(m.data.cols) || m.onPhantomRow() {
+		if m.grid.data.col < 0 || m.grid.data.col >= len(m.grid.data.cols) || m.onPhantomRow() {
 			return db.Column{}, false
 		}
-		name = m.data.cols[m.data.col].Name
+		name = m.grid.data.cols[m.grid.data.col].Name
 	default:
 		return db.Column{}, false
 	}
@@ -730,12 +730,12 @@ func describeColumnDef(c db.ColumnDef) string {
 func (m *Model) afterSchemaCommit(changes []db.SchemaChange) tea.Cmd {
 	var cmds []tea.Cmd
 	namespaces := map[string]bool{}
-	open := m.data.browsing() && m.data.conn == m.active
+	open := m.grid.data.browsing() && m.grid.data.conn == m.active
 	gone, renamed := false, ""
 	for _, c := range changes {
 		database, table := db.ChangeTarget(c)
 		namespaces[database] = true
-		if !open || database != m.data.database || table != m.data.table {
+		if !open || database != m.grid.data.database || table != m.grid.data.table {
 			continue
 		}
 		switch c := c.(type) {
@@ -746,8 +746,8 @@ func (m *Model) afterSchemaCommit(changes []db.SchemaChange) tea.Cmd {
 		}
 	}
 
-	m.fkCache = map[fkKey][]db.ForeignKey{}
-	m.refsCache = map[fkKey][]namespaceFK{}
+	m.grid.fkCache = map[fkKey][]db.ForeignKey{}
+	m.grid.refsCache = map[fkKey][]namespaceFK{}
 	// A nil column map is what makes syncSchema rebuild the completion
 	// cache under a new generation on its next use.
 	m.schema.cols = nil
@@ -757,8 +757,8 @@ func (m *Model) afterSchemaCommit(changes []db.SchemaChange) tea.Cmd {
 
 	switch {
 	case !open:
-	case gone || (renamed != "" && m.data.database != m.database):
-		table := m.data.table
+	case gone || (renamed != "" && m.grid.data.database != m.database):
+		table := m.grid.data.table
 		m.closeRelation()
 		cmds = append(cmds, logCmd("-- %s is gone from the server; closed", table))
 	case renamed != "":
@@ -796,14 +796,13 @@ func (m *Model) reloadRelationsOf(database string) tea.Cmd {
 
 // closeRelation empties the main view after the relation in it went away.
 func (m *Model) closeRelation() {
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 	m.closeFilterInput()
 	m.table = ""
-	m.data = dataView{req: m.data.req}
+	m.grid.data = dataView{req: m.grid.data.req}
 	m.tab = mainTabData
 	m.resetMeta()
-	m.browseStack = nil
-	m.fkAfter = actNone
+	m.grid.clearBrowse()
 	if m.focus == panelMain {
 		m.focus = panelObjects
 	}
@@ -824,8 +823,8 @@ func (m *Model) markStagedSchema() {
 	marks := map[rel][]string{}
 	altered := map[rel]int{}
 	created := map[string][]string{}
-	if m.changes != nil {
-		for _, c := range m.changes.SchemaChanges() {
+	if m.grid.changes != nil {
+		for _, c := range m.grid.changes.SchemaChanges() {
 			database, table := db.ChangeTarget(c)
 			r := rel{database, table}
 			switch c := c.(type) {
@@ -877,10 +876,10 @@ func countSchemaChanges(n int) string {
 // while the open table has schema changes staged, so what the commit will
 // do to it is visible next to what it is now.
 func (m Model) stagedSchemaLines(w int) []string {
-	if m.changes == nil {
+	if m.grid.changes == nil {
 		return nil
 	}
-	changes := m.changes.SchemaChangesFor(m.data.database, m.data.table)
+	changes := m.grid.changes.SchemaChangesFor(m.grid.data.database, m.grid.data.table)
 	if len(changes) == 0 {
 		return nil
 	}

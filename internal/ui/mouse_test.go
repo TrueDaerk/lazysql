@@ -2,9 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // click builds a left-button click at an absolute cell.
@@ -121,40 +123,59 @@ func TestClickOnAnotherRowOnlySelects(t *testing.T) {
 }
 
 func TestMainTabHitOffsets(t *testing.T) {
-	tabs := make([]mainTab, mainTabCount)
-	for t := mainTab(0); t < mainTabCount; t++ {
-		tabs[t] = t
-	}
-	at := 1 // the `‹`
+	m := dataBrowsing(t)
+	const w = 200 // plenty of room for the full strip
+	at := 1       // the `‹`
 	for want := mainTab(0); want < mainTabCount; want++ {
 		if want > 0 {
 			at++ // the `|`
 		}
 		for i := 0; i < len(mainTabNames[want]); i++ {
-			got, ok := mainTabHit(at+i, tabs)
+			got, ok := m.mainTabHit(at+i, w)
 			if !ok || got != want {
 				t.Fatalf("mainTabHit(%d) = %v,%v, want %v", at+i, got, ok, want)
 			}
 		}
 		at += len(mainTabNames[want])
 	}
-	if _, ok := mainTabHit(0, tabs); ok {
+	if _, ok := m.mainTabHit(0, w); ok {
 		t.Fatal("mainTabHit(0) hit a tab, want the `‹` to miss")
+	}
+}
+
+// When the title is too narrow for the full strip, it collapses to just the
+// focused tab: every click on it must resolve to that tab rather than
+// missing or landing on a neighbor that is no longer drawn.
+func TestMainTabHitOnCollapsedStrip(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, press('>')) // Structure
+	const w = 30               // narrow enough to collapse to one label, wide enough to keep its name
+	line := m.mainTabBar(w)
+	strip := m.mainTabStrip(m.mainTabLevel(maxInt(w-2, 0), m.mainTabSuffix(w)))
+	if !strings.Contains(line, "Structure") {
+		t.Fatalf("tab bar = %q, want the focused tab name to survive", line)
+	}
+	for col := 0; col < lipgloss.Width(strip); col++ {
+		got, ok := m.mainTabHit(col, w)
+		if !ok || got != mainTabStructure {
+			t.Fatalf("mainTabHit(%d, %d) = %v,%v, want %v", col, w, got, ok, mainTabStructure)
+		}
 	}
 }
 
 // On a query result the strip carries only Data, so a click past its
 // label must miss instead of landing on a tab the strip never drew.
 func TestMainTabHitOnQueryResultOnlyHitsData(t *testing.T) {
-	tabs := []mainTab{mainTabData}
-	at := 1 // the `‹`
+	m := runQuery(t, queryable(t), "SELECT id FROM q ORDER BY id")
+	const w = 200 // plenty of room for the full (one-tab) strip
+	at := 1       // the `‹`
 	for i := 0; i < len(mainTabNames[mainTabData]); i++ {
-		got, ok := mainTabHit(at+i, tabs)
+		got, ok := m.mainTabHit(at+i, w)
 		if !ok || got != mainTabData {
 			t.Fatalf("mainTabHit(%d) = %v,%v, want Data", at+i, got, ok)
 		}
 	}
-	if _, ok := mainTabHit(at+len(mainTabNames[mainTabData]), tabs); ok {
+	if _, ok := m.mainTabHit(at+len(mainTabNames[mainTabData]), w); ok {
 		t.Fatal("mainTabHit hit a tab past Data, want a miss on a query result")
 	}
 }

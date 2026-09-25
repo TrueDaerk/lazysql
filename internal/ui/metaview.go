@@ -12,25 +12,75 @@ import (
 // metaColGap separates the columns of the Structure and Indexes tables.
 const metaColGap = 2
 
-// mainTabBar is the first line of the main view: the four tabs with the
-// selected one highlighted, then the relation the tabs describe.
+// mainTabStripLevel is how much of the Data/Structure/Indexes/DDL/Relations
+// strip mainTabBar draws before the relation name that follows it.
+// Shortening starts at the strip — the focused tab is already highlighted,
+// so the other labels are the only part safe to drop — and stops as soon as
+// what remains plus the relation name fits the title (issue #217).
+type mainTabStripLevel int
+
+const (
+	tabStripFull          mainTabStripLevel = iota // every tab name
+	tabStripFocusedName                             // just the focused tab's name
+	tabStripFocusedLetter                           // just the focused tab's first letter
+)
+
+// mainTabBar is the first line of the main view: the tab strip, shortened
+// just enough to fit, then the relation the tabs describe.
 func (m Model) mainTabBar(w int) string {
+	suffix := m.mainTabSuffix(w)
+	room := maxInt(w-2, 0)
+	line := m.mainTabStrip(m.mainTabLevel(room, suffix)) + suffix
+	return truncate(line, w)
+}
+
+// mainTabLevel picks the least-shortened strip that still leaves room for
+// suffix — the relation name and status markers that must stay visible.
+func (m Model) mainTabLevel(room int, suffix string) mainTabStripLevel {
+	suffixW := lipgloss.Width(suffix)
+	level := tabStripFull
+	for level < tabStripFocusedLetter &&
+		lipgloss.Width(m.mainTabStrip(level))+suffixW > room {
+		level++
+	}
+	return level
+}
+
+// mainTabStrip renders the tab list at the given shortening level, over
+// whichever tabs visibleMainTabs currently offers. The focused tab always
+// keeps its emphasis style, so it stays identifiable even when it is the
+// only label left.
+func (m Model) mainTabStrip(level mainTabStripLevel) string {
+	tabStyle := func(t mainTab) lipgloss.Style {
+		if t != m.tab {
+			return m.style.muted
+		}
+		if m.focus == panelMain {
+			return m.style.titleFocused
+		}
+		return m.style.title
+	}
+	if level != tabStripFull {
+		name := mainTabNames[m.tab]
+		if level == tabStripFocusedLetter {
+			name = name[:1]
+		}
+		return m.style.muted.Render("‹") + tabStyle(m.tab).Render(name) + m.style.muted.Render("›")
+	}
 	tabs := m.visibleMainTabs()
 	parts := make([]string, 0, len(tabs))
 	for _, t := range tabs {
-		style := m.style.muted
-		switch {
-		case t != m.tab:
-		case m.focus == panelMain:
-			style = m.style.titleFocused
-		default:
-			style = m.style.title
-		}
-		parts = append(parts, style.Render(mainTabNames[t]))
+		parts = append(parts, tabStyle(t).Render(mainTabNames[t]))
 	}
-	line := m.style.muted.Render("‹") +
+	return m.style.muted.Render("‹") +
 		strings.Join(parts, m.style.muted.Render("|")) +
 		m.style.muted.Render("›")
+}
+
+// mainTabSuffix is the relation or query name and status markers that
+// follow the tab strip — the part mainTabBar keeps visible.
+func (m Model) mainTabSuffix(w int) string {
+	var line string
 	if m.data.isQuery() {
 		// A query result belongs to no relation, so the bar names the
 		// statement instead of a table.
@@ -47,7 +97,7 @@ func (m Model) mainTabBar(w int) string {
 	if m.tab == mainTabData && m.data.loading || m.tab.metadata() && m.meta.loading {
 		line += " " + m.style.pending.Render("loading…")
 	}
-	return truncate(line, w)
+	return line
 }
 
 // metaContent renders the Structure, Indexes or DDL tab into a w x h

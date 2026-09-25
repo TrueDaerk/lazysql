@@ -79,10 +79,6 @@ const rejectedPrefix = "-- REJECTED (read-only) "
 // is one user action, so it produces one rejected line naming every
 // statement it would have run.
 func (c *conn) rejectTx(stmts []Statement) error {
-	sql := make([]string, 0, len(stmts))
-	for _, s := range stmts {
-		sql = append(sql, s.SQL)
-	}
-	c.logger.record(rejectedPrefix+strings.Join(sql, "; "), nil, time.Now(), ErrReadOnly)
+	c.logger.record(rejectedPrefix+joinStatementSQL(stmts), nil, time.Now(), ErrReadOnly)
 	return ErrReadOnly
 }

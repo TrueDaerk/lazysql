@@ -242,6 +242,19 @@ type Driver interface {
 	// session refuses it like any other write.
 	KillProcess(ctx context.Context, id string) error
 
+	// SchemaSupport reports whether this session can perform a kind of
+	// DDL: nil, ErrReadOnly on a read-only session, or an error wrapping
+	// ErrUnsupported whose message says why the engine cannot. The UI asks
+	// it before offering an operation, so an engine that cannot do one
+	// says so instead of producing broken SQL.
+	SchemaSupport(op SchemaOp) error
+	// SchemaSQL renders a schema change to the exact statements a commit
+	// would run, without running anything. It is what the UI stages by:
+	// a change it refuses — ErrReadOnly, ErrUnsupported, an invalid type
+	// or default — never reaches the changeset. A read-only session logs
+	// the refusal like any other rejected write.
+	SchemaSQL(c SchemaChange) ([]Statement, error)
+
 	// QueryPage reads one page of a table. filter and sortBy may be nil.
 	// Identifiers are quoted per dialect and filter arguments travel as
 	// query parameters.
@@ -330,6 +343,12 @@ type Dialect interface {
 	processListSQL() (string, error)
 	// killProcessSQL is the statement that ends session id.
 	killProcessSQL(id string) (KillStatement, error)
+
+	// schemaSupport answers nil when the engine can perform a kind of
+	// DDL, or an ErrUnsupported naming why it cannot. See ddl_dialects.go.
+	schemaSupport(op SchemaOp) error
+	// schemaSQL spells a validated, supported schema change.
+	schemaSQL(c SchemaChange) ([]Statement, error)
 }
 
 // querier is the subset of *sql.DB the dialects need.

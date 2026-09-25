@@ -1174,7 +1174,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case changesCommittedMsg:
 		if msg.err != nil {
 			// The transaction rolled back: nothing was applied, and the
-			// changeset survives so the user can fix and retry.
+			// changeset survives so the user can fix and retry. An engine
+			// that commits DDL on its own (MySQL, MariaDB) may have applied
+			// some of it anyway, so the schema is re-read all the same.
+			if len(msg.schema) > 0 && m.driver != nil && !db.TransactionalDDL(m.driver.Engine()) {
+				return m, tea.Batch(
+					logCmd("-- COMMIT FAILED — changeset kept; %s may have applied the DDL before the failure: %v",
+						m.driver.Dialect().DisplayName(), msg.err),
+					m.afterSchemaCommit(msg.schema))
+			}
 			return m, logCmd("-- COMMIT FAILED — nothing applied, changeset kept: %v", msg.err)
 		}
 		// The transaction itself — BEGIN, each statement, COMMIT — is
@@ -1189,10 +1197,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the fresh page is still a round trip away: the cursor cannot be
 		// left standing on one of them in the meantime.
 		m.clampCursor()
-		cmds = append(cmds,
-			logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))),
-			m.reloadPage(),
-		)
+		cmds = append(cmds, logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))))
+		if len(msg.schema) > 0 {
+			// The schema moved: the tree, the metadata and the page are
+			// re-read, and a relation the commit dropped is closed.
+			cmds = append(cmds, m.afterSchemaCommit(msg.schema))
+		} else {
+			cmds = append(cmds, m.reloadPage())
+		}
 		return m, tea.Batch(cmds...)
 
 	case copiedMsg:
@@ -1586,6 +1598,14 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	}
 	if mm, cmd, handled := m.copyActions(id); handled {
 		return mm, cmd
+	}
+	switch id {
+	case actSchemaMenu:
+		cmd := m.openObjectSchemaMenu()
+		return m, cmd
+	case actTableSchemaMenu:
+		cmd := m.openTableSchemaMenu()
+		return m, cmd
 	}
 	if mm, cmd, handled := m.dataActions(id); handled {
 		return mm, cmd

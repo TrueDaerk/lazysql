@@ -194,7 +194,7 @@ func TestChangesetRowOperations(t *testing.T) {
 	}
 
 	// Commit order is staging order, and every kind renders itself.
-	stmts := cs.Statements(dialect(t, EngineSQLite))
+	stmts := mustStatements(t, cs, dialect(t, EngineSQLite))
 	wantSQL := []string{
 		`UPDATE "t" SET "c" = ? WHERE "id" = ?`,
 		`DELETE FROM "t" WHERE "id" = ?`,
@@ -240,7 +240,7 @@ func TestExecTxMixedRowOperations(t *testing.T) {
 		Columns: []string{"id", "name", "email"},
 		Values:  []any{int64(99), "zoe", nil}})
 
-	if _, err := drv.ExecTx(ctx, cs.Statements(d)); err != nil {
+	if _, err := drv.ExecTx(ctx, mustStatements(t, cs, d)); err != nil {
 		t.Fatalf("ExecTx: %v", err)
 	}
 	rs, err := drv.Query(ctx, "SELECT id, name, email FROM users ORDER BY id")
@@ -322,7 +322,7 @@ func TestStatementsMergesSameRowEdits(t *testing.T) {
 	cs.Stage(CellChange{Table: "t", PKCols: []string{"id"}, PKVals: []any{int64(2)}, Column: "b", NewValue: "b2"})
 	cs.Stage(CellChange{Table: "other", PKCols: []string{"id"}, PKVals: []any{int64(1)}, Column: "b", NewValue: "bx"})
 
-	stmts := cs.Statements(dialect(t, EngineSQLite))
+	stmts := mustStatements(t, cs, dialect(t, EngineSQLite))
 	wantSQL := []string{
 		`UPDATE "t" SET "b" = ?, "a" = ? WHERE "id" = ?`,
 		`UPDATE "t" SET "b" = ? WHERE "id" = ?`,
@@ -351,7 +351,7 @@ func TestStatementsMergeCompositeKeyPlaceholders(t *testing.T) {
 	cs.Stage(CellChange{Table: "grades", PKCols: pk, PKVals: pv, Column: "grade", NewValue: "A"})
 	cs.Stage(CellChange{Table: "grades", PKCols: pk, PKVals: pv, Column: "credit", NewValue: int64(3)})
 
-	stmts := cs.Statements(dialect(t, EnginePostgres))
+	stmts := mustStatements(t, cs, dialect(t, EnginePostgres))
 	if len(stmts) != 1 {
 		t.Fatalf("statements = %d, want 1 merged UPDATE", len(stmts))
 	}
@@ -364,7 +364,7 @@ func TestStatementsMergeCompositeKeyPlaceholders(t *testing.T) {
 	}
 
 	// MySQL/SQLite use the same "?" placeholder for every parameter.
-	mysqlStmt := cs.Statements(dialect(t, EngineMySQL))[0]
+	mysqlStmt := mustStatements(t, cs, dialect(t, EngineMySQL))[0]
 	wantMySQL := "UPDATE `grades` SET `grade` = ?, `credit` = ? WHERE `student` = ? AND `course` = ?"
 	if mysqlStmt.SQL != wantMySQL {
 		t.Errorf("MySQL SQL = %q, want %q", mysqlStmt.SQL, wantMySQL)
@@ -383,7 +383,7 @@ func TestStatementsUnstageFromMergedRow(t *testing.T) {
 	if !cs.Unstage("", "t", pv, "b") {
 		t.Fatal("Unstage missed a staged cell in a merged row")
 	}
-	stmts := cs.Statements(dialect(t, EngineSQLite))
+	stmts := mustStatements(t, cs, dialect(t, EngineSQLite))
 	if len(stmts) != 1 {
 		t.Fatalf("statements = %d, want 1", len(stmts))
 	}
@@ -408,7 +408,7 @@ func TestStatementsInterleavedDeleteDoesNotReorder(t *testing.T) {
 	}
 	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "y", NewValue: "y1"})
 
-	stmts := cs.Statements(dialect(t, EngineSQLite))
+	stmts := mustStatements(t, cs, dialect(t, EngineSQLite))
 	if len(stmts) != 1 {
 		t.Fatalf("statements = %d, want 1: %+v", len(stmts), stmts)
 	}
@@ -432,7 +432,7 @@ func TestStatementsDoesNotMergeAcrossACoexistingDelete(t *testing.T) {
 	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "a", NewValue: "a1"})
 	cs.Stage(CellChange{Table: "t", PKCols: pk, PKVals: pv, Column: "b", NewValue: "b1"})
 
-	stmts := cs.Statements(dialect(t, EngineSQLite))
+	stmts := mustStatements(t, cs, dialect(t, EngineSQLite))
 	wantSQL := []string{
 		`DELETE FROM "t" WHERE "id" = ?`,
 		`UPDATE "t" SET "a" = ? WHERE "id" = ?`,
@@ -489,4 +489,14 @@ func TestExecTxRollsBackOnError(t *testing.T) {
 	if got := rs.Rows[0][0]; got != "changed@example.com" {
 		t.Fatalf("email = %v, want the committed value", got)
 	}
+}
+
+// mustStatements renders a changeset that is expected to render.
+func mustStatements(t *testing.T, cs *Changeset, d Dialect) []Statement {
+	t.Helper()
+	stmts, err := cs.Statements(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stmts
 }

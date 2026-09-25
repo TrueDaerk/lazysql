@@ -264,6 +264,11 @@ type keyMap struct {
 	UnstageCell    key.Binding
 	DiscardChanges key.Binding
 
+	// SchemaMenu opens the staged-DDL menu: relation-level operations in
+	// [2] Objects, column- and index-level ones in the main view. Like the
+	// row operations it only stages; `c` commits.
+	SchemaMenu key.Binding
+
 	// The date picker, opened for columns db.ClassifyType calls temporal.
 	// PickPrev/PickNext move sideways (a day in the calendar, a spinner in
 	// the clock) and PickUp/PickDown move by the bigger unit (a week, one
@@ -588,6 +593,9 @@ func newKeyMap() keyMap {
 			key.WithHelp("c", "commit staged changes")),
 		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
+		// `S` for schema: free in [2] and in the main view, and uppercase
+		// like the other deliberate, changeset-wide keys (`U`, `D`).
+		SchemaMenu: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "schema changes (DDL)…")),
 
 		PickPrev: key.NewBinding(
 			key.WithKeys("h", "left"), key.WithHelp("h/←", "prev day / time field")),
@@ -905,6 +913,12 @@ const (
 	actCommitChanges
 	actUnstageCell
 	actDiscardChanges
+	// actSchemaMenu is `S` in [2] Objects, actTableSchemaMenu the same key
+	// in the main view: one binding, two menus, and two ids so a menu
+	// parked until the metadata lands reopens as the one that was asked
+	// for.
+	actSchemaMenu
+	actTableSchemaMenu
 	actPrevMainTab
 	actNextMainTab
 	actCopyDDL
@@ -984,8 +998,11 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actCollapseNode, k.CollapseNode},
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+			{actSchemaMenu, k.SchemaMenu},
+			{actCommitChanges, k.CommitChanges},
 			{actPageDown, k.PageDown},
 			{actPageUp, k.PageUp},
+			{actDiscardChanges, k.DiscardChanges},
 			{actCopyMenu, k.CopyMenu},
 			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 			{actBackup, k.Backup},
@@ -1035,6 +1052,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDuplicateRow, k.DuplicateRow},
 			{actUnstageCell, k.UnstageCell},
 			{actDiscardChanges, k.DiscardChanges},
+			{actTableSchemaMenu, k.SchemaMenu},
 			{actExportTable, k.ExportTable},
 			{actCancelExport, k.CancelExport},
 			{actRefresh, k.Refresh},
@@ -1074,7 +1092,7 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 // answer with "connection is read-only" — while `?` keeps listing them,
 // so every binding is still documented in exactly one place.
 func (k keyMap) writeBindings() []key.Binding {
-	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges}
+	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu}
 }
 
 // withoutBindings drops every binding of hide from all, matching on the
@@ -1228,6 +1246,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
 		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},
 		{"unstage-cell", &k.UnstageCell}, {"discard-changes", &k.DiscardChanges},
+		{"schema-menu", &k.SchemaMenu},
 
 		{"pick-prev", &k.PickPrev}, {"pick-next", &k.PickNext},
 		{"pick-up", &k.PickUp}, {"pick-down", &k.PickDown},

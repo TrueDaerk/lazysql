@@ -272,9 +272,10 @@ func (m Model) roGridLines(g *roGrid, cur gridCursor, w, h int) []string {
 	g.rs, g.re = rowWindow(g.n, g.row, maxInt(body, 0), g.rowOff)
 	g.rowOff = g.rs
 
-	out := []string{m.gridHeader(g.cols[g.cs:g.ce], g.cs, cur, w)}
+	span := contiguousSpan(g.cols, g.cs, g.ce)
+	out := []string{m.gridHeader(span, cur, w)}
 	for r := g.rs; r < g.re; r++ {
-		out = append(out, m.gridRow(g.cols[g.cs:g.ce], g.cs, r, cur, g.kindAt(r), w))
+		out = append(out, m.gridRow(span, r, cur, g.kindAt(r), w))
 	}
 	if hint {
 		out = append(out, m.style.muted.Render(fmt.Sprintf(

@@ -2114,3 +2114,13 @@ Chronological history of wiki changes, newest last.
   survives every `esc` and re-focusing the editor with `:` shows it again
   without re-running — no behavior change was needed, only the coverage
   the issue asked for.
+
+## 2026-09-25 — Aggregate of the selected block (issue #223)
+
+- Added [design/grid-selection-aggregate](design/grid-selection-aggregate.md):
+  the grid's status line reports count/sum/avg/min/max over the numeric
+  cells of a column block, names the page scope and the skipped cells in
+  every width variant, parses DECIMAL/NUMERIC strings by column type, and
+  is bounded by `aggregateCellLimit`.
+- Updated [design/grid-multi-row-selection](design/grid-multi-row-selection.md)
+  to point at it from the status-line bullet.

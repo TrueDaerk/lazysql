@@ -5,7 +5,8 @@ cell, deleting a row and inserting one all *record* what you asked for. The SQL
 runs when you explicitly commit — and then all of it runs in **one
 transaction**, so a failure applies nothing.
 
-This is the lazygit staging area, applied to rows.
+This is the lazygit staging area, applied to rows — and to the schema: the
+[schema changes](#schema-changes-ddl) `S` stages ride the same changeset.
 
 ## What staging looks like
 
@@ -79,10 +80,59 @@ each, all visible, none executed before `c`. Rows that cannot be identified
 safely (already staged for deletion, or with a primary key the result set does
 not carry) drop out and are named in the command log.
 
+## Schema changes (DDL)
+
+`S` opens the schema menu. What it offers depends on where you press it:
+
+| Where | Operations |
+|---|---|
+| `[2] Objects`, on a table or view | create table, rename, truncate (tables), drop |
+| `[2] Objects`, anywhere else | create table in that database |
+| Main view (any tab of an open table) | add column, create index, drop index |
+| Main view, Structure or Data tab | alter or drop the column under the cursor, too |
+
+Every entry opens a centered modal — a form, a prompt or a confirm — and `esc`
+cancels at every step. Confirming **stages** the change; nothing runs before
+`c`. What is staged shows up:
+
+- as the exact statement in the command log (`-- stage: …`) and, with every
+  other staged change, in the commit preview;
+- at the bottom of the Structure and Indexes tabs of the table it applies to;
+- as a note on the relation in `[2]` (`staged: drop`, `staged: rename → x`),
+  and on its database's Tables category for a `CREATE TABLE`.
+
+`S` → *staged schema changes* lists them; `enter` on one unstages it. `U`
+discards them with everything else.
+
+Destructive operations — drop table or view, truncate, drop column, drop index
+— get a confirm of their own, naming the statement, before they are staged.
+
+After a commit that changed the schema, `[2]` re-reads the affected databases
+(a dropped table does not linger), the Structure/Indexes/DDL tabs re-read the
+open table, and a table the commit dropped is closed — or reopened under its
+new name after a rename.
+
+Types and defaults are the parts of a DDL statement no engine takes as a bound
+parameter. A type must look like a type (`varchar(40)`, `numeric(10, 2)`,
+`timestamp with time zone`) and a default is either a text literal — escaped
+for the engine — a number, `NULL`, or a single SQL expression that cannot end
+the statement. Names are always quoted for the engine.
+
+!!! warning "Not every engine can do everything"
+    An operation the engine cannot perform is marked *not supported* in the
+    menu and explains why when chosen: SQLite has no `TRUNCATE`, cannot rename
+    a view, and can only **rename** a column — not change its type, NULL-ness or
+    default. See [Engines](../reference/engines.md#schema-changes).
+
+!!! warning "MySQL and MariaDB commit DDL on their own"
+    Both engines end the transaction at every DDL statement. A commit with
+    schema changes that fails part-way keeps what ran before the failure — the
+    commit preview says so on those engines.
+
 ## Read-only connections
 
 A connection marked read-only refuses to stage anything at all: cell edits, row
-inserts, row deletes and the commit answer `connection is read-only`, their
+inserts, row deletes, schema changes and the commit answer `connection is read-only`, their
 keys drop out of the options bar, and every blocked attempt is written to the
 command log marked `-- REJECTED (read-only)`. See
 [Configuration](../guides/configuration.md#read-only-connections).

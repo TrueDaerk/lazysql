@@ -155,6 +155,9 @@ On the `File` field of a SQLite or DuckDB profile.
 | `/` | Fuzzy filter | `filter` |
 | `pgdown` · `ctrl+f` | Page down (over the filtered rows, while filtering) | `page-down` |
 | `pgup` · `ctrl+b` | Page up (over the filtered rows, while filtering) | `page-up` |
+| `S` | Schema changes — create table (`n`), rename (`r`), truncate (`t`) or drop (`d`) the selected relation; staged, never run directly | `schema-menu` |
+| `c` · `ctrl+enter` | Commit the staged changes | `commit-changes` |
+| `U` | Discard the staged changes | `discard-changes` |
 | `y` | Copy menu — DDL of the selected table/view (`d`) or of the whole database (`D`) | `copy-menu` |
 | `E` | Export the database's DDL — to a file (`f`) or the clipboard (`c`) | `export-database-ddl` |
 | `B` | Dump / restore… | `backup` |
@@ -287,6 +290,7 @@ Live while the main view has the focus.
 | `c` · `ctrl+enter` | Commit the staged changes | `commit-changes` |
 | `u` | Unstage | `unstage-cell` |
 | `U` | Discard the staged changes | `discard-changes` |
+| `S` | Schema changes — add (`a`), alter (`e`) or drop (`d`) the column under the cursor, create (`i`) or drop (`x`) an index; staged, never run directly | `schema-menu` |
 | `y` | Copy… | `copy-menu` |
 | `E` | Export to a file | `export-table` |
 | `X` | Cancel the export (only while one runs) | `cancel-export` |

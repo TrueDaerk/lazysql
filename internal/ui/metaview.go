@@ -21,8 +21,8 @@ type mainTabStripLevel int
 
 const (
 	tabStripFull          mainTabStripLevel = iota // every tab name
-	tabStripFocusedName                             // just the focused tab's name
-	tabStripFocusedLetter                           // just the focused tab's first letter
+	tabStripFocusedName                            // just the focused tab's name
+	tabStripFocusedLetter                          // just the focused tab's first letter
 )
 
 // mainTabBar is the first line of the main view: the tab strip, shortened
@@ -116,11 +116,20 @@ func (m Model) metaContent(w, h int) string {
 	case !m.meta.loaded:
 		lines = append(lines, "", m.style.muted.Render("no metadata yet"))
 	default:
+		// What the changeset will do to the table closes the Structure and
+		// Indexes tabs, and the table above it gives up the rows it needs.
+		var staged []string
+		if m.tab == mainTabStructure || m.tab == mainTabIndexes {
+			staged = m.stagedSchemaLines(w)
+			body = maxInt(body-len(staged), 1)
+		}
 		switch m.tab {
 		case mainTabStructure:
 			lines = append(lines, m.structureLines(w, body)...)
+			lines = append(lines, staged...)
 		case mainTabIndexes:
 			lines = append(lines, m.indexLines(w, body)...)
+			lines = append(lines, staged...)
 		case mainTabDDL:
 			lines = append(lines, m.ddlLines(w, body)...)
 		case mainTabRelations:

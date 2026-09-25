@@ -1,7 +1,10 @@
 # Structure, indexes and DDL
 
 Four of the main view's five tabs describe the open relation rather than its
-rows. `<` / `>` cycle them; all four are read-only.
+rows. `<` / `>` cycle them. The tabs themselves only show; `S` stages changes
+to what they show — adding, altering or dropping columns and creating or
+dropping indexes. See
+[Staged mutations](../concepts/staged-mutations.md#schema-changes-ddl).
 
 The three introspection tabs share **one** metadata fetch, so switching
 between them after the first is instant. `j` / `k` scroll a tab that does not
@@ -20,6 +23,10 @@ The relation's columns:
 | `default` | Column default, if any |
 | `key` | `PK` for the primary key, `UNI` / `IDX` for the indexes covering it, `FK` when a foreign key constrains it |
 | `extra` | Whatever the engine reports on top — `auto_increment`, a generated-column expression, and so on |
+
+`j` / `k` move a cursor over the columns; `S` → *alter column* and *drop
+column* act on the one under it. Schema changes staged for the table are listed
+under the columns until they are committed.
 
 ## Indexes
 

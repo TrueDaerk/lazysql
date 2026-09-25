@@ -2029,3 +2029,23 @@ Chronological history of wiki changes, newest last.
   contiguous `cols[cs:ce]` the renderers took, the `┃` pin edge, the
   `columns X–Y of N · k pinned · k hidden` hint, selection spans in display
   positions, and `export.Projection` for the streamed copy/export scopes.
+
+## 2026-09-25 — Stage DDL operations for tables and indexes (issue #224)
+
+- Added [design/staged-ddl](design/staged-ddl.md): nine `db.SchemaChange`
+  kinds staged into the one changeset, `Change.statements` returning several
+  statements or an error, `Dialect.schemaSupport`/`schemaSQL` and
+  `Driver.SchemaSupport`/`SchemaSQL`, the "not supported by …" menu entries,
+  the type/expression grammar, the driver-level read-only refusal, the second
+  confirm for destructive operations, the staged markers in `[2]` and the
+  Structure/Indexes tabs, the create-table draft, and the post-commit refresh.
+- Added [reference/ddl-per-dialect](reference/ddl-per-dialect.md): per-engine
+  spellings and gaps found while implementing it — SQLite qualifies the index
+  rather than the table in `CREATE INDEX`, MySQL `CHANGE COLUMN` restates the
+  whole column and MySQL/MariaDB disagree on quoting `COLUMN_DEFAULT`, DuckDB
+  refuses to `ALTER` a table with an index on it, and MySQL/MariaDB commit DDL
+  implicitly.
+- Updated [design/staged-changeset](design/staged-changeset.md) (schema changes
+  share the `Change` interface, whose render now returns an error) and
+  [design/read-only-connections](design/read-only-connections.md) (the
+  stage-time `ErrReadOnly` from `Driver.SchemaSQL`).

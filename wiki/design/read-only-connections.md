@@ -33,6 +33,10 @@ and `conn.go`; nothing above them is trusted to check first.
 - The refusal is `db.ErrReadOnly`, whose message — `connection is
   read-only` — is what the UI shows verbatim, so the wording is the same
   whether the UI or the session stopped the action.
+- Staged schema changes are refused one step earlier: `Driver.SchemaSQL`
+  and `Driver.SchemaSupport` answer `ErrReadOnly` on a read-only session, so a
+  DDL change is never even staged (and `ExecTx` would refuse its commit
+  anyway). See [staged-ddl](staged-ddl.md).
 - Introspection does not go through those doors at all: dialect code uses
   the `querier` adapter, so listing tables and reading DDL is unaffected.
 

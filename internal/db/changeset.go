@@ -11,9 +11,10 @@ import (
 // user explicitly commits the whole changeset — in one transaction, so a
 // failure applies nothing.
 
-// Change is one staged mutation. The three implementations live in this
-// file; the unexported methods keep it that way, so no UI package can
-// smuggle its own SQL into a commit.
+// Change is one staged mutation. The row-level implementations live in
+// this file and the schema-level ones in ddl.go; the unexported methods
+// keep it that way, so no UI package can smuggle its own SQL into a
+// commit.
 type Change interface {
 	// key identifies what the change targets: two changes with the same
 	// key are the same pending mutation, and the second replaces the
@@ -21,8 +22,10 @@ type Change interface {
 	key() string
 	// target is the database and table the change applies to.
 	target() (database, table string)
-	// Statement renders the change as one parameterized statement.
-	Statement(d Dialect) Statement
+	// statements renders the change for a dialect. A row change is always
+	// one parameterized statement; a schema change may take several, and
+	// answers ErrUnsupported on an engine that cannot perform it.
+	statements(d Dialect) ([]Statement, error)
 }
 
 // CellChange is one staged single-cell UPDATE. The row is identified by
@@ -52,6 +55,10 @@ func (c CellChange) target() (string, string) { return c.Database, c.Table }
 
 func (c CellChange) Statement(d Dialect) Statement { return UpdateSQL(d, c) }
 
+func (c CellChange) statements(d Dialect) ([]Statement, error) {
+	return []Statement{UpdateSQL(d, c)}, nil
+}
+
 // RowDelete is one staged DELETE of a whole row, identified by the same
 // full primary key a cell edit uses. A table without a declared primary
 // key cannot be deleted from, for the same reason it cannot be edited.
@@ -72,6 +79,10 @@ func (r RowDelete) key() string {
 func (r RowDelete) target() (string, string) { return r.Database, r.Table }
 
 func (r RowDelete) Statement(d Dialect) Statement { return DeleteSQL(d, r) }
+
+func (r RowDelete) statements(d Dialect) ([]Statement, error) {
+	return []Statement{DeleteSQL(d, r)}, nil
+}
 
 // RowInsert is one staged INSERT. Columns and Values are positionally
 // paired and hold only the columns the user filled in — everything the
@@ -96,6 +107,10 @@ func (r RowInsert) key() string {
 func (r RowInsert) target() (string, string) { return r.Database, r.Table }
 
 func (r RowInsert) Statement(d Dialect) Statement { return InsertSQL(d, r) }
+
+func (r RowInsert) statements(d Dialect) ([]Statement, error) {
+	return []Statement{InsertSQL(d, r)}, nil
+}
 
 // writeKeyVals appends type-tagged key values to a change key.
 func writeKeyVals(b *strings.Builder, vals []any) {
@@ -277,6 +292,39 @@ func (cs *Changeset) PKColsFor(database, table string) []string {
 	return nil
 }
 
+// StageSchema records a schema change, replacing a staged change of the
+// same operation on the same object — staging "drop table t" twice is one
+// drop. It does not render the change: the UI stages what
+// Driver.SchemaSQL accepted, and the commit renders it again.
+func (cs *Changeset) StageSchema(c SchemaChange) { cs.stage(c) }
+
+// UnstageSchema drops one staged schema change and reports whether it
+// was staged.
+func (cs *Changeset) UnstageSchema(c SchemaChange) bool { return cs.removeKey(c.key()) }
+
+// SchemaChanges returns the staged schema changes in commit order.
+func (cs *Changeset) SchemaChanges() []SchemaChange {
+	var out []SchemaChange
+	for _, op := range cs.ops {
+		if c, ok := op.(SchemaChange); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// SchemaChangesFor returns the staged schema changes that target one
+// relation, in commit order.
+func (cs *Changeset) SchemaChangesFor(database, table string) []SchemaChange {
+	var out []SchemaChange
+	for _, c := range cs.SchemaChanges() {
+		if d, t := c.target(); d == database && t == table {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // Len is how many changes are staged.
 func (cs *Changeset) Len() int { return len(cs.ops) }
 
@@ -432,7 +480,12 @@ func rowIdentity(database, table string, pkVals []any) string {
 // merging across the delete and risking an order it was never staged
 // in. A RowInsert can never collide with a row identity: it has no
 // primary key of its own until the engine assigns one.
-func (cs *Changeset) Statements(d Dialect) []Statement {
+//
+// A schema change renders to as many statements as its dialect needs, at
+// its own position. One that cannot be rendered for d — an operation the
+// engine does not support — fails the whole call: a commit that silently
+// skipped it would not be the commit the user confirmed.
+func (cs *Changeset) Statements(d Dialect) ([]Statement, error) {
 	deletedRows := make(map[string]bool)
 	for _, c := range cs.ops {
 		if r, ok := c.(RowDelete); ok {
@@ -440,20 +493,27 @@ func (cs *Changeset) Statements(d Dialect) []Statement {
 		}
 	}
 
-	out := make([]Statement, len(cs.ops))
+	out := make([][]Statement, len(cs.ops))
 	kept := make([]bool, len(cs.ops))
 	firstAt := make(map[string]int)
 	cellsFor := make(map[string][]CellChange)
 	for i, c := range cs.ops {
 		cc, ok := c.(CellChange)
 		if !ok {
-			out[i] = c.Statement(d)
+			stmts, err := c.statements(d)
+			if err != nil {
+				if sc, ok := c.(SchemaChange); ok {
+					return nil, fmt.Errorf("%s: %w", sc.Describe(), err)
+				}
+				return nil, err
+			}
+			out[i] = stmts
 			kept[i] = true
 			continue
 		}
 		rid := rowIdentity(cc.Database, cc.Table, cc.PKVals)
 		if deletedRows[rid] {
-			out[i] = cc.Statement(d)
+			out[i] = []Statement{cc.Statement(d)}
 			kept[i] = true
 			continue
 		}
@@ -464,14 +524,14 @@ func (cs *Changeset) Statements(d Dialect) []Statement {
 		cellsFor[rid] = append(cellsFor[rid], cc)
 	}
 	for rid, i := range firstAt {
-		out[i] = multiUpdateSQL(d, cellsFor[rid])
+		out[i] = []Statement{multiUpdateSQL(d, cellsFor[rid])}
 	}
 
 	result := make([]Statement, 0, len(out))
 	for i, k := range kept {
 		if k {
-			result = append(result, out[i])
+			result = append(result, out[i]...)
 		}
 	}
-	return result
+	return result, nil
 }

@@ -143,7 +143,9 @@ func (mm *menuModal) view(s styles, maxW, maxH int) string {
 
 	width := lipgloss.Width(mm.title)
 	for _, e := range mm.entries {
-		if w := lipgloss.Width(e.key) + 2 + lipgloss.Width(e.label); w > width {
+		// The key column is padded to four cells plus a space (see the
+		// "%-4s " below), so that is what a label is measured against.
+		if w := max(lipgloss.Width(e.key), 4) + 1 + lipgloss.Width(e.label); w > width {
 			width = w
 		}
 	}

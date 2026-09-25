@@ -284,6 +284,40 @@ func (c *conn) KillProcess(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *conn) SchemaSupport(op SchemaOp) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	return c.dialect.schemaSupport(op)
+}
+
+func (c *conn) SchemaSQL(ch SchemaChange) ([]Statement, error) {
+	if ch == nil {
+		return nil, ErrNoSchemaChange
+	}
+	stmts, err := ch.statements(c.dialect)
+	// The guard runs after rendering so the rejected line in the command
+	// log names the statement that was refused, the way Exec's does; an
+	// unrenderable change has nothing to name and is refused all the same.
+	if c.readOnly {
+		sql := ch.Describe()
+		if err == nil {
+			sql = joinStatementSQL(stmts)
+		}
+		return nil, c.rejectWrite(sql, nil)
+	}
+	return stmts, err
+}
+
+// joinStatementSQL spells several statements as one script line.
+func joinStatementSQL(stmts []Statement) string {
+	sql := make([]string, 0, len(stmts))
+	for _, s := range stmts {
+		sql = append(sql, s.SQL)
+	}
+	return strings.Join(sql, "; ")
+}
+
 func (c *conn) Explain(ctx context.Context, sql string) (*Plan, error) {
 	q, err := c.userQ()
 	if err != nil {

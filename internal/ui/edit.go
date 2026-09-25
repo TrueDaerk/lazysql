@@ -25,19 +25,22 @@ import (
 // ---------- messages ----------
 
 // changesCommittedMsg reports the outcome of one commit transaction.
+// schema are the schema changes the commit carried: the caches that
+// describe the schema are refreshed after a commit with any.
 type changesCommittedMsg struct {
-	stmts []db.Statement
-	err   error
+	stmts  []db.Statement
+	schema []db.SchemaChange
+	err    error
 }
 
 // ---------- commands ----------
 
-func commitChangesCmd(drv db.Driver, stmts []db.Statement) tea.Cmd {
+func commitChangesCmd(drv db.Driver, stmts []db.Statement, schema []db.SchemaChange) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 		defer cancel()
 		_, err := drv.ExecTx(ctx, stmts)
-		return changesCommittedMsg{stmts: stmts, err: err}
+		return changesCommittedMsg{stmts: stmts, schema: schema, err: err}
 	}
 }
 
@@ -396,8 +399,10 @@ func (m *Model) confirmDiscard() tea.Cmd {
 		onConfirm: func(mm *Model) tea.Cmd {
 			mm.changes.Clear()
 			// The phantom rows went with the changeset; the cursor may
-			// have been standing on one of them.
+			// have been standing on one of them. So did the staged marks
+			// in [2].
 			mm.clampCursor()
+			mm.refreshTree()
 			return logCmd("-- discard %s", countChanges(n))
 		},
 	}
@@ -420,18 +425,32 @@ func (m *Model) openCommitModal() tea.Cmd {
 	if n == 0 {
 		return logCmd("-- no staged changes to commit")
 	}
-	stmts := m.changes.Statements(m.driver.Dialect())
+	stmts, err := m.changes.Statements(m.driver.Dialect())
+	if err != nil {
+		// A staged change this engine cannot run — only possible when the
+		// changeset outlived the connection it was staged for. Committing
+		// the rest without it would not be the commit the user staged.
+		m.modal = &confirmModal{title: "Cannot commit", danger: true,
+			body: err.Error() + "\n\nUnstage it (S → staged schema changes) or discard the changeset (U)."}
+		return logCmd("-- commit refused: %v", err)
+	}
+	schema := m.changes.SchemaChanges()
 	lines := make([]string, 0, len(stmts))
 	for _, s := range stmts {
 		lines = append(lines, fmt.Sprintf("%s;  -- args %v", s.SQL, s.Args))
 	}
+	atomic := "All statements run in one transaction: on error nothing is applied and the changeset is kept."
+	if len(schema) > 0 && !db.TransactionalDDL(m.driver.Engine()) {
+		atomic = m.driver.Dialect().DisplayName() + " commits every DDL statement on its own: if a " +
+			"statement fails, the ones before it stay applied. The changeset is kept on error."
+	}
 	m.modal = &confirmModal{
 		title: "Commit " + countChanges(n),
 		body: strings.Join(lines, "\n") +
-			"\n\nAll statements run in one transaction: on error nothing is applied and the changeset is kept." +
+			"\n\n" + atomic +
 			"\n\nConnection: " + m.taggedConnName(m.active),
 		danger:    true,
-		onConfirm: func(mm *Model) tea.Cmd { return commitChangesCmd(mm.driver, stmts) },
+		onConfirm: func(mm *Model) tea.Cmd { return commitChangesCmd(mm.driver, stmts, schema) },
 	}
 	return nil
 }

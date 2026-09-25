@@ -121,6 +121,52 @@ func TestParseDateTime(t *testing.T) {
 	}
 }
 
+// FormatTemporalValue drops the half of a temporal value its column's
+// declared type does not carry, for every engine's spelling of DATE and
+// TIME, and leaves everything else — DATETIME/TIMESTAMP values, and
+// values that fail to parse — unchanged from FormatValue. Issue #214.
+func TestFormatTemporalValue(t *testing.T) {
+	utcTime := time.Date(2026, 8, 2, 14, 32, 7, 0, time.UTC)
+	cases := []struct {
+		name string
+		typ  string // declared column type, run through ClassifyType
+		v    any
+		want string
+	}{
+		// MySQL / MariaDB.
+		{"mysql date, time.Time", "DATE", utcTime, "2026-08-02"},
+		{"mysql time, time.Time", "TIME(6)", utcTime, "14:32:07"},
+		{"mysql datetime unchanged", "DATETIME", utcTime, "2026-08-02T14:32:07Z"},
+
+		// PostgreSQL.
+		{"postgres date, time.Time", "date", utcTime, "2026-08-02"},
+		{"postgres time, time.Time", "time without time zone", utcTime, "14:32:07"},
+		{"postgres timestamptz unchanged", "timestamptz", utcTime, "2026-08-02T14:32:07Z"},
+
+		// SQLite (declared affinity, value arrives as text).
+		{"sqlite date, string", "DATE", "2026-08-02", "2026-08-02"},
+		{"sqlite date, full timestamp string", "DATE", "2026-08-02T00:00:00Z", "2026-08-02"},
+		{"sqlite time, string", "TIME", "14:32:07", "14:32:07"},
+		{"sqlite datetime unchanged", "DATETIME", "2026-08-02 14:32:07", "2026-08-02 14:32:07"},
+
+		// DuckDB.
+		{"duckdb timestamp_ns unchanged", "TIMESTAMP_NS", utcTime, "2026-08-02T14:32:07Z"},
+
+		// Non-temporal and unparseable values pass through untouched.
+		{"non-temporal column", "TEXT", "hello", "hello"},
+		{"date column, unparseable text", "DATE", "not a date", "not a date"},
+		{"nil value", "DATE", nil, "NULL"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			kind := ClassifyType(c.typ)
+			if got := FormatTemporalValue(c.v, kind, "NULL"); got != c.want {
+				t.Errorf("FormatTemporalValue(%v, %v, ...) = %q, want %q", c.v, kind, got, c.want)
+			}
+		})
+	}
+}
+
 func TestParseDateTimeInLocation(t *testing.T) {
 	loc := time.FixedZone("X", 2*60*60)
 	got, ok := ParseDateTimeIn("2026-08-10 14:32:07", loc)

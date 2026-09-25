@@ -61,7 +61,7 @@ func newRowDetailModal(m Model) (*rowDetailModal, bool) {
 				f.text = nullText
 			default:
 				f.value = v
-				f.text = flatten(db.FormatValue(v, nullText))
+				f.text = flatten(db.FormatTemporalValue(v, db.ClassifyType(c.DataType), nullText))
 			}
 			rd.fields[i] = f
 		}
@@ -96,7 +96,7 @@ func newRowDetailModal(m Model) (*rowDetailModal, bool) {
 			f.text = nullText
 		} else {
 			f.value = v
-			f.text = flatten(db.FormatValue(v, nullText))
+			f.text = flatten(db.FormatTemporalValue(v, db.ClassifyType(c.DataType), nullText))
 		}
 		rd.fields[i] = f
 	}

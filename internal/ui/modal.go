@@ -272,7 +272,7 @@ func newCellModal(subject, column string, colType string, value any) *cellModal 
 		}
 	}
 
-	raw := db.FormatValue(value, nullText)
+	raw := db.FormatTemporalValue(value, db.ClassifyType(colType), nullText)
 	var text, kindLabel string
 	var tree *jsonNode
 	switch classifyCell(raw) {

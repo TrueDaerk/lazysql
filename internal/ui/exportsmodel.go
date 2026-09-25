@@ -23,6 +23,11 @@ type exportsModel struct {
 	// cancelAll still stops it when the connection it reads through is
 	// closing.
 	ddl dbDDLExportState
+
+	// csv is the CSV import in flight, if any. It writes rather than
+	// reads, but it is the same shape of job — a worker, progress in the
+	// log, `X` to cancel — and closing the connection must stop it too.
+	csv importState
 }
 
 // cancelAll stops every job that is running: they all read through the
@@ -37,5 +42,8 @@ func (x *exportsModel) cancelAll() {
 	}
 	if x.backup.running && x.backup.cancel != nil {
 		x.backup.cancel()
+	}
+	if x.csv.running && x.csv.cancel != nil {
+		x.csv.cancel()
 	}
 }

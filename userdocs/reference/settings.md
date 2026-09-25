@@ -116,7 +116,7 @@ What each one does, and its default keys, is in
 [Keybindings](keybindings.md).
 
 `accept-changes` · `accept-completion` · `actions` · `apply-filter` · `back` ·
-`backup` · `browse-back` · `cancel-backup` · `cancel-export` ·
+`backup` · `browse-back` · `cancel-backup` · `cancel-export` · `cancel-import` ·
 `cancel-filter` · `cancel-query` · `clear-filter` · `clear-query` ·
 `close-completion` · `col-left` · `col-right` · `collapse-node` ·
 `command-log` · `commit-changes` · `complete` · `complete-next` ·
@@ -127,7 +127,7 @@ What each one does, and its default keys, is in
 `explain-query` · `export-database-ddl` · `export-table` · `filter` ·
 `filter-hist-next` · `filter-hist-prev` · `follow-fk` · `help` ·
 `hist-delete` · `hist-load` · `hist-run` · `hist-section` · `hist-snippet` ·
-`history` · `incoming-refs` · `insert-row` · `jump` · `leave-insert` ·
+`history` · `import-csv` · `incoming-refs` · `insert-row` · `jump` · `leave-insert` ·
 `log-introspection` ·
 `move-conn-down` · `move-conn-up` ·
 `new-connection` · `next-main-tab` · `next-page` · `next-panel` ·

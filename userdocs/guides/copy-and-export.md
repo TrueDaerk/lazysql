@@ -105,6 +105,35 @@ database when the panel is not focused.
 This is a schema dump, not a data dump. For data, see
 [Dump and restore](dump-and-restore.md).
 
+## `I` — import a CSV into a table
+
+`I` on a table in panel `[2] Objects` loads a CSV file into it — the way back
+in for a CSV exported with `E` and edited elsewhere. The table must already
+exist.
+
+1. Enter the file path (`tab` completes it).
+2. Check what lazysql read, and correct it if needed:
+   - **Delimiter** — detected from `,` `;` tab (`\t`) `|`.
+   - **First line is a header** — `space` toggles it.
+   - **Columns** — the table column each CSV column goes into, in file order;
+     `-` skips a column. With a header they are matched by name, otherwise
+     by position.
+   - **NULL marker** — the field text read as `NULL`. Empty (the default)
+     means an empty field is `NULL`, matching how `E` writes it; set `\N`
+     to keep empty strings as empty strings.
+
+   Above the fields, a preview shows the first rows converted to the
+   columns' types. A value that does not fit its column — `n/a` in an
+   integer column — shows there as an error, and would stop the import:
+   lazysql never converts it silently.
+3. `enter` runs the import.
+
+The whole import is **one transaction**. If any row fails — a type
+mismatch, a constraint, a row with the wrong number of fields — everything
+is rolled back and the command log names the row, its line in the file and
+the reason. Progress is logged every 5000 rows; `X` cancels, which also
+rolls back. A read-only connection refuses the import.
+
 ## How `NULL` is spelled
 
 | Format | `NULL` becomes |

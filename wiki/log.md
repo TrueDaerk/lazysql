@@ -2124,3 +2124,12 @@ Chronological history of wiki changes, newest last.
   is bounded by `aggregateCellLimit`.
 - Updated [design/grid-multi-row-selection](design/grid-multi-row-selection.md)
   to point at it from the status-line bullet.
+
+## 2026-09-25 — CSV import into an existing table (issue #225)
+
+- Added [design/csv-import](design/csv-import.md): the `I` path → settings →
+  import flow, the text-field column mapping, delimiter and header
+  sniffing, NULL as an empty field by default, type conversion that refuses
+  a mismatch, the new `Driver.ImportRows` (one transaction, one prepared
+  INSERT, read-only guard, condensed command log), and why DuckDB's and
+  SQLite's native CSV loaders are not used.

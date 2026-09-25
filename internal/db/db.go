@@ -290,6 +290,12 @@ type Driver interface {
 	// re-issued with a different LIMIT/OFFSET, so exporting it in full
 	// means reading it once and streaming straight through.
 	QueryStream(ctx context.Context, query string, args []any, onRow func(cols []Column, row []any) error) error
+	// ImportRows inserts the rows req.Next yields into an existing table,
+	// all in one transaction: a failing row, a source error or a
+	// cancelled ctx rolls every row back. Values are bound as parameters
+	// of one prepared INSERT, and a read-only session refuses the import
+	// like any other write. See import.go.
+	ImportRows(ctx context.Context, req ImportRequest) (int64, error)
 }
 
 // Dialect captures everything engine-specific: identifier quoting,

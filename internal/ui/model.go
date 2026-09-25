@@ -1174,6 +1174,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.finishBackup(msg)
 		return m, cmd
 
+	case importSetupMsg:
+		// Bind the command first: openImportSettings sets the modal on m.
+		cmd := m.openImportSettings(msg)
+		return m, cmd
+
+	case importProgressMsg:
+		if msg.id != m.exports.csv.id || !m.exports.csv.running {
+			return m, nil
+		}
+		return m, tea.Batch(
+			logCmd("-- import into %s: %d rows%s…", m.exports.csv.table, msg.rows, percentSuffix(msg.done, msg.size)),
+			waitImportCmd(m.exports.csv.ch),
+		)
+
+	case importDoneMsg:
+		if msg.id != m.exports.csv.id {
+			return m, nil
+		}
+		cmd := m.finishImport(msg)
+		return m, cmd
+
 	case databaseDDLExportedMsg:
 		if msg.id != m.exports.ddl.id {
 			return m, nil
@@ -1700,6 +1721,14 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 
 	case actCancelBackup:
 		cmd := m.cancelBackup()
+		return m, cmd
+
+	case actImportCSV:
+		cmd := m.startImport()
+		return m, cmd
+
+	case actCancelImport:
+		cmd := m.cancelImport()
 		return m, cmd
 
 	case actHistory:

@@ -350,6 +350,12 @@ type keyMap struct {
 	// cancel key is only enabled while a job runs.
 	Backup       key.Binding
 	CancelBackup key.Binding
+
+	// ImportCSV loads a CSV file into the table selected in [2] Objects,
+	// and CancelImport rolls a running import back. Like the other cancel
+	// keys it is only enabled while an import runs.
+	ImportCSV    key.Binding
+	CancelImport key.Binding
 }
 
 // acceptKeys are the ctrl+enter / cmd+enter ("super+enter") key strings
@@ -668,6 +674,12 @@ func newKeyMap() keyMap {
 		Backup: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "dump / restore…")),
 		CancelBackup: key.NewBinding(
 			key.WithKeys("X"), key.WithHelp("X", "cancel dump/restore"), key.WithDisabled()),
+
+		// `I` for import: free in [2], and uppercase like the other keys
+		// that start a job on the whole relation (`E`, `B`).
+		ImportCSV: key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "import CSV into table…")),
+		CancelImport: key.NewBinding(
+			key.WithKeys("X"), key.WithHelp("X", "cancel import (rolls back)"), key.WithDisabled()),
 	}
 }
 
@@ -987,6 +999,10 @@ const (
 	actDumpDatabase
 	actRestoreDump
 	actCancelBackup
+
+	// CSV import into the relation selected in [2] Objects.
+	actImportCSV
+	actCancelImport
 )
 
 // action pairs a dispatchable action with the binding that documents it.
@@ -1031,6 +1047,8 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actDiscardChanges, k.DiscardChanges},
 			{actCopyMenu, k.CopyMenu},
 			{actExportDatabaseDDL, k.ExportDatabaseDDL},
+			{actImportCSV, k.ImportCSV},
+			{actCancelImport, k.CancelImport},
 			{actBackup, k.Backup},
 			{actCancelBackup, k.CancelBackup},
 		}
@@ -1121,7 +1139,7 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 // answer with "connection is read-only" — while `?` keeps listing them,
 // so every binding is still documented in exactly one place.
 func (k keyMap) writeBindings() []key.Binding {
-	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu}
+	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu, k.ImportCSV}
 }
 
 // withoutBindings drops every binding of hide from all, matching on the
@@ -1289,6 +1307,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"copy-menu", &k.CopyMenu}, {"export-table", &k.ExportTable}, {"cancel-export", &k.CancelExport},
 		{"export-database-ddl", &k.ExportDatabaseDDL},
 		{"backup", &k.Backup}, {"cancel-backup", &k.CancelBackup},
+		{"import-csv", &k.ImportCSV}, {"cancel-import", &k.CancelImport},
 	}
 }
 

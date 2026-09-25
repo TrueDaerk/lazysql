@@ -160,6 +160,8 @@ On the `File` field of a SQLite or DuckDB profile.
 | `U` | Discard the staged changes | `discard-changes` |
 | `y` | Copy menu — DDL of the selected table/view (`d`) or of the whole database (`D`) | `copy-menu` |
 | `E` | Export the database's DDL — to a file (`f`) or the clipboard (`c`) | `export-database-ddl` |
+| `I` | Import a CSV file into the selected table | `import-csv` |
+| `X` | Cancel the import and roll it back (only while one runs) | `cancel-import` |
 | `B` | Dump / restore… | `backup` |
 | `X` | Cancel dump/restore (only while one runs) | `cancel-backup` |
 | `a` | Actions menu | `actions` |

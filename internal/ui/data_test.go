@@ -913,18 +913,19 @@ func cursorCellText(m Model) (string, bool) {
 	if m.data.col < 0 || m.data.col >= len(m.data.cols) {
 		return "", false
 	}
+	kind := db.ClassifyType(m.data.cols[m.data.col].DataType)
 	if ins, ok := m.phantomAtCursor(); ok {
 		v, bound := insertValueFor(ins, m.data.cols[m.data.col].Name)
 		if !bound {
 			return defaultText, true
 		}
-		return gridCellText(v, nullText), true
+		return gridCellText(v, kind, nullText), true
 	}
 	v, ok := m.data.cell()
 	if !ok {
 		return "", false
 	}
-	return gridCellText(v, nullText), true
+	return gridCellText(v, kind, nullText), true
 }
 
 // assertCursorRendered checks the one invariant this whole area exists
@@ -1452,5 +1453,45 @@ func TestSelectionClearedOnQueryResultPaging(t *testing.T) {
 	d.setPage(1)
 	if d.selecting() || len(d.selectedRows()) != 0 {
 		t.Fatalf("selection = %+v, want it dropped with the page", d.sel)
+	}
+}
+
+// A DATE column renders just the calendar date, not the RFC3339
+// timestamp FormatValue would otherwise invent a midnight time-of-day
+// for — issue #214. TIME renders just the clock time the same way, and
+// DATETIME, whose value genuinely carries both, is unchanged.
+func TestGridRendersDateAndTimeColumnsWithoutAnInventedHalf(t *testing.T) {
+	m := browsing(t)
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS temporal`,
+		`CREATE TABLE temporal (id INTEGER PRIMARY KEY, birthday DATE, alarm TIME, created DATETIME)`,
+		`INSERT INTO temporal (id, birthday, alarm, created)
+		 VALUES (1, '2026-08-02', '14:32:07', '2026-08-02 14:32:07')`,
+	} {
+		if _, err := m.driver.Exec(ctx, stmt); err != nil {
+			t.Fatalf("fixture %q: %v", stmt, err)
+		}
+	}
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("temporal") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	cols, _ := m.buildGrid()
+	want := map[string]string{
+		"birthday": "2026-08-02",
+		"alarm":    "14:32:07",
+		"created":  "2026-08-02T14:32:07Z",
+	}
+	for i, c := range m.data.cols {
+		w, ok := want[c.Name]
+		if !ok {
+			continue
+		}
+		if got := cols[i].cells[0]; got != w {
+			t.Errorf("column %q (%s) cell = %q, want %q", c.Name, c.DataType, got, w)
+		}
 	}
 }

@@ -141,3 +141,32 @@ func ParseDateTimeIn(text string, loc *time.Location) (time.Time, bool) {
 
 // ParseDateTime is ParseDateTimeIn in UTC.
 func ParseDateTime(text string) (time.Time, bool) { return ParseDateTimeIn(text, time.UTC) }
+
+// FormatTemporalValue renders v for display the way FormatValue does,
+// except that a date-only or time-only column drops the half of the
+// value its declared type does not carry — a DATE column reads
+// `2026-08-02`, not the RFC3339 timestamp FormatValue would otherwise
+// invent a midnight time-of-day for. DATETIME/TIMESTAMP columns keep
+// FormatValue's rendering unchanged: both halves are real.
+//
+// A string value that does not parse as a date/time (already-invalid
+// data, or a value read back before it could be classified) is passed
+// through as-is rather than dropped, matching FormatValue.
+func FormatTemporalValue(v any, kind TypeKind, null string) string {
+	if kind != KindDate && kind != KindTime {
+		return FormatValue(v, null)
+	}
+	switch x := v.(type) {
+	case nil:
+		return null
+	case time.Time:
+		return x.Format(kind.Layout())
+	case string:
+		if t, ok := ParseDateTime(x); ok {
+			return t.Format(kind.Layout())
+		}
+		return x
+	default:
+		return FormatValue(x, null)
+	}
+}

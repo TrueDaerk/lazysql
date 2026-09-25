@@ -1970,3 +1970,15 @@ Chronological history of wiki changes, newest last.
   production too); the suite drops to 48s with coverage unchanged. The concept
   also records the timers that remain (modal inputs' visible blink, the input
   coalescer's 16ms flush) and why they stay.
+
+## 2026-09-25 — Render DATE and TIME columns without an invented time or date part (issue #214)
+
+- Added [design/temporal-cell-formatting](design/temporal-cell-formatting.md):
+  `db.FormatTemporalValue` reads a column's already-classified `TypeKind` and
+  drops the half of a temporal value `FormatValue` would otherwise invent for
+  a `KindDate`/`KindTime` column (the P3 finding of
+  [reference/ux-audit-2026-08](reference/ux-audit-2026-08.md)), applied to
+  the grid (`gridCellText`), the cell-detail popup (`v`) and the row detail
+  (`x`). Copy/export and the `e` date picker were already correct through
+  separate paths (`QuoteLiteral`'s own `time.Time` switch, `kind.Layout()`)
+  and needed no change.

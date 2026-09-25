@@ -105,6 +105,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				header += " ▲"
 			}
 		}
+		kind := db.ClassifyType(c.DataType)
 		g := gridColumn{
 			header: header,
 			typ:    strings.ToLower(c.DataType),
@@ -127,7 +128,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				}
 			}
 			g.nulls[r] = v == nil
-			g.cells[r] = gridCellText(v, nullText)
+			g.cells[r] = gridCellText(v, kind, nullText)
 		}
 		for j, ins := range inserts {
 			r := len(d.rows) + j
@@ -139,7 +140,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				g.nulls[r] = true
 				g.cells[r] = nullText
 			default:
-				g.cells[r] = gridCellText(v, nullText)
+				g.cells[r] = gridCellText(v, kind, nullText)
 			}
 		}
 		for _, cell := range g.cells {
@@ -198,8 +199,13 @@ const cellScanBytes = 4 * (maxColWidth + 1)
 // Only the first cellScanBytes of the value are looked at. The binary
 // check is the same one classifyCell makes — the JSON arm it has is for
 // the popup, which pretty-prints; the grid flattens either way.
-func gridCellText(v any, null string) string {
-	raw := db.FormatValue(v, null)
+//
+// kind is the column's declared temporal kind, so a DATE or TIME column
+// renders only the half of the value it actually carries (see
+// db.FormatTemporalValue) instead of the RFC3339 timestamp FormatValue
+// would otherwise invent a date or time-of-day for.
+func gridCellText(v any, kind db.TypeKind, null string) string {
+	raw := db.FormatTemporalValue(v, kind, null)
 	head := cellHead(raw)
 	if !utf8.ValidString(head) {
 		// The placeholder reports the size of the whole value, not of

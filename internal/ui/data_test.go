@@ -185,6 +185,195 @@ func TestPagingWalksAndClamps(t *testing.T) {
 	}
 }
 
+// `end` jumps straight to the last row of the last page — the whole point
+// being that it gets there in one press rather than N presses of ctrl+f.
+func TestLastRowJumpLandsOnFinalPage(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, special(tea.KeyEnd, 0))
+
+	if m.data.page != 2 {
+		t.Fatalf("page = %d, want the last page (2)", m.data.page)
+	}
+	if got := len(m.data.rows); got != 50 {
+		t.Fatalf("rows on the last page = %d, want 50 (250 rows, page size 100)", got)
+	}
+	if m.data.row != 49 {
+		t.Fatalf("cursor row = %d, want the last row of the page (49)", m.data.row)
+	}
+	if !logContains(m, "LIMIT 100 OFFSET 200") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+
+	// `home` walks it straight back to the first row of the first page.
+	m = send(t, m, special(tea.KeyHome, 0))
+	if m.data.page != 0 || m.data.row != 0 {
+		t.Fatalf("page/row = %d/%d, want 0/0 after home", m.data.page, m.data.row)
+	}
+	if !logContains(m, "LIMIT 100 OFFSET 0") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// Pressing `end`/`home` again while already on the target page repositions
+// the cursor without a round trip — no fresh LIMIT/OFFSET line in the log.
+func TestRowJumpsOnTheTargetPageCostNoRoundTrip(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, special(tea.KeyHome, 0))
+	before := len(m.commandLog)
+	m = send(t, m, special(tea.KeyHome, 0))
+	if len(m.commandLog) != before {
+		t.Fatalf("home on the first page issued a query: log grew from %d to %d", before, len(m.commandLog))
+	}
+}
+
+// The last-row jump respects the active filter: it lands on the last page
+// of the *filtered* set, using the same total the status line's "of ~N"
+// already reads — not the unfiltered table.
+func TestLastRowJumpUsesTheFilteredCount(t *testing.T) {
+	m := dataBrowsing(t)
+	m = applyWhereFilter(t, m, "id > 150") // rows 151..250 match: 100 rows, one full page and none left over
+	if m.data.total != 100 {
+		t.Fatalf("filtered total = %d, want 100", m.data.total)
+	}
+
+	m = send(t, m, special(tea.KeyEnd, 0))
+	if m.data.filter == nil || m.data.filter.Raw != "id > 150" {
+		t.Fatalf("filter lost across the jump: %+v", m.data.filter)
+	}
+	if m.data.page != 0 {
+		t.Fatalf("page = %d, want page 0 — the filtered set is exactly one page", m.data.page)
+	}
+	if got := len(m.data.rows); got != 100 {
+		t.Fatalf("rows on the last (only) filtered page = %d, want 100", got)
+	}
+	if m.data.row != 99 {
+		t.Fatalf("cursor row = %d, want the last row (99)", m.data.row)
+	}
+	if !logContains(m, `WHERE "id" > ? LIMIT 100 OFFSET 0`) {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// `end` on a table whose count has not landed yet refuses rather than
+// guessing at a last page — the total is what the status line's "of ~N"
+// already depends on, and there is nothing to jump to until it exists.
+func TestLastRowJumpWaitsForTheCount(t *testing.T) {
+	m := dataBrowsing(t)
+	m.data.hasTotal = false
+
+	cmd := m.jumpToLastRow()
+	m = send(t, m, drain(cmd)...)
+	if m.data.page != 0 {
+		t.Fatalf("page = %d, want the jump refused rather than guessing", m.data.page)
+	}
+	if !logContains(m, "row count still loading") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// `p` opens a prompt; a page inside 1..pageCount jumps straight there.
+func TestGoToPageJumpsToTheGivenPage(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, press('p'))
+	p, ok := m.modal.(*promptModal)
+	if !ok {
+		t.Fatalf("p opened %T, want the page prompt", m.modal)
+	}
+	if p.title != "Go to page" {
+		t.Fatalf("prompt title = %q", p.title)
+	}
+
+	m = typeKeys(t, m, "2")
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.modal != nil {
+		t.Fatal("the prompt stayed open")
+	}
+	if m.data.page != 1 {
+		t.Fatalf("page = %d, want page 2 (index 1)", m.data.page)
+	}
+	if !logContains(m, "LIMIT 100 OFFSET 100") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// A page outside 1..pageCount is refused with a message, not clamped to
+// either end.
+func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
+	m := dataBrowsing(t) // 3 pages
+	m = send(t, m, press('p'))
+	m = typeKeys(t, m, "99")
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	if m.modal != nil {
+		t.Fatal("the prompt stayed open")
+	}
+	if m.data.page != 0 {
+		t.Fatalf("page = %d, want the out-of-range request left the page alone", m.data.page)
+	}
+	if !logContains(m, "out of range") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+
+	// Not a number at all: refused the same way, not silently ignored.
+	m = send(t, m, press('p'))
+	m = typeKeys(t, m, "abc")
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.data.page != 0 {
+		t.Fatalf("page = %d, want it unchanged", m.data.page)
+	}
+	if !logContains(m, "not a whole number") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+}
+
+// esc cancels the prompt without touching the page.
+func TestGoToPageEscCancels(t *testing.T) {
+	m := dataBrowsing(t)
+	m = send(t, m, press('p'))
+	m = typeKeys(t, m, "2")
+	m = send(t, m, special(tea.KeyEscape, 0))
+
+	if m.modal != nil {
+		t.Fatal("esc left the prompt open")
+	}
+	if m.data.page != 0 {
+		t.Fatalf("page = %d, want esc to have changed nothing", m.data.page)
+	}
+}
+
+// A jump supersedes whatever page query is already in flight, the same
+// way ctrl+f/ctrl+b do — see wiki/design/page-query-cancellation.md.
+func TestLastRowJumpCancelsAnInFlightPageQuery(t *testing.T) {
+	m, drv := blocked(t)
+
+	first := m.reloadPage()
+	go func() { drain(first) }()
+	pageCtx := <-drv.pages
+
+	cmd := m.jumpToLastRow()
+	if pageCtx.Err() == nil {
+		t.Fatal("the last-row jump did not cancel the in-flight page query")
+	}
+	go drain(cmd)
+	<-drv.pages
+	m.stopPageQueries()
+}
+
+// A jump drops any row selection, exactly like an ordinary page turn.
+func TestRowJumpsClearSelection(t *testing.T) {
+	m := send(t, dataBrowsing(t), ctrl('v'), press('j'), press('j'))
+	if got := len(m.data.selectedRows()); got != 3 {
+		t.Fatalf("selected %d rows, want 3 before the jump", got)
+	}
+	m = send(t, m, special(tea.KeyEnd, 0))
+	if m.data.selecting() {
+		t.Fatalf("the selection survived the last-row jump: %+v", m.data.sel)
+	}
+	if m.keys.CopySelection.Enabled() {
+		t.Fatal("ctrl+c stayed bound to the copy across the jump")
+	}
+}
+
 // `s` cycles the column under the cursor through ASC, DESC and back to
 // unsorted, and the ordering reaches the query.
 func TestSortCyclesAndReachesTheQuery(t *testing.T) {

@@ -260,6 +260,9 @@ Live while the main view has the focus.
 | `l` · `→` | Next column | `col-right` |
 | `ctrl+f` · `pgdn` | Next page | `next-page` |
 | `ctrl+b` · `pgup` | Previous page | `prev-page` |
+| `home` | First row (loads the first page) | `first-row` |
+| `end` | Last row (loads the last page) | `last-row` |
+| `p` | Go to page… | `go-to-page` |
 | `s` | Sort the cursor column | `sort-column` |
 | `ctrl+v` · `V` | Select rows | `select-rows` |
 | `C` | Select columns (`h`/`l` extend) | `select-columns` |

@@ -187,6 +187,22 @@ type keyMap struct {
 	ViewCell    key.Binding
 	RowDetail   key.Binding
 
+	// FirstRow/LastRow jump the cursor to row one of the first page, or the
+	// last row of the last page, loading whatever page that lands on —
+	// ctrl+f/ctrl+b only move one page at a time, which is a lot of presses
+	// on a large table (issue #221). `home`/`end` rather than vim's `gg`/`G`:
+	// `g` already follows a foreign key and `G` already lists the rows that
+	// reference this one (see wiki/design/foreign-key-navigation.md), and
+	// the named keys are free everywhere the grid, the filter input, the
+	// cell detail popup and the date picker look, and carry no AltGr risk
+	// (see wiki/reference/keyboard-layout-portability.md — only punctuation
+	// bindings need a layout-neutral alias, and a named key is not one).
+	// GoToPage opens a prompt for a page number, on the same layout-neutral
+	// footing: `p` is free in every one of those contexts too.
+	FirstRow key.Binding
+	LastRow  key.Binding
+	GoToPage key.Binding
+
 	// The inline WHERE line `/` opens on the grid. Like the editor's
 	// LeaveInsert these are bindings of their own rather than second
 	// meanings of Enter and Back, so `?` can name what the keys do while
@@ -491,6 +507,10 @@ func newKeyMap() keyMap {
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
+
+		FirstRow: key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "first row")),
+		LastRow:  key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "last row")),
+		GoToPage: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "go to page…")),
 
 		// ctrl+enter/cmd+enter alias enter here through acceptKeys, like
 		// everywhere else a line is submitted.
@@ -846,6 +866,9 @@ const (
 	actColRight
 	actNextPage
 	actPrevPage
+	actFirstRow
+	actLastRow
+	actGoToPage
 	actSortColumn
 	actSelectRows
 	actSelectColumns
@@ -971,6 +994,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actColRight, k.ColRight},
 			{actNextPage, k.NextPage},
 			{actPrevPage, k.PrevPage},
+			{actFirstRow, k.FirstRow},
+			{actLastRow, k.LastRow},
+			{actGoToPage, k.GoToPage},
 			{actSortColumn, k.SortColumn},
 			{actSelectRows, k.SelectRows},
 			{actSelectColumns, k.SelectColumns},
@@ -1167,6 +1193,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
+		{"first-row", &k.FirstRow}, {"last-row", &k.LastRow}, {"go-to-page", &k.GoToPage},
 		{"apply-filter", &k.ApplyFilter}, {"cancel-filter", &k.CancelFilter},
 		{"filter-hist-prev", &k.FilterHistPrev}, {"filter-hist-next", &k.FilterHistNext},
 		{"select-rows", &k.SelectRows}, {"select-columns", &k.SelectColumns}, {"copy-selection", &k.CopySelection},

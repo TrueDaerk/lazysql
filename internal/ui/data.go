@@ -3,6 +3,9 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -608,6 +611,151 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 	return m.reloadPage()
 }
 
+// jumpToFirstRow moves the cursor to row one of the first page, loading it
+// if the grid is not there already. Like every other page turn it drops
+// the selection (through reloadPage, when a load is actually issued) and
+// supersedes whatever page query is in flight.
+func (m *Model) jumpToFirstRow() tea.Cmd {
+	if !m.data.open() {
+		return nil
+	}
+	if m.data.isQuery() {
+		// A query result is fully in memory, so this is a slice, not a
+		// round trip — setPage(0) already resets the row and the selection.
+		m.data.setPage(0)
+		m.clampCursor()
+		return nil
+	}
+	if !m.data.browsing() {
+		return nil
+	}
+	if m.data.page == 0 {
+		m.data.row = 0
+		m.clampCursor()
+		return nil
+	}
+	m.data.page = 0
+	m.data.row = 0
+	return m.reloadPage()
+}
+
+// jumpToLastRow moves the cursor to the last row of the last page,
+// loading it if the grid is not there already. The last page is computed
+// from the same total the status line's "of ~N" reads — an estimate for
+// some engines (see dataView.pageCount and dataStatus) — so a jump can
+// land a row or two short of the true end there, same as the status line
+// can already be off by that much. Nothing here treats the estimate as
+// exact beyond that.
+func (m *Model) jumpToLastRow() tea.Cmd {
+	if !m.data.open() {
+		return nil
+	}
+	if m.data.isQuery() {
+		last := 0
+		if n := m.data.pageCount(); n > 0 {
+			last = n - 1
+		}
+		m.data.setPage(last)
+		m.data.row = maxInt(len(m.data.rows)-1, 0)
+		m.clampCursor()
+		return nil
+	}
+	if !m.data.browsing() {
+		return nil
+	}
+	if !m.data.hasTotal {
+		return logCmd("-- last row unknown yet: row count still loading")
+	}
+	last := m.data.pageCount() - 1
+	if last < 0 {
+		last = 0
+	}
+	// The row count of the last page is derived from the same total the
+	// page count came from, so the two agree even while it is an
+	// estimate; clampCursor settles the cursor once the real page lands,
+	// in case the count was off.
+	onLastPage := int(m.data.total) - last*m.data.limit()
+	if onLastPage > m.data.limit() {
+		onLastPage = m.data.limit()
+	}
+	if onLastPage < 0 {
+		onLastPage = 0
+	}
+	if m.data.page == last {
+		m.data.row = maxInt(onLastPage-1, 0)
+		m.clampCursor()
+		return nil
+	}
+	m.data.page = last
+	m.data.row = maxInt(onLastPage-1, 0)
+	return m.reloadPage()
+}
+
+// openGoToPage opens the "go to page" prompt for the grid, reusing the
+// same modal shape every other text prompt in the app does (see
+// internal/ui/modal.go's promptModal). The target page is a page of
+// whatever query is running — the active filter and sort are untouched.
+func (m *Model) openGoToPage() tea.Cmd {
+	if !m.data.open() {
+		return logCmd("-- go to page skipped: no data on screen")
+	}
+	if !m.data.isQuery() && !m.data.browsing() {
+		return logCmd("-- go to page skipped: no data on screen")
+	}
+	placeholder := "page number"
+	if n := m.data.pageCount(); n > 0 {
+		placeholder = fmt.Sprintf("1-%d", n)
+	}
+	m.modal = newPromptModal("Go to page", placeholder, "",
+		func(mm *Model, value string) tea.Cmd { return mm.submitGoToPage(value) })
+	return nil
+}
+
+// submitGoToPage validates and applies the go-to-page prompt's answer. A
+// page outside 1..pageCount is refused with a message rather than
+// silently clamped to an end — a mistyped page number should say so, not
+// pretend to have been understood.
+func (m *Model) submitGoToPage(value string) tea.Cmd {
+	if !m.data.open() || (!m.data.isQuery() && !m.data.browsing()) {
+		return logCmd("-- go to page skipped: no data on screen")
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return logCmd("-- go to page cancelled: no page number given")
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return logCmd("-- go to page %q FAILED: not a whole number", value)
+	}
+	// A query result knows its exact page count; a browsed table's total
+	// (and so its page count) may still be in flight.
+	if !m.data.isQuery() && !m.data.hasTotal {
+		return logCmd("-- go to page skipped: row count still loading")
+	}
+	count := m.data.pageCount()
+	if count <= 0 {
+		count = 1
+	}
+	if n < 1 || n > count {
+		return logCmd("-- go to page %d FAILED: out of range (1-%d)", n, count)
+	}
+	target := n - 1
+	if m.data.isQuery() {
+		if target == m.data.page {
+			return logCmd("-- already on page %d", n)
+		}
+		m.data.setPage(target)
+		m.clampCursor()
+		return nil
+	}
+	if target == m.data.page {
+		return logCmd("-- already on page %d", n)
+	}
+	m.data.page = target
+	m.data.row = 0
+	return m.reloadPage()
+}
+
 // updateData is the key handler of the focused main view. It runs in
 // place of updateFocused, so navigation keys mean cells here.
 func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -808,6 +956,15 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actPrevPage:
 		cmd := m.turnPage(-1)
+		return m, cmd, true
+	case actFirstRow:
+		cmd := m.jumpToFirstRow()
+		return m, cmd, true
+	case actLastRow:
+		cmd := m.jumpToLastRow()
+		return m, cmd, true
+	case actGoToPage:
+		cmd := m.openGoToPage()
 		return m, cmd, true
 	case actSortColumn:
 		cmd := m.toggleSort()

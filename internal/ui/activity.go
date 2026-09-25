@@ -324,7 +324,7 @@ func (m *Model) setActivityRows(rows []db.Process) {
 // means quit again the moment the selection is gone. The report's grid
 // wins whenever it is open, because it is what the box is showing.
 func (m *Model) syncCopySelectionKey() {
-	sel := len(m.data.selectedRows()) > 0
+	sel := len(m.grid.data.selectedRows()) > 0
 	if m.activity != nil {
 		sel = m.activity.grid.selecting()
 	}
@@ -538,7 +538,7 @@ func (m Model) updateActivityKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 		// The report was the main view's content; with it gone the box has
 		// nothing of its own to show, so the focus goes back where `A` came
 		// from rather than sitting on an empty grid.
-		if m.focus == panelMain && !m.data.open() && m.trigger == nil {
+		if m.focus == panelMain && !m.grid.data.open() && m.trigger == nil {
 			m.focusBack()
 		}
 		return m, nil, true

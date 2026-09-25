@@ -113,7 +113,7 @@ func TestStageAddColumnAndCommit(t *testing.T) {
 		t.Fatalf("form stayed open: %q", formOf(t, m).err)
 	}
 
-	if n := len(m.changes.SchemaChanges()); n != 1 {
+	if n := len(m.grid.changes.SchemaChanges()); n != 1 {
 		t.Fatalf("staged schema changes = %d, want 1", n)
 	}
 	if slices.Contains(gridColumns(t, m), "score") {
@@ -137,7 +137,7 @@ func TestStageAddColumnAndCommit(t *testing.T) {
 	if !slices.Contains(gridColumns(t, m), "score") {
 		t.Fatal("the commit did not add the column")
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("the changeset survived a successful commit")
 	}
 	found := false
@@ -161,8 +161,8 @@ func TestSchemaMenuEscCancels(t *testing.T) {
 	m = send(t, m, press('i'))
 	formOf(t, m)
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.modal != nil || m.changes.Len() != 0 {
-		t.Fatalf("esc on the form: modal %T, %d staged", m.modal, m.changes.Len())
+	if m.modal != nil || m.grid.changes.Len() != 0 {
+		t.Fatalf("esc on the form: modal %T, %d staged", m.modal, m.grid.changes.Len())
 	}
 }
 
@@ -184,7 +184,7 @@ func TestSchemaMenuSaysWhatSQLiteCannotDo(t *testing.T) {
 	if !ok || !strings.Contains(cm.body, "TRUNCATE") {
 		t.Fatalf("choosing it opened %T %+v, want the explanation", m.modal, m.modal)
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("an unsupported operation was staged")
 	}
 
@@ -222,12 +222,12 @@ func TestDropTableStagesThenDisappears(t *testing.T) {
 	if !ok || !cm.danger || !strings.Contains(cm.body, `DROP TABLE "grid"`) {
 		t.Fatalf("d opened %T, want a danger confirm naming the DROP", m.modal)
 	}
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("staged before the confirm")
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.changes.Len() != 1 {
-		t.Fatalf("changeset = %d after the confirm, want the drop staged", m.changes.Len())
+	if m.grid.changes.Len() != 1 {
+		t.Fatalf("changeset = %d after the confirm, want the drop staged", m.grid.changes.Len())
 	}
 	if n := m.tree.category("", catTables); n == nil || !treeHasNote(n, "grid", "staged: drop") {
 		t.Fatal("the [2] node does not show the staged drop")
@@ -245,7 +245,7 @@ func TestDropTableStagesThenDisappears(t *testing.T) {
 			t.Fatalf("the dropped table lingers in [2]: %v", m.panels[panelObjects].items)
 		}
 	}
-	if m.data.browsing() {
+	if m.grid.data.browsing() {
 		t.Fatal("the main view still shows the dropped table")
 	}
 }
@@ -275,8 +275,8 @@ func TestRenameTableReopens(t *testing.T) {
 	p.input.SetValue("grid2")
 	m = send(t, m, special(tea.KeyEnter, 0))
 	m, _ = commitAll(t, m)
-	if m.data.table != "grid2" {
-		t.Fatalf("open table = %q, want the renamed one", m.data.table)
+	if m.grid.data.table != "grid2" {
+		t.Fatalf("open table = %q, want the renamed one", m.grid.data.table)
 	}
 	if !m.panels[panelObjects].selectByName("grid2") {
 		t.Fatalf("[2] does not list the renamed table: %v", m.panels[panelObjects].items)
@@ -296,7 +296,7 @@ func TestCreateAndDropIndex(t *testing.T) {
 	f := formOf(t, m)
 	fill(t, f, "columns", "name, nope")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.modal == nil || m.changes.Len() != 0 {
+	if m.modal == nil || m.grid.changes.Len() != 0 {
 		t.Fatal("an index over a column the table lacks was staged")
 	}
 	fill(t, f, "columns", "name")
@@ -378,7 +378,7 @@ func TestColumnFormRejectsBadType(t *testing.T) {
 	fill(t, f, "name", "x")
 	fill(t, f, "type", "int, evil int")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.modal == nil || m.changes.Len() != 0 {
+	if m.modal == nil || m.grid.changes.Len() != 0 {
 		t.Fatal("a column with a hostile type was staged")
 	}
 }
@@ -386,13 +386,13 @@ func TestColumnFormRejectsBadType(t *testing.T) {
 // The staged-changes list unstages one change at a time.
 func TestUnstageSchemaChange(t *testing.T) {
 	m := dataBrowsing(t)
-	m.changes.StageSchema(db.DropColumn{Table: "grid", Column: "note"})
+	m.grid.changes.StageSchema(db.DropColumn{Table: "grid", Column: "note"})
 	m, mm := schemaMenu(t, m)
 	if l, ok := menuLabel(mm, "u"); !ok || !strings.Contains(l, "(1)") {
 		t.Fatalf("staged entry = %q", l)
 	}
 	m = send(t, m, press('u'), special(tea.KeyEnter, 0))
-	if m.changes.Len() != 0 {
+	if m.grid.changes.Len() != 0 {
 		t.Fatal("enter in the staged list did not unstage")
 	}
 }

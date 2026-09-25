@@ -57,7 +57,7 @@ func readOnlyBlocked(what string) tea.Cmd {
 // cached metadata; when no tab has fetched it yet the fetch is started
 // and the modal opens when the reply lands, like `y` does for the DDL.
 func (m *Model) startEdit() tea.Cmd {
-	if !m.data.browsing() || m.tab.metadata() || m.driver == nil {
+	if !m.grid.data.browsing() || m.tab.metadata() || m.driver == nil {
 		return nil
 	}
 	if m.readOnly() {
@@ -66,7 +66,7 @@ func (m *Model) startEdit() tea.Cmd {
 	if m.onPhantomRow() {
 		return logCmd("-- edit skipped: the cursor is on a staged insert (u unstages it)")
 	}
-	if len(m.data.rows) == 0 {
+	if len(m.grid.data.rows) == 0 {
 		return logCmd("-- edit skipped: no rows on this page")
 	}
 	if m.meta.loaded {
@@ -87,7 +87,7 @@ func (m Model) editIdentity(row int) (pkCols []string, pkVals []any, problem str
 	if len(pkCols) == 0 {
 		return nil, nil, "the table has no primary key, so a row cannot be identified safely.\n\nlazysql refuses to guess row identity — add a primary key to edit or delete rows here. Inserting is still allowed."
 	}
-	if row < 0 || row >= len(m.data.rows) {
+	if row < 0 || row >= len(m.grid.data.rows) {
 		return nil, nil, "no row under the cursor."
 	}
 	vals, ok := m.rowKeyVals(pkCols, row)
@@ -99,15 +99,15 @@ func (m Model) editIdentity(row int) (pkCols []string, pkVals []any, problem str
 
 // rowKeyVals picks the values of the named columns out of one page row.
 func (m Model) rowKeyVals(cols []string, row int) ([]any, bool) {
-	if row < 0 || row >= len(m.data.rows) {
+	if row < 0 || row >= len(m.grid.data.rows) {
 		return nil, false
 	}
 	vals := make([]any, len(cols))
 	for i, name := range cols {
 		found := false
-		for j, c := range m.data.cols {
-			if c.Name == name && j < len(m.data.rows[row]) {
-				vals[i] = m.data.rows[row][j]
+		for j, c := range m.grid.data.cols {
+			if c.Name == name && j < len(m.grid.data.rows[row]) {
+				vals[i] = m.grid.data.rows[row][j]
 				found = true
 				break
 			}
@@ -122,30 +122,30 @@ func (m Model) rowKeyVals(cols []string, row int) ([]any, bool) {
 // openEditModal builds the edit modal for the cell under the cursor.
 // Editing an already-staged cell resumes from its staged value.
 func (m *Model) openEditModal() tea.Cmd {
-	pkCols, pkVals, problem := m.editIdentity(m.data.row)
+	pkCols, pkVals, problem := m.editIdentity(m.grid.data.row)
 	if problem != "" {
 		m.modal = &confirmModal{title: "Editing disabled", body: problem, danger: true}
 		return nil
 	}
-	if m.changes.DeleteStaged(m.data.database, m.data.table, pkVals) {
+	if m.grid.changes.DeleteStaged(m.grid.data.database, m.grid.data.table, pkVals) {
 		return logCmd("-- edit skipped: the row is staged for deletion (u unstages it)")
 	}
-	if m.data.col >= len(m.data.cols) {
+	if m.grid.data.col >= len(m.grid.data.cols) {
 		return nil
 	}
-	colName := m.data.cols[m.data.col].Name
-	old, _ := m.data.cell()
+	colName := m.grid.data.cols[m.grid.data.col].Name
+	old, _ := m.grid.data.cell()
 
 	change := db.CellChange{
-		Database: m.data.database,
-		Table:    m.data.table,
+		Database: m.grid.data.database,
+		Table:    m.grid.data.table,
 		PKCols:   pkCols,
 		PKVals:   pkVals,
 		Column:   colName,
 		OldValue: old,
 	}
 	initial := old
-	if staged, ok := m.changes.Lookup(change.Database, change.Table, pkVals, colName); ok {
+	if staged, ok := m.grid.changes.Lookup(change.Database, change.Table, pkVals, colName); ok {
 		change.OldValue = staged.OldValue
 		initial = staged.NewValue
 	}
@@ -193,28 +193,28 @@ func (m *Model) openEditModal() tea.Cmd {
 // fetched row.)
 func (m Model) bulkTargets(cursor db.CellChange) (targets []db.CellChange, skipped int) {
 	targets = []db.CellChange{cursor}
-	if !m.data.selecting() {
+	if !m.grid.data.selecting() {
 		return targets, 0
 	}
-	for _, r := range m.data.selectedRows() {
-		if r == m.data.row {
+	for _, r := range m.grid.data.selectedRows() {
+		if r == m.grid.data.row {
 			continue
 		}
 		pkVals, ok := m.rowKeyVals(cursor.PKCols, r)
-		if !ok || m.changes.DeleteStaged(cursor.Database, cursor.Table, pkVals) {
+		if !ok || m.grid.changes.DeleteStaged(cursor.Database, cursor.Table, pkVals) {
 			skipped++
 			continue
 		}
 		c := cursor
 		c.PKVals = pkVals
 		c.OldValue = nil
-		if m.data.col < len(m.data.rows[r]) {
-			c.OldValue = m.data.rows[r][m.data.col]
+		if m.grid.data.col < len(m.grid.data.rows[r]) {
+			c.OldValue = m.grid.data.rows[r][m.grid.data.col]
 		}
 		// An already-staged cell keeps the value the database holds as its
 		// OldValue, so restoring it still unstages rather than staging a
 		// second edit on top of the first.
-		if staged, ok := m.changes.Lookup(c.Database, c.Table, pkVals, c.Column); ok {
+		if staged, ok := m.grid.changes.Lookup(c.Database, c.Table, pkVals, c.Column); ok {
 			c.OldValue = staged.OldValue
 		}
 		targets = append(targets, c)
@@ -262,12 +262,12 @@ func rowLabel(pkCols []string, pkVals []any) string {
 // value unstages it instead of staging a no-op UPDATE.
 func (m *Model) stageChange(c db.CellChange) tea.Cmd {
 	if valuesEqual(c.NewValue, c.OldValue) {
-		if m.changes.Unstage(c.Database, c.Table, c.PKVals, c.Column) {
+		if m.grid.changes.Unstage(c.Database, c.Table, c.PKVals, c.Column) {
 			return logCmd("-- unstage %s.%s (original value restored)", c.Table, c.Column)
 		}
 		return logCmd("-- not staged: %s.%s is unchanged", c.Table, c.Column)
 	}
-	m.changes.Stage(c)
+	m.grid.changes.Stage(c)
 	// This previews the single-cell edit just staged, not the merged
 	// statement it may end up part of — Changeset.Statements groups it
 	// with any other staged edits of the same row only at commit time.
@@ -295,7 +295,7 @@ func (m *Model) stageValue(targets []db.CellChange, value any) tea.Cmd {
 		// a no-op UPDATE, exactly as it does for a single cell — so a bulk
 		// edit back to the old value cleans up after itself.
 		if valuesEqual(c.NewValue, c.OldValue) {
-			if m.changes.Unstage(c.Database, c.Table, c.PKVals, c.Column) {
+			if m.grid.changes.Unstage(c.Database, c.Table, c.PKVals, c.Column) {
 				unstaged++
 			}
 			continue
@@ -303,7 +303,7 @@ func (m *Model) stageValue(targets []db.CellChange, value any) tea.Cmd {
 		if staged == 0 {
 			first = c
 		}
-		m.changes.Stage(c)
+		m.grid.changes.Stage(c)
 		staged++
 	}
 	// The selection has done its job; leaving it up would aim the next
@@ -338,31 +338,31 @@ func (m *Model) stageValue(targets []db.CellChange, value any) tea.Cmd {
 // the row-level operations come first because on those rows there is no
 // cell change to remove anyway.
 func (m *Model) unstageAtCursor() tea.Cmd {
-	if !m.data.browsing() || m.tab.metadata() {
+	if !m.grid.data.browsing() || m.tab.metadata() {
 		return nil
 	}
 	if ins, ok := m.phantomAtCursor(); ok {
-		m.changes.UnstageInsert(ins.Database, ins.Table, ins.ID)
+		m.grid.changes.UnstageInsert(ins.Database, ins.Table, ins.ID)
 		m.clampCursor()
 		return logCmd("-- unstage insert into %s", ins.Table)
 	}
 	pkCols := m.pkColumns()
 	if pkCols == nil {
-		return logCmd("-- nothing staged for %s", m.data.table)
+		return logCmd("-- nothing staged for %s", m.grid.data.table)
 	}
-	pkVals, ok := m.rowKeyVals(pkCols, m.data.row)
+	pkVals, ok := m.rowKeyVals(pkCols, m.grid.data.row)
 	if !ok {
 		return nil
 	}
-	if m.changes.UnstageDelete(m.data.database, m.data.table, pkVals) {
-		return logCmd("-- unstage delete of %s (%s)", m.data.table, rowLabel(pkCols, pkVals))
+	if m.grid.changes.UnstageDelete(m.grid.data.database, m.grid.data.table, pkVals) {
+		return logCmd("-- unstage delete of %s (%s)", m.grid.data.table, rowLabel(pkCols, pkVals))
 	}
-	if m.data.col >= len(m.data.cols) {
+	if m.grid.data.col >= len(m.grid.data.cols) {
 		return nil
 	}
-	colName := m.data.cols[m.data.col].Name
-	if m.changes.Unstage(m.data.database, m.data.table, pkVals, colName) {
-		return logCmd("-- unstage %s.%s", m.data.table, colName)
+	colName := m.grid.data.cols[m.grid.data.col].Name
+	if m.grid.changes.Unstage(m.grid.data.database, m.grid.data.table, pkVals, colName) {
+		return logCmd("-- unstage %s.%s", m.grid.data.table, colName)
 	}
 	return logCmd("-- no staged change under the cursor")
 }
@@ -372,7 +372,7 @@ func (m *Model) unstageAtCursor() tea.Cmd {
 // the table knows them too — which is how the grid keeps highlighting
 // staged rows after the metadata cache was dropped.
 func (m Model) pkColumns() []string {
-	if m.meta.loaded && m.meta.table == m.data.table {
+	if m.meta.loaded && m.meta.table == m.grid.data.table {
 		var cols []string
 		for _, c := range m.meta.cols {
 			if c.PrimaryKey {
@@ -383,12 +383,12 @@ func (m Model) pkColumns() []string {
 			return cols
 		}
 	}
-	return m.changes.PKColsFor(m.data.database, m.data.table)
+	return m.grid.changes.PKColsFor(m.grid.data.database, m.grid.data.table)
 }
 
 // confirmDiscard is `U`: throw the whole changeset away, after asking.
 func (m *Model) confirmDiscard() tea.Cmd {
-	n := m.changes.Len()
+	n := m.grid.changes.Len()
 	if n == 0 {
 		return logCmd("-- no staged changes to discard")
 	}
@@ -397,7 +397,7 @@ func (m *Model) confirmDiscard() tea.Cmd {
 		body:   fmt.Sprintf("Discard all %s without executing anything?", countChanges(n)),
 		danger: true,
 		onConfirm: func(mm *Model) tea.Cmd {
-			mm.changes.Clear()
+			mm.grid.changes.Clear()
 			// The phantom rows went with the changeset; the cursor may
 			// have been standing on one of them. So did the staged marks
 			// in [2].
@@ -421,11 +421,11 @@ func (m *Model) openCommitModal() tea.Cmd {
 	if m.readOnly() {
 		return readOnlyBlocked("commit")
 	}
-	n := m.changes.Len()
+	n := m.grid.changes.Len()
 	if n == 0 {
 		return logCmd("-- no staged changes to commit")
 	}
-	stmts, err := m.changes.Statements(m.driver.Dialect())
+	stmts, err := m.grid.changes.Statements(m.driver.Dialect())
 	if err != nil {
 		// A staged change this engine cannot run — only possible when the
 		// changeset outlived the connection it was staged for. Committing
@@ -434,7 +434,7 @@ func (m *Model) openCommitModal() tea.Cmd {
 			body: err.Error() + "\n\nUnstage it (S → staged schema changes) or discard the changeset (U)."}
 		return logCmd("-- commit refused: %v", err)
 	}
-	schema := m.changes.SchemaChanges()
+	schema := m.grid.changes.SchemaChanges()
 	lines := make([]string, 0, len(stmts))
 	for _, s := range stmts {
 		lines = append(lines, fmt.Sprintf("%s;  -- args %v", s.SQL, s.Args))

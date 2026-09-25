@@ -2078,3 +2078,23 @@ Chronological history of wiki changes, newest last.
   share the `Change` interface, whose render now returns an error) and
   [design/read-only-connections](design/read-only-connections.md) (the
   stage-time `ErrReadOnly` from `Driver.SchemaSQL`).
+
+## 2026-09-25
+
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 1): the grid state — page, in-flight page queries,
+  filter line and history, changeset, FK caches and jump history — moved
+  off the root `Model` into a `gridModel` sub-model (`grid.go`), kept in
+  `package ui` rather than a sub-package. Documents the rule for what
+  belongs on a sub-model versus the root.
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 2): the query state — editor, running script, history,
+  snippets, parameter memory, completion, schema cache and highlight cache —
+  moved off the root `Model` into a `queryModel` sub-model
+  (`querymodel.go`); the history dedupe/cap and snippet put/remove
+  bookkeeping live on it.
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 3): the export, dump/restore and database DDL export
+  jobs moved off the root `Model` into an `exportsModel` sub-model
+  (`exportsmodel.go`) with the cancel-on-disconnect rule as its one
+  method. The three sub-models are now listed in one table.

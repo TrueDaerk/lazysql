@@ -47,19 +47,19 @@ func datesBrowsing(t *testing.T) Model {
 // onColumn moves the cell cursor onto the named column.
 func onColumn(t *testing.T, m Model, name string) Model {
 	t.Helper()
-	for i, c := range m.data.cols {
+	for i, c := range m.grid.data.cols {
 		if c.Name != name {
 			continue
 		}
-		for m.data.col < i {
+		for m.grid.data.col < i {
 			m = send(t, m, press('l'))
 		}
-		for m.data.col > i {
+		for m.grid.data.col > i {
 			m = send(t, m, press('h'))
 		}
 		return m
 	}
-	t.Fatalf("column %q not in %v", name, m.data.cols)
+	t.Fatalf("column %q not in %v", name, m.grid.data.cols)
 	return m
 }
 
@@ -97,7 +97,7 @@ func TestDatePickerStagesISODate(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("modal = %T after enter, want it closed", m.modal)
 	}
-	ch, ok := m.changes.Lookup("", "dates", []any{int64(1)}, "d")
+	ch, ok := m.grid.changes.Lookup("", "dates", []any{int64(1)}, "d")
 	if !ok {
 		t.Fatal("nothing staged")
 	}
@@ -152,7 +152,7 @@ func TestDatePickerDateTimeHalves(t *testing.T) {
 		t.Fatalf("value = %q after a full second wrap, want the day untouched", got)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
-	ch, _ := m.changes.Lookup("", "dates", []any{int64(1)}, "ts")
+	ch, _ := m.grid.changes.Lookup("", "dates", []any{int64(1)}, "ts")
 	got, isTime := ch.NewValue.(time.Time)
 	if !isTime || got.Format("2006-01-02 15:04:05") != "2026-08-10 15:31:08" {
 		t.Fatalf("staged %#v", ch.NewValue)
@@ -184,7 +184,7 @@ func TestDatePickerTimeOnly(t *testing.T) {
 		t.Error("a time-only picker rendered a calendar")
 	}
 	m = send(t, m, press('k'), special(tea.KeyEnter, 0))
-	ch, _ := m.changes.Lookup("", "dates", []any{int64(1)}, "tm")
+	ch, _ := m.grid.changes.Lookup("", "dates", []any{int64(1)}, "tm")
 	if ch.NewValue != "15:32:07" {
 		t.Fatalf("staged %v, want the ISO time", ch.NewValue)
 	}
@@ -211,8 +211,8 @@ func TestDatePickerEscapeStagesNothing(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("modal = %T after esc, want it closed", m.modal)
 	}
-	if m.changes.Len() != 0 {
-		t.Fatalf("changeset = %d after esc, want nothing staged", m.changes.Len())
+	if m.grid.changes.Len() != 0 {
+		t.Fatalf("changeset = %d after esc, want nothing staged", m.grid.changes.Len())
 	}
 }
 
@@ -240,7 +240,7 @@ func TestDatePickerRawTextFallback(t *testing.T) {
 	}
 
 	m = send(t, m, special(tea.KeyEnter, 0))
-	ch, ok := m.changes.Lookup("", "dates", []any{int64(1)}, "ts")
+	ch, ok := m.grid.changes.Lookup("", "dates", []any{int64(1)}, "ts")
 	if !ok || ch.NewValue != "CURRENT_TIMESTAMP" {
 		t.Fatalf("staged %+v, want the raw expression", ch)
 	}
@@ -249,7 +249,7 @@ func TestDatePickerRawTextFallback(t *testing.T) {
 	m = send(t, m, press('e'))
 	m = send(t, m, press('e'))
 	m = send(t, m, ctrl('n'), special(tea.KeyEnter, 0))
-	ch, _ = m.changes.Lookup("", "dates", []any{int64(1)}, "ts")
+	ch, _ = m.grid.changes.Lookup("", "dates", []any{int64(1)}, "ts")
 	if ch.NewValue != nil {
 		t.Fatalf("staged %v, want NULL", ch.NewValue)
 	}
@@ -322,7 +322,7 @@ func TestInsertFormDatePicker(t *testing.T) {
 
 	// Staging the form still goes through the changeset, not the server.
 	m = send(t, m, special(tea.KeyEnter, 0))
-	ins := m.changes.InsertsFor("", "dates")
+	ins := m.grid.changes.InsertsFor("", "dates")
 	if len(ins) != 1 {
 		t.Fatalf("staged inserts = %d, want 1", len(ins))
 	}

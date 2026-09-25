@@ -151,7 +151,7 @@ func (d dataView) projection() export.Projection {
 // or unpin it again. Several columns can be pinned; they lead the grid
 // in the order they were pinned.
 func (m *Model) togglePin() tea.Cmd {
-	d := &m.data
+	d := &m.grid.data
 	if m.tab.metadata() || d.col < 0 || d.col >= len(d.cols) {
 		return nil
 	}
@@ -170,7 +170,7 @@ func (m *Model) togglePin() tea.Cmd {
 // every copy and export scope. The last visible column cannot go: a grid
 // with nothing in it would have no cursor to bring the others back from.
 func (m *Model) hideColumn() tea.Cmd {
-	d := &m.data
+	d := &m.grid.data
 	if m.tab.metadata() || d.col < 0 || d.col >= len(d.cols) {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (m *Model) hideColumn() tea.Cmd {
 // hiddenColumnsMenu is `Z`: every hidden column as a menu entry that
 // shows it again, plus one that shows them all.
 func (m *Model) hiddenColumnsMenu() tea.Cmd {
-	d := m.data
+	d := m.grid.data
 	if m.tab.metadata() || !d.hasResult() {
 		return nil
 	}
@@ -230,7 +230,7 @@ func (m *Model) hiddenColumnsMenu() tea.Cmd {
 
 // showColumns brings hidden columns back into the grid.
 func (m *Model) showColumns(names ...string) tea.Cmd {
-	d := &m.data
+	d := &m.grid.data
 	d.hidden = slices.DeleteFunc(slices.Clone(d.hidden), func(h string) bool {
 		return slices.Contains(names, h)
 	})

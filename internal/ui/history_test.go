@@ -23,7 +23,7 @@ func withHistoryPane(t *testing.T) Model {
 
 	m := sized(120, 40)
 	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	m.history = []history.Entry{
+	m.query.history = []history.Entry{
 		{SQL: "SELECT 3", Engine: "sqlite", At: at.Add(2 * time.Minute)},
 		{SQL: "UPDATE t SET a = 1", Engine: "postgres", At: at.Add(time.Minute)},
 		{SQL: "SELECT 1", Engine: "sqlite", At: at},
@@ -85,7 +85,7 @@ func TestHistoryPaneLoadIntoEditor(t *testing.T) {
 	if m.script() != "UPDATE t SET a = 1" {
 		t.Fatalf("editor holds %q, want the selected entry", m.script())
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("loading a statement started insert mode")
 	}
 }
@@ -98,12 +98,12 @@ func TestHistoryPaneDeleteRemovesOneEntryAndPersists(t *testing.T) {
 	if len(hm.entries) != 2 {
 		t.Fatalf("pane rows = %#v, want the middle entry gone", hm.entries)
 	}
-	if len(m.history) != 2 {
-		t.Fatalf("history = %#v, want the middle entry gone", m.history)
+	if len(m.query.history) != 2 {
+		t.Fatalf("history = %#v, want the middle entry gone", m.query.history)
 	}
-	for _, e := range m.history {
+	for _, e := range m.query.history {
 		if e.SQL == "UPDATE t SET a = 1" {
-			t.Fatalf("the deleted entry is still there: %#v", m.history)
+			t.Fatalf("the deleted entry is still there: %#v", m.query.history)
 		}
 	}
 	path, err := history.Path()
@@ -136,8 +136,8 @@ func TestRecordHistoryStampsTheActiveConnection(t *testing.T) {
 	m := sized(120, 40)
 	m.active = "prod"
 	m = send(t, m, historyEntryMsg{statement: "SELECT 1"})
-	if len(m.history) != 1 || m.history[0].Connection != "prod" {
-		t.Fatalf("history = %#v, want the entry stamped with the active connection", m.history)
+	if len(m.query.history) != 1 || m.query.history[0].Connection != "prod" {
+		t.Fatalf("history = %#v, want the entry stamped with the active connection", m.query.history)
 	}
 }
 
@@ -146,7 +146,7 @@ func TestHistoryPaneOnlyOffersTheActiveConnection(t *testing.T) {
 	m := sized(120, 40)
 	m.active = "prod"
 	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	m.history = []history.Entry{
+	m.query.history = []history.Entry{
 		{SQL: "SELECT from prod", Connection: "prod", Engine: "sqlite", At: at.Add(2 * time.Minute)},
 		{SQL: "SELECT from staging", Connection: "staging", Engine: "sqlite", At: at.Add(time.Minute)},
 		{SQL: "SELECT legacy", Connection: "", Engine: "sqlite", At: at},
@@ -172,15 +172,15 @@ func TestHistoryPersistsAcrossRestart(t *testing.T) {
 
 	m := sized(120, 40)
 	m = send(t, m, historyEntryMsg{statement: "SELECT persisted"})
-	if len(m.history) != 1 {
-		t.Fatalf("history = %#v, want the recorded statement", m.history)
+	if len(m.query.history) != 1 {
+		t.Fatalf("history = %#v, want the recorded statement", m.query.history)
 	}
 
 	// A fresh model loads it back through Init, the way a restart does.
 	next := sized(120, 40)
 	next = send(t, next, drainInit(t, next)...)
-	if len(next.history) != 1 || next.history[0].SQL != "SELECT persisted" {
-		t.Fatalf("reloaded history = %#v, want the statement from the previous run", next.history)
+	if len(next.query.history) != 1 || next.query.history[0].SQL != "SELECT persisted" {
+		t.Fatalf("reloaded history = %#v, want the statement from the previous run", next.query.history)
 	}
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatal(err)
@@ -283,8 +283,8 @@ func TestPageLoadsStayOutOfHistoryEditorRunsDoNot(t *testing.T) {
 	// Page forward and back, the flood the history used to fill with.
 	m = send(t, m, special('f', tea.ModCtrl), special('b', tea.ModCtrl))
 
-	if len(m.history) != 0 {
-		t.Fatalf("history = %#v, want browsing to record nothing", m.history)
+	if len(m.query.history) != 0 {
+		t.Fatalf("history = %#v, want browsing to record nothing", m.query.history)
 	}
 	if entries, err := history.Load(); err != nil || len(entries) != 0 {
 		t.Fatalf("history file = %#v (err %v), want it untouched by page loads", entries, err)
@@ -296,8 +296,8 @@ func TestPageLoadsStayOutOfHistoryEditorRunsDoNot(t *testing.T) {
 	// The editor is the way in.
 	m = runQuery(t, m, "SELECT id FROM q")
 	m = runQuery(t, m, "SELECT nope FROM missing")
-	if len(m.history) != 2 {
-		t.Fatalf("history = %#v, want both editor runs including the failed one", m.history)
+	if len(m.query.history) != 2 {
+		t.Fatalf("history = %#v, want both editor runs including the failed one", m.query.history)
 	}
 	entries, err := history.Load()
 	if err != nil {
@@ -314,8 +314,8 @@ func TestCommittedChangesStayOutOfHistory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m := queryable(t)
 	m = send(t, m, changesCommittedMsg{stmts: []db.Statement{{SQL: `UPDATE "q" SET "name" = 'x' WHERE "id" = 1`}}})
-	if len(m.history) != 0 {
-		t.Fatalf("history = %#v, want the commit to record nothing", m.history)
+	if len(m.query.history) != 0 {
+		t.Fatalf("history = %#v, want the commit to record nothing", m.query.history)
 	}
 	if entries, err := history.Load(); err != nil || len(entries) != 0 {
 		t.Fatalf("history file = %#v (err %v), want it untouched by a commit", entries, err)

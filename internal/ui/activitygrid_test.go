@@ -302,7 +302,7 @@ func TestActivityHasNoWriteBindings(t *testing.T) {
 		if after.modal != nil {
 			t.Errorf("`%c` opened %T on the read-only report", k, after.modal)
 		}
-		if after.changes.Len() != 0 {
+		if after.grid.changes.Len() != 0 {
 			t.Errorf("`%c` staged a change on the read-only report", k)
 		}
 	}

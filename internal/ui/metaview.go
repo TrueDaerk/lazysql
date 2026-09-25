@@ -81,12 +81,12 @@ func (m Model) mainTabStrip(level mainTabStripLevel) string {
 // follow the tab strip — the part mainTabBar keeps visible.
 func (m Model) mainTabSuffix(w int) string {
 	var line string
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		// A query result belongs to no relation, so the bar names the
 		// statement instead of a table.
-		line += m.style.muted.Render(" query ") + truncate(flatten(m.data.query), maxInt(w/2, 20))
+		line += m.style.muted.Render(" query ") + truncate(flatten(m.grid.data.query), maxInt(w/2, 20))
 	} else {
-		line += m.style.muted.Render(" "+displayDatabase(m.data.database)+".") + m.data.table
+		line += m.style.muted.Render(" "+displayDatabase(m.grid.data.database)+".") + m.grid.data.table
 	}
 	// The lock rides in the main view's title, not only in panel [1]: the
 	// grid is where a write would be attempted, so that is where the mode
@@ -94,7 +94,7 @@ func (m Model) mainTabSuffix(w int) string {
 	if m.readOnly() {
 		line += " " + m.style.pending.Render(lockMark+" read-only")
 	}
-	if m.tab == mainTabData && m.data.loading || m.tab.metadata() && m.meta.loading {
+	if m.tab == mainTabData && m.grid.data.loading || m.tab.metadata() && m.meta.loading {
 		line += " " + m.style.pending.Render("loading…")
 	}
 	return line

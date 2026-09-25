@@ -99,21 +99,21 @@ func TestRelationsTabListsBothDirections(t *testing.T) {
 func TestRelationsScanCachedPerDatabase(t *testing.T) {
 	m := openRelations(t, relBrowsing(t))
 	k := m.namespaceFKKey()
-	if _, ok := m.refsCache[k]; !ok {
-		t.Fatalf("the namespace scan did not land in the cache: %v", m.refsCache)
+	if _, ok := m.grid.refsCache[k]; !ok {
+		t.Fatalf("the namespace scan did not land in the cache: %v", m.grid.refsCache)
 	}
 	if m.relationsScanning() {
 		t.Error("the tab still reports a scan in flight after the reply landed")
 	}
-	if m.fkLoading[k] {
+	if m.grid.fkLoading[k] {
 		t.Error("the scan is still marked in flight")
 	}
 
 	// Walking to another table of the same namespace reuses it.
-	before := len(m.refsCache)
+	before := len(m.grid.refsCache)
 	m = send(t, m, press('j'), special(tea.KeyEnter, 0))
-	if len(m.refsCache) != before {
-		t.Errorf("a walk within the namespace re-keyed the cache: %v", m.refsCache)
+	if len(m.grid.refsCache) != before {
+		t.Errorf("a walk within the namespace re-keyed the cache: %v", m.grid.refsCache)
 	}
 }
 
@@ -122,8 +122,8 @@ func TestRelationsScanCachedPerDatabase(t *testing.T) {
 func TestRelationsShowsScanningState(t *testing.T) {
 	m := openRelations(t, relBrowsing(t))
 	k := m.namespaceFKKey()
-	delete(m.refsCache, k)
-	m.fkLoading[k] = true
+	delete(m.grid.refsCache, k)
+	m.grid.fkLoading[k] = true
 
 	if !m.relationsScanning() {
 		t.Fatal("relationsScanning() is false while the scan is in flight")
@@ -144,14 +144,14 @@ func TestRelationsWalkFollowsChain(t *testing.T) {
 
 	// The cursor starts on the outgoing edge to customers.
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.table != "customers" {
-		t.Fatalf("table = %q, want customers", m.data.table)
+	if m.grid.data.table != "customers" {
+		t.Fatalf("table = %q, want customers", m.grid.data.table)
 	}
 	if m.tab != mainTabRelations {
 		t.Fatalf("tab = %v, want the Relations tab to survive the walk", m.tab)
 	}
-	if m.data.filter != nil {
-		t.Errorf("the walk applied a row filter: %+v", m.data.filter)
+	if m.grid.data.filter != nil {
+		t.Errorf("the walk applied a row filter: %+v", m.grid.data.filter)
 	}
 	if m.panels[panelObjects].selected() != "customers" {
 		t.Errorf("panel [3] selection = %q, want customers",
@@ -165,18 +165,18 @@ func TestRelationsWalkFollowsChain(t *testing.T) {
 		t.Fatalf("customers edges = %+v, want the single incoming one from orders", edges)
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.table != "orders" {
-		t.Fatalf("table after the second walk = %q, want orders", m.data.table)
+	if m.grid.data.table != "orders" {
+		t.Fatalf("table after the second walk = %q, want orders", m.grid.data.table)
 	}
 
 	// esc unwinds the walk one table at a time.
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.data.table != "customers" {
-		t.Fatalf("table after esc = %q, want customers", m.data.table)
+	if m.grid.data.table != "customers" {
+		t.Fatalf("table after esc = %q, want customers", m.grid.data.table)
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.data.table != "orders" {
-		t.Fatalf("table after the second esc = %q, want orders", m.data.table)
+	if m.grid.data.table != "orders" {
+		t.Fatalf("table after the second esc = %q, want orders", m.grid.data.table)
 	}
 }
 

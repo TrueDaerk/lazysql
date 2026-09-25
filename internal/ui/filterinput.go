@@ -248,17 +248,17 @@ func kindRange(kinds []sqlhl.Kind, start, end int) []sqlhl.Kind {
 // line for the relation on screen, pre-filled with the active filter and
 // loaded with that relation's recall list.
 func (m *Model) openFilterInput() tea.Cmd {
-	if !m.data.browsing() || m.driver == nil {
+	if !m.grid.data.browsing() || m.driver == nil {
 		return logCmd("-- filter skipped: no relation open")
 	}
 	raw := ""
-	if m.data.filter != nil {
-		raw = m.data.filter.Raw
+	if m.grid.data.filter != nil {
+		raw = m.grid.data.filter.Raw
 	}
-	m.filterInput = newFilterInput(
+	m.grid.filterInput = newFilterInput(
 		m.style,
 		m.sqlDialect(),
-		db.FilterPrefixSQL(m.driver.Dialect(), m.data.database, m.data.table),
+		db.FilterPrefixSQL(m.driver.Dialect(), m.grid.data.database, m.grid.data.table),
 		raw,
 		m.filterHistory(),
 	)
@@ -270,12 +270,12 @@ func (m *Model) openFilterInput() tea.Cmd {
 // one connection, so a line that outlived either would be labelled with
 // a statement it no longer belongs to.
 func (m *Model) closeFilterInput() {
-	m.filterInput = nil
+	m.grid.filterInput = nil
 	// A popup floating over the line goes with it. Only that one: the
 	// editor's popup is not this function's business, and closing the
 	// filter line is on the path a query run takes.
-	if m.completion.site == siteFilter {
-		m.completion = completion{}
+	if m.query.completion.site == siteFilter {
+		m.query.completion = completion{}
 	}
 }
 
@@ -283,7 +283,7 @@ func (m *Model) closeFilterInput() {
 // keyboard. It is only live on the focused grid — the same line is drawn
 // under the query editor's result, where the grid's keys are not routed.
 func (m Model) filterInputOpen() bool {
-	return m.filterInput != nil && m.focus == panelMain
+	return m.grid.filterInput != nil && m.focus == panelMain
 }
 
 // updateFilterInput is the key handler of the open line. It runs ahead
@@ -291,7 +291,7 @@ func (m Model) filterInputOpen() bool {
 // instead of quitting, jumping or opening the editor — the same deal the
 // side panels' `/` filter gets.
 func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	fi := m.filterInput
+	fi := m.grid.filterInput
 	k := m.keys
 	// An open completion popup claims its four keys ahead of the line's
 	// own, the same deal insert mode gives it. Two of them are the
@@ -301,7 +301,7 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// filter history, which is reachable again the moment the popup is
 	// gone (ctrl+p/ctrl+n included — they are the same keys twice over,
 	// and a popup on screen is what decides which meaning is live).
-	if m.completion.open {
+	if m.query.completion.open {
 		switch {
 		case key.Matches(msg, k.CloseCompletion):
 			m.closeCompletion()
@@ -320,7 +320,7 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// would make running a filter a two-key gesture for no
 			// reason. Having moved in the list is the difference between
 			// "take this suggestion" and "I am done typing".
-			if msg.String() == "tab" || m.completion.picked {
+			if msg.String() == "tab" || m.query.completion.picked {
 				m.acceptCompletion()
 				return m, nil
 			}
@@ -371,7 +371,7 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) pasteIntoFilterInput(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	flat := tea.PasteMsg{Content: flattenPaste(msg.Content)}
 	var cmd tea.Cmd
-	m.filterInput.input, cmd = m.filterInput.input.Update(flat)
+	m.grid.filterInput.input, cmd = m.grid.filterInput.input.Update(flat)
 	// A paste is an edit like any other, so the popup follows it rather
 	// than staying on the word that was under the caret before.
 	return m, tea.Batch(cmd, m.refreshCompletion(false))

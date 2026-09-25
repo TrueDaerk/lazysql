@@ -264,8 +264,8 @@ func TestCopyQueryPageIsLimitedToTheLoadedPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = runQuery(t, m, "SELECT id FROM q ORDER BY id")
-	if len(m.data.rows) != dataPageSize {
-		t.Fatalf("loaded page has %d rows, want the grid page size %d", len(m.data.rows), dataPageSize)
+	if len(m.grid.data.rows) != dataPageSize {
+		t.Fatalf("loaded page has %d rows, want the grid page size %d", len(m.grid.data.rows), dataPageSize)
 	}
 
 	m = send(t, m, special(tea.KeyTab, 0), press('y'), press('C'))
@@ -327,7 +327,7 @@ func selectRows(t *testing.T, n int) Model {
 	for i := 1; i < n; i++ {
 		m = send(t, m, press('j'))
 	}
-	if got := len(m.data.selectedRows()); got != n {
+	if got := len(m.grid.data.selectedRows()); got != n {
 		t.Fatalf("selected %d rows, want %d", got, n)
 	}
 	return m
@@ -337,25 +337,25 @@ func selectRows(t *testing.T, n int) Model {
 // it is up, ctrl+c is bound to the copy rather than to quit.
 func TestSelectionModeStartsExtendsAndClears(t *testing.T) {
 	m := send(t, copyBrowsing(t), ctrlKey('v'))
-	if !m.data.selecting() || len(m.data.selectedRows()) != 1 {
-		t.Fatalf("ctrl+v did not anchor a selection: %+v", m.data.sel)
+	if !m.grid.data.selecting() || len(m.grid.data.selectedRows()) != 1 {
+		t.Fatalf("ctrl+v did not anchor a selection: %+v", m.grid.data.sel)
 	}
 	if !m.keys.CopySelection.Enabled() {
 		t.Fatal("ctrl+c is not bound to the copy while a selection is up")
 	}
 
 	m = send(t, m, press('j'), press('j'))
-	if got := m.data.selectedRows(); len(got) != 3 || got[0] != 0 || got[2] != 2 {
+	if got := m.grid.data.selectedRows(); len(got) != 3 || got[0] != 0 || got[2] != 2 {
 		t.Fatalf("j did not extend the selection: %v", got)
 	}
 	// Moving back up shrinks it again: the anchor stays put.
 	m = send(t, m, press('k'))
-	if got := len(m.data.selectedRows()); got != 2 {
+	if got := len(m.grid.data.selectedRows()); got != 2 {
 		t.Fatalf("k left %d rows selected, want 2", got)
 	}
 
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.data.selecting() || len(m.data.selectedRows()) != 0 {
+	if m.grid.data.selecting() || len(m.grid.data.selectedRows()) != 0 {
 		t.Fatal("esc did not clear the selection")
 	}
 	if m.keys.CopySelection.Enabled() {
@@ -367,7 +367,7 @@ func TestSelectionModeStartsExtendsAndClears(t *testing.T) {
 // is between the anchor and the cursor, whichever way round they are.
 func TestSelectionExtendsUpwards(t *testing.T) {
 	m := send(t, copyBrowsing(t), press('j'), press('j'), ctrlKey('v'), press('k'))
-	if got := m.data.selectedRows(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+	if got := m.grid.data.selectedRows(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
 		t.Fatalf("upwards selection = %v, want rows 1 and 2", got)
 	}
 }
@@ -377,7 +377,7 @@ func TestSelectionExtendsUpwards(t *testing.T) {
 func TestSelectionIsClearedByAReload(t *testing.T) {
 	m := selectRows(t, 2)
 	m = send(t, m, press('R'))
-	if m.data.selecting() {
+	if m.grid.data.selecting() {
 		t.Fatal("the selection survived a reload")
 	}
 	if m.keys.CopySelection.Enabled() {

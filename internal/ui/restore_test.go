@@ -47,8 +47,8 @@ func connectAndOpenWidgets(t *testing.T, m Model) Model {
 	}
 	cmd := m.openTable("widgets")
 	m = send(t, m, drain(cmd)...)
-	if m.table != "widgets" || len(m.data.rows) != 3 {
-		t.Fatalf("setup did not land on widgets with 3 rows: table=%q rows=%d", m.table, len(m.data.rows))
+	if m.table != "widgets" || len(m.grid.data.rows) != 3 {
+		t.Fatalf("setup did not land on widgets with 3 rows: table=%q rows=%d", m.table, len(m.grid.data.rows))
 	}
 	return m
 }
@@ -66,7 +66,7 @@ func TestRestoreSessionReconnectsToTableTabAndCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = connectAndOpenWidgets(t, m)
-	m.data.row, m.data.col = 1, 0
+	m.grid.data.row, m.grid.data.col = 1, 0
 	cmd := m.setMainTab(mainTabStructure)
 	m = send(t, m, drain(cmd)...)
 	m.saveSession()
@@ -89,8 +89,8 @@ func TestRestoreSessionReconnectsToTableTabAndCursor(t *testing.T) {
 	if m2.tab != mainTabStructure {
 		t.Fatalf("tab = %v, want mainTabStructure", m2.tab)
 	}
-	if m2.data.row != 1 || m2.data.col != 0 {
-		t.Fatalf("cursor = (%d,%d), want (1,0)", m2.data.row, m2.data.col)
+	if m2.grid.data.row != 1 || m2.grid.data.col != 0 {
+		t.Fatalf("cursor = (%d,%d), want (1,0)", m2.grid.data.row, m2.grid.data.col)
 	}
 	if !logContains(m2, "restored session") {
 		t.Fatalf("command log = %v", m2.commandLog)
@@ -134,11 +134,11 @@ func TestRestoreSessionClampsAnOutOfRangeCursor(t *testing.T) {
 	if m2.table != "widgets" {
 		t.Fatalf("table = %q, want widgets", m2.table)
 	}
-	if m2.data.row < 0 || m2.data.row >= len(m2.data.rows) {
-		t.Fatalf("row = %d not clamped to %d rows", m2.data.row, len(m2.data.rows))
+	if m2.grid.data.row < 0 || m2.grid.data.row >= len(m2.grid.data.rows) {
+		t.Fatalf("row = %d not clamped to %d rows", m2.grid.data.row, len(m2.grid.data.rows))
 	}
-	if m2.data.col < 0 || m2.data.col >= len(m2.data.cols) {
-		t.Fatalf("col = %d not clamped to %d cols", m2.data.col, len(m2.data.cols))
+	if m2.grid.data.col < 0 || m2.grid.data.col >= len(m2.grid.data.cols) {
+		t.Fatalf("col = %d not clamped to %d cols", m2.grid.data.col, len(m2.grid.data.cols))
 	}
 }
 

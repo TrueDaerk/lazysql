@@ -7,7 +7,7 @@ concept with YAML frontmatter. Concept IDs are bundle-relative paths without
 
 ## design
 
-- [design/tui-shell-architecture](design/tui-shell-architecture.md) — Design Decision — root model, panel structs, update routing order, modal closing rule.
+- [design/tui-shell-architecture](design/tui-shell-architecture.md) — Design Decision — root model, panel structs, sub-models under the root, update routing order, modal closing rule.
 - [design/keybindings-single-source](design/keybindings-single-source.md) — Design Decision — one `key.Binding` table behind dispatch, options bar, actions menu and `?`.
 - [design/pinned-help-in-options-bar](design/pinned-help-in-options-bar.md) — Design Decision — issue #215: `? help` renders outside `help.Model`'s truncation so it always survives, Data-context actions now list before tab/column navigation, and a bubbles `ShortHelpView` width-overflow quirk at tight budgets.
 - [design/db-driver-abstraction](design/db-driver-abstraction.md) — Design Decision — one generic Driver over `database/sql` plus a Dialect per engine; UI never imports concrete SQL drivers.

@@ -52,8 +52,8 @@ func TestPinnedColumnStaysVisibleAfterScrollingRight(t *testing.T) {
 	}
 
 	m = send(t, m, press('p'), press('l'), press('l'), press('l'))
-	if m.data.col != 3 {
-		t.Fatalf("cursor column = %d, want payload (3)", m.data.col)
+	if m.grid.data.col != 3 {
+		t.Fatalf("cursor column = %d, want payload (3)", m.grid.data.col)
 	}
 	g := layoutOf(t, m)
 	shown := g.shown()
@@ -74,8 +74,8 @@ func TestPinnedColumnStaysVisibleAfterScrollingRight(t *testing.T) {
 
 	// `p` again unpins, and id is back in its table position.
 	m = send(t, m, press('h'), press('h'), press('h'), press('p'))
-	if len(m.data.pinned) != 0 {
-		t.Fatalf("pinned = %v after unpinning", m.data.pinned)
+	if len(m.grid.data.pinned) != 0 {
+		t.Fatalf("pinned = %v after unpinning", m.grid.data.pinned)
 	}
 }
 
@@ -86,24 +86,24 @@ func TestSeveralPinnedColumnsLeadInPinOrder(t *testing.T) {
 	// Pin note (2): it moves to the front with the cursor on it, and `l`
 	// then reaches id, the first scrolling column. Pin that too.
 	m = send(t, m, press('l'), press('l'), press('p'), press('l'), press('p'))
-	if got := m.data.visibleOrder(); !slices.Equal(got, []int{2, 0, 1, 3}) {
+	if got := m.grid.data.visibleOrder(); !slices.Equal(got, []int{2, 0, 1, 3}) {
 		t.Fatalf("display order = %v, want [2 0 1 3]", got)
 	}
 	// The cursor is on id, second in the display order: `h` reaches note.
 	m = send(t, m, press('h'))
-	if m.data.col != 2 {
-		t.Fatalf("h from id went to %d, want note (2)", m.data.col)
+	if m.grid.data.col != 2 {
+		t.Fatalf("h from id went to %d, want note (2)", m.grid.data.col)
 	}
 }
 
 // A hidden column is absent from the grid and from a CSV export.
 func TestHiddenColumnIsAbsentFromTheGridAndTheExport(t *testing.T) {
 	m := send(t, copyBrowsing(t), press('l'), press('z'))
-	if !slices.Equal(m.data.hidden, []string{"person_id"}) {
-		t.Fatalf("hidden = %v", m.data.hidden)
+	if !slices.Equal(m.grid.data.hidden, []string{"person_id"}) {
+		t.Fatalf("hidden = %v", m.grid.data.hidden)
 	}
-	if m.data.col != 2 {
-		t.Fatalf("cursor stayed on the hidden column: %d", m.data.col)
+	if m.grid.data.col != 2 {
+		t.Fatalf("cursor stayed on the hidden column: %d", m.grid.data.col)
 	}
 	header := gridHeaderLine(m)
 	if strings.Contains(header, "person_id") {
@@ -183,7 +183,7 @@ func TestColumnsHintCountsPinnedAndHidden(t *testing.T) {
 // Every column but one can be hidden; the last one stays.
 func TestTheLastVisibleColumnCannotBeHidden(t *testing.T) {
 	m := send(t, copyBrowsing(t), press('z'), press('z'), press('z'), press('z'))
-	if n := len(m.data.visibleOrder()); n != 1 {
+	if n := len(m.grid.data.visibleOrder()); n != 1 {
 		t.Fatalf("visible columns = %d, want 1", n)
 	}
 	if !logContains(m, "last visible column") {
@@ -199,12 +199,12 @@ func TestHiddenColumnsMenuRestores(t *testing.T) {
 		t.Fatalf("menu = %v", labels)
 	}
 	m = send(t, m, press('1'))
-	if slices.Contains(m.data.hidden, "id") || !slices.Contains(m.data.hidden, "person_id") {
-		t.Fatalf("hidden = %v after showing id", m.data.hidden)
+	if slices.Contains(m.grid.data.hidden, "id") || !slices.Contains(m.grid.data.hidden, "person_id") {
+		t.Fatalf("hidden = %v after showing id", m.grid.data.hidden)
 	}
 	m = send(t, m, press('Z'), press('A'))
-	if len(m.data.hidden) != 0 {
-		t.Fatalf("hidden = %v after show all", m.data.hidden)
+	if len(m.grid.data.hidden) != 0 {
+		t.Fatalf("hidden = %v after show all", m.grid.data.hidden)
 	}
 }
 
@@ -214,8 +214,8 @@ func TestPinAndHideSurviveTheQueryShapeButNotAnotherRelation(t *testing.T) {
 	m := send(t, dataBrowsing(t), press('p'), press('l'), press('z'))
 	check := func(what string) {
 		t.Helper()
-		if !slices.Equal(m.data.pinned, []string{"id"}) || !slices.Equal(m.data.hidden, []string{"name"}) {
-			t.Fatalf("after %s: pinned = %v, hidden = %v", what, m.data.pinned, m.data.hidden)
+		if !slices.Equal(m.grid.data.pinned, []string{"id"}) || !slices.Equal(m.grid.data.hidden, []string{"name"}) {
+			t.Fatalf("after %s: pinned = %v, hidden = %v", what, m.grid.data.pinned, m.grid.data.hidden)
 		}
 	}
 	m = send(t, m, press('s'))
@@ -233,8 +233,8 @@ func TestPinAndHideSurviveTheQueryShapeButNotAnotherRelation(t *testing.T) {
 	m = send(t, m, press('2'), press('R'))
 	m.panels[panelObjects].selectByName("other")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.table != "other" || len(m.data.pinned) != 0 || len(m.data.hidden) != 0 {
-		t.Fatalf("table %q carried pinned = %v, hidden = %v", m.data.table, m.data.pinned, m.data.hidden)
+	if m.grid.data.table != "other" || len(m.grid.data.pinned) != 0 || len(m.grid.data.hidden) != 0 {
+		t.Fatalf("table %q carried pinned = %v, hidden = %v", m.grid.data.table, m.grid.data.pinned, m.grid.data.hidden)
 	}
 }
 
@@ -244,19 +244,19 @@ func TestColumnSelectionSpansTheDisplayOrder(t *testing.T) {
 	// Pin status, hide nothing: display order status, id, person_id.
 	m := send(t, copyBrowsing(t), press('l'), press('l'), press('p'))
 	m = send(t, m, press('C'), press('l'))
-	if got := m.data.selectedCols(); !slices.Equal(got, []int{2, 0}) {
+	if got := m.grid.data.selectedCols(); !slices.Equal(got, []int{2, 0}) {
 		t.Fatalf("selected columns = %v, want status and id", got)
 	}
-	if !m.data.narrowedToCols() {
+	if !m.grid.data.narrowedToCols() {
 		t.Fatal("a two-of-three span is not reported as a block")
 	}
 
 	// Hide person_id: a whole-row selection no longer carries it.
 	m = send(t, copyBrowsing(t), press('l'), press('z'), special(tea.KeyDown, tea.ModShift))
-	if got := m.data.selectedCols(); !slices.Equal(got, []int{0, 2}) {
+	if got := m.grid.data.selectedCols(); !slices.Equal(got, []int{0, 2}) {
 		t.Fatalf("whole-row selection columns = %v, want the visible ones", got)
 	}
-	if m.data.narrowedToCols() {
+	if m.grid.data.narrowedToCols() {
 		t.Fatal("a whole-row selection over the visible columns reads as a block")
 	}
 }
@@ -265,8 +265,8 @@ func TestColumnSelectionSpansTheDisplayOrder(t *testing.T) {
 func TestClickOnAPinnedColumnSelectsIt(t *testing.T) {
 	m := send(t, narrowGrid(t), press('p'), press('l'), press('l'), press('l'))
 	m.clickGrid(3, 0)
-	if m.data.col != 0 {
-		t.Fatalf("click on the pinned column selected %d, want 0", m.data.col)
+	if m.grid.data.col != 0 {
+		t.Fatalf("click on the pinned column selected %d, want 0", m.grid.data.col)
 	}
 }
 
@@ -279,8 +279,8 @@ func TestOverwidePinsNeverHideTheCursor(t *testing.T) {
 	m = send(t, m, press('p'), press('l'), press('p'), press('l'), press('p'), press('l'))
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 70, Height: 30})
 	m = next.(Model)
-	if m.data.col != 3 {
-		t.Fatalf("cursor column = %d, want payload (3)", m.data.col)
+	if m.grid.data.col != 3 {
+		t.Fatalf("cursor column = %d, want payload (3)", m.grid.data.col)
 	}
 	if !slices.Contains(layoutOf(t, m).shown(), 3) {
 		t.Fatal("the cursor column is not drawn")

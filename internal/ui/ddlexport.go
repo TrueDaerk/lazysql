@@ -99,7 +99,7 @@ func (m Model) databaseDDLPrecheck(what string) tea.Cmd {
 	if len(rels) == 0 {
 		return logCmd("-- %s skipped: %s has no relations", what, displayDatabase(database))
 	}
-	if m.dbDDLExport.running {
+	if m.exports.ddl.running {
 		return logCmd("-- %s skipped: an export of %s is already running",
 			what, displayDatabase(database))
 	}
@@ -136,8 +136,8 @@ func (m *Model) copyDatabaseDDL() tea.Cmd {
 	tables := db.RelationNames(rels)
 
 	ctx, cancel := context.WithTimeout(context.Background(), databaseDDLTimeout)
-	m.dbDDLExport = dbDDLExportState{running: true, id: m.dbDDLExport.id + 1, cancel: cancel}
-	id := m.dbDDLExport.id
+	m.exports.ddl = dbDDLExportState{running: true, id: m.exports.ddl.id + 1, cancel: cancel}
+	id := m.exports.ddl.id
 
 	return tea.Batch(
 		logCmd("-- copy DDL of %s (%d relations) to the clipboard…",
@@ -169,8 +169,8 @@ func (m *Model) runDatabaseDDLExport(path string) tea.Cmd {
 	tables := db.RelationNames(rels)
 
 	ctx, cancel := context.WithTimeout(context.Background(), databaseDDLTimeout)
-	m.dbDDLExport = dbDDLExportState{running: true, id: m.dbDDLExport.id + 1, cancel: cancel}
-	id := m.dbDDLExport.id
+	m.exports.ddl = dbDDLExportState{running: true, id: m.exports.ddl.id + 1, cancel: cancel}
+	id := m.exports.ddl.id
 
 	return tea.Batch(
 		logCmd("-- export DDL of %s (%d relations) to %s…",
@@ -295,7 +295,7 @@ func buildDatabaseDDL(
 // run, but a per-table read failure is only a footnote next to the
 // count that did succeed.
 func (m *Model) finishDatabaseDDLExport(msg databaseDDLExportedMsg) tea.Cmd {
-	m.dbDDLExport = dbDDLExportState{}
+	m.exports.ddl = dbDDLExportState{}
 	if errors.Is(msg.err, context.Canceled) {
 		return logCmd("-- export DDL of %s cancelled", displayDatabase(msg.database))
 	}

@@ -33,7 +33,7 @@ func queryable(t *testing.T) Model {
 	}
 	// Start from an empty history so the assertions below count only
 	// what the test itself ran.
-	m.history = nil
+	m.query.history = nil
 	m.commandLog = nil
 	return m
 }
@@ -42,9 +42,9 @@ func queryable(t *testing.T) Model {
 func runQuery(t *testing.T, m Model, script string) Model {
 	t.Helper()
 	m = send(t, m, press(':'))
-	if m.focus != panelQuery || !m.editor.editing {
+	if m.focus != panelQuery || !m.query.editor.editing {
 		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [3]",
-			m.focus, m.editor.editing)
+			m.focus, m.query.editor.editing)
 	}
 	m.setScript(script)
 	return send(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
@@ -60,7 +60,7 @@ func TestColonFocusesTheEditorPanelWithTheBuffer(t *testing.T) {
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("`:` did not start insert mode")
 	}
 	if m.script() != "SELECT 1" {
@@ -76,7 +76,7 @@ func TestDigitThreeFocusesTheEditorPanel(t *testing.T) {
 	}
 	// `3` jumps to the panel, it does not start typing: the panel's own
 	// keys have to stay reachable.
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("`3` started insert mode")
 	}
 	if out := m.View().Content; !strings.Contains(out, "[3] Query") {
@@ -93,15 +93,15 @@ func TestEscLeavesInsertModeAndKeepsTheBuffer(t *testing.T) {
 	}
 	// Typing opened the completion popup, and the first esc is its: it
 	// closes the popup and leaves insert mode alone.
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing SEL did not open the completion popup")
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("esc left insert mode instead of only closing the popup")
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("esc did not leave insert mode")
 	}
 	if m.focus != panelQuery {
@@ -146,11 +146,11 @@ func TestRunKeepsTheEditorOpenWithItsContent(t *testing.T) {
 		t.Fatalf("focus = %v, want to stay in the editor", m.focus)
 	}
 	// The run ends insert mode so the result is navigable straight away.
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("ctrl+r stayed in insert mode")
 	}
-	if !m.data.isQuery() || len(m.data.rows) != 3 {
-		t.Fatalf("the result did not land in the main view: %#v", m.data)
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("the result did not land in the main view: %#v", m.grid.data)
 	}
 	// The main view shows both the buffer and the result.
 	out := m.mainContent(100, 24)
@@ -218,16 +218,16 @@ func TestEnterRunsTheStatementUnderTheCursor(t *testing.T) {
 	m := queryable(t)
 	m.setScript("SELECT id FROM q ORDER BY id;\nSELECT name FROM q")
 	m = send(t, m, press('3'))
-	if m.focus != panelQuery || m.editor.editing {
+	if m.focus != panelQuery || m.query.editor.editing {
 		t.Fatalf("focus = %v (editing=%v), want panel [3] in normal mode",
-			m.focus, m.editor.editing)
+			m.focus, m.query.editor.editing)
 	}
 	m = send(t, m, press('g'), press('g'), special(tea.KeyEnter, 0))
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("enter in normal mode entered insert mode")
 	}
-	if len(m.data.cols) != 1 || m.data.cols[0].Name != "id" {
-		t.Fatalf("enter on the first statement showed %v, want the id column", m.data.cols)
+	if len(m.grid.data.cols) != 1 || m.grid.data.cols[0].Name != "id" {
+		t.Fatalf("enter on the first statement showed %v, want the id column", m.grid.data.cols)
 	}
 	if !logContains(m, "SELECT id FROM q ORDER BY id;") {
 		t.Fatalf("the statement is missing from the command log: %v", m.commandLog)
@@ -236,8 +236,8 @@ func TestEnterRunsTheStatementUnderTheCursor(t *testing.T) {
 		t.Fatalf("enter ran more than the statement under the cursor: %v", m.commandLog)
 	}
 	m = send(t, m, press('G'), special(tea.KeyEnter, 0))
-	if len(m.data.cols) != 1 || m.data.cols[0].Name != "name" {
-		t.Fatalf("enter on the second statement showed %v, want the name column", m.data.cols)
+	if len(m.grid.data.cols) != 1 || m.grid.data.cols[0].Name != "name" {
+		t.Fatalf("enter on the second statement showed %v, want the name column", m.grid.data.cols)
 	}
 }
 
@@ -247,8 +247,8 @@ func TestEnterIsNotFooledBySemicolonsInLiterals(t *testing.T) {
 	m := queryable(t)
 	m.setScript("SELECT 'a;b' AS lit; SELECT 2 AS n")
 	m = send(t, m, press('3'), press('g'), press('g'), special(tea.KeyEnter, 0))
-	if len(m.data.cols) != 1 || m.data.cols[0].Name != "lit" {
-		t.Fatalf("enter showed %v, want the lit column of the full first statement", m.data.cols)
+	if len(m.grid.data.cols) != 1 || m.grid.data.cols[0].Name != "lit" {
+		t.Fatalf("enter showed %v, want the lit column of the full first statement", m.grid.data.cols)
 	}
 	if !logContains(m, "SELECT 'a;b' AS lit;") {
 		t.Fatalf("the full statement is missing from the command log: %v", m.commandLog)
@@ -258,14 +258,14 @@ func TestEnterIsNotFooledBySemicolonsInLiterals(t *testing.T) {
 func TestSelectRendersInTheDataTab(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id, name FROM q ORDER BY id")
 
-	if !m.data.isQuery() {
+	if !m.grid.data.isQuery() {
 		t.Fatal("the Data tab is not showing a query result")
 	}
-	if m.data.browsing() {
+	if m.grid.data.browsing() {
 		t.Fatal("a query result must not look like a browsed relation")
 	}
-	if len(m.data.rows) != 3 || len(m.data.cols) != 2 {
-		t.Fatalf("result = %d rows x %d cols, want 3x2", len(m.data.rows), len(m.data.cols))
+	if len(m.grid.data.rows) != 3 || len(m.grid.data.cols) != 2 {
+		t.Fatalf("result = %d rows x %d cols, want 3x2", len(m.grid.data.rows), len(m.grid.data.cols))
 	}
 	if !logContains(m, "SELECT id, name FROM q ORDER BY id;") {
 		t.Fatalf("the statement is missing from the command log: %v", m.commandLog)
@@ -283,31 +283,31 @@ func TestQueryResultPaginatesInMemory(t *testing.T) {
 	m := queryable(t)
 	// A result wider than one page, without touching the server again.
 	m = runQuery(t, m, "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 250) SELECT i FROM n")
-	if len(m.data.all) != 250 {
-		t.Fatalf("materialized %d rows, want 250", len(m.data.all))
+	if len(m.grid.data.all) != 250 {
+		t.Fatalf("materialized %d rows, want 250", len(m.grid.data.all))
 	}
-	if len(m.data.rows) != dataPageSize {
-		t.Fatalf("page 1 has %d rows, want %d", len(m.data.rows), dataPageSize)
+	if len(m.grid.data.rows) != dataPageSize {
+		t.Fatalf("page 1 has %d rows, want %d", len(m.grid.data.rows), dataPageSize)
 	}
-	if got := m.data.pageCount(); got != 3 {
+	if got := m.grid.data.pageCount(); got != 3 {
 		t.Fatalf("pageCount() = %d, want 3", got)
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	if m.data.page != 1 || m.data.rows[0][0] != int64(dataPageSize+1) {
+	if m.grid.data.page != 1 || m.grid.data.rows[0][0] != int64(dataPageSize+1) {
 		t.Fatalf("after ctrl+f: page %d starting at %v, want page 1 starting at 101",
-			m.data.page, m.data.rows[0][0])
+			m.grid.data.page, m.grid.data.rows[0][0])
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl},
 		tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
-	if m.data.page != 2 {
-		t.Fatalf("page = %d, want to stop on the last page", m.data.page)
+	if m.grid.data.page != 2 {
+		t.Fatalf("page = %d, want to stop on the last page", m.grid.data.page)
 	}
 	if !logContains(m, "already on the last page") {
 		t.Fatalf("paging past the end said nothing: %v", m.commandLog)
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
-	if m.data.page != 1 {
-		t.Fatalf("after ctrl+b: page = %d, want 1", m.data.page)
+	if m.grid.data.page != 1 {
+		t.Fatalf("after ctrl+b: page = %d, want 1", m.grid.data.page)
 	}
 }
 
@@ -321,8 +321,8 @@ func TestGuardedDMLRunsWithoutAsking(t *testing.T) {
 	if !logContains(m, "1 row affected") {
 		t.Fatalf("the guarded DELETE did not report its row count: %v", m.commandLog)
 	}
-	if m.data.notice == "" || !strings.Contains(m.data.notice, "1 row affected") {
-		t.Fatalf("data notice = %q, want the affected-row count", m.data.notice)
+	if m.grid.data.notice == "" || !strings.Contains(m.grid.data.notice, "1 row affected") {
+		t.Fatalf("data notice = %q, want the affected-row count", m.grid.data.notice)
 	}
 	if !logContains(m, "DELETE FROM q WHERE id = 3;") {
 		t.Fatalf("the statement is missing from the command log: %v", m.commandLog)
@@ -361,7 +361,7 @@ func TestCancelledUnguardedDMLDoesNotRun(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("esc left %T open", m.modal)
 	}
-	if m.run.running || logContains(m, "rows affected") {
+	if m.query.run.running || logContains(m, "rows affected") {
 		t.Fatalf("the declined statement ran anyway: %v", m.commandLog)
 	}
 }
@@ -397,15 +397,15 @@ func TestMultipleStatementsRunInOrderAndAllAreLogged(t *testing.T) {
 		}
 	}
 	// The last SELECT is the one on screen.
-	if len(m.data.cols) != 1 || m.data.cols[0].Name != "name" {
-		t.Fatalf("Data tab shows %v, want the last SELECT's columns", m.data.cols)
+	if len(m.grid.data.cols) != 1 || m.grid.data.cols[0].Name != "name" {
+		t.Fatalf("Data tab shows %v, want the last SELECT's columns", m.grid.data.cols)
 	}
 	// The write did not replace the rows.
-	if m.data.notice != "" {
-		t.Fatalf("notice = %q, want the SELECT result to win", m.data.notice)
+	if m.grid.data.notice != "" {
+		t.Fatalf("notice = %q, want the SELECT result to win", m.grid.data.notice)
 	}
-	if len(m.history) != 3 {
-		t.Fatalf("history has %d entries, want one per statement: %v", len(m.history), m.history)
+	if len(m.query.history) != 3 {
+		t.Fatalf("history has %d entries, want one per statement: %v", len(m.query.history), m.query.history)
 	}
 }
 
@@ -418,7 +418,7 @@ func TestFailingStatementStopsTheScript(t *testing.T) {
 	if !logContains(m, "FAILED") {
 		t.Fatalf("the failure was not reported: %v", m.commandLog)
 	}
-	if m.run.running {
+	if m.query.run.running {
 		t.Fatal("the run is still marked as in flight")
 	}
 }
@@ -430,8 +430,8 @@ func TestCancelKeyIsOnlyBoundWhileAQueryRuns(t *testing.T) {
 	}
 	// Enter the running state without a worker, then cancel it the way
 	// the key handler does.
-	m.run.running = true
-	m.run.cancel = func() {}
+	m.query.run.running = true
+	m.query.run.cancel = func() {}
 	m.keys.CancelQuery.SetEnabled(true)
 	handled, next, _ := m.updateGlobal(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !handled {
@@ -442,7 +442,7 @@ func TestCancelKeyIsOnlyBoundWhileAQueryRuns(t *testing.T) {
 	}
 	// finishQuery clears it again.
 	mm := next.(Model)
-	mm.finishQuery(queryDoneMsg{id: mm.run.id})
+	mm.finishQuery(queryDoneMsg{id: mm.query.run.id})
 	if mm.keys.CancelQuery.Enabled() {
 		t.Fatal("ctrl+c stayed bound to cancel after the run finished")
 	}
@@ -495,7 +495,7 @@ func TestQueryRunIsCancellable(t *testing.T) {
 	script := "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 20000000) SELECT count(*) FROM n"
 	stmts := db.SplitStatements(m.driver.Engine(), script)
 	cmd := m.startQuery(stmts, nil, "")
-	if !m.run.running {
+	if !m.query.run.running {
 		t.Fatal("startQuery did not mark the run as in flight")
 	}
 	// Cancel before draining, so the worker sees a dead context.
@@ -508,7 +508,7 @@ func TestQueryRunIsCancellable(t *testing.T) {
 			m = next.(Model)
 		}
 	}
-	if m.run.running {
+	if m.query.run.running {
 		t.Fatal("the cancelled run is still in flight")
 	}
 	if m.driver == nil {
@@ -524,8 +524,8 @@ func TestQueryRunIsCancellable(t *testing.T) {
 	}
 	// The app is still usable: a plain query works afterwards.
 	m = runQuery(t, m, "SELECT 1")
-	if len(m.data.rows) != 1 {
-		t.Fatalf("the model did not recover from a cancellation: %#v", m.data)
+	if len(m.grid.data.rows) != 1 {
+		t.Fatalf("the model did not recover from a cancellation: %#v", m.grid.data)
 	}
 }
 
@@ -568,10 +568,10 @@ func TestQueryResultHasNoTableActions(t *testing.T) {
 
 func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id FROM q")
-	if len(m.history) != 1 {
-		t.Fatalf("history = %#v, want the statement", m.history)
+	if len(m.query.history) != 1 {
+		t.Fatalf("history = %#v, want the statement", m.query.history)
 	}
-	e := m.history[0]
+	e := m.query.history[0]
 	if e.SQL != "SELECT id FROM q" {
 		t.Fatalf("stored %q, want the statement without its terminator", e.SQL)
 	}
@@ -583,8 +583,8 @@ func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	}
 	// Re-running the newest entry does not duplicate it.
 	m = runQuery(t, m, "SELECT id FROM q")
-	if len(m.history) != 1 {
-		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.history)
+	if len(m.query.history) != 1 {
+		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.query.history)
 	}
 }
 
@@ -641,16 +641,16 @@ func TestPlaceholdersPromptAndBind(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("the prompt left %T open", m.modal)
 	}
-	if !m.data.isQuery() || len(m.data.rows) != 1 {
-		t.Fatalf("data = %#v, want the one matching row", m.data)
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 1 {
+		t.Fatalf("data = %#v, want the one matching row", m.grid.data)
 	}
 	// The history and the Data tab keep the statement as typed, with its
 	// placeholders — not the dialect-rewritten text.
-	if m.data.query != "SELECT * FROM q WHERE id = ? AND name = :n" {
-		t.Fatalf("data.query = %q, want the original statement", m.data.query)
+	if m.grid.data.query != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("data.query = %q, want the original statement", m.grid.data.query)
 	}
-	if len(m.history) == 0 || m.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
-		t.Fatalf("history = %#v, want the original statement recorded", m.history)
+	if len(m.query.history) == 0 || m.query.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("history = %#v, want the original statement recorded", m.query.history)
 	}
 }
 
@@ -680,8 +680,8 @@ func TestPlaceholderValueIsBoundNotInterpolated(t *testing.T) {
 	if logContains(m, "FAILED") {
 		t.Fatalf("the bound value broke the statement: %v", m.commandLog)
 	}
-	if len(m.data.rows) != 0 {
-		t.Fatalf("rows = %v, want none for an injection-string name", m.data.rows)
+	if len(m.grid.data.rows) != 0 {
+		t.Fatalf("rows = %v, want none for an injection-string name", m.grid.data.rows)
 	}
 	if _, err := m.driver.Query(context.Background(), "SELECT COUNT(*) FROM q"); err != nil {
 		t.Fatalf("table q is gone: %v", err)
@@ -696,8 +696,8 @@ func TestNoPromptForQuotedOrCommentedPlaceholders(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("a quoted ? opened %T, want an immediate run", m.modal)
 	}
-	if !m.data.isQuery() || len(m.data.rows) != 3 {
-		t.Fatalf("data = %#v, want the statement to have run", m.data)
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("data = %#v, want the statement to have run", m.grid.data)
 	}
 }
 
@@ -720,16 +720,16 @@ func TestPlaceholderNullToggleVersusEmptyValue(t *testing.T) {
 	empty := runQuery(t, m, sql)
 	paramsPrompt(t, empty)
 	empty = send(t, empty, special(tea.KeyEnter, 0))
-	if len(empty.data.rows) != 1 || fmt.Sprint(empty.data.rows[0][0]) != "5" {
-		t.Fatalf("rows = %v, want only the empty-string row", empty.data.rows)
+	if len(empty.grid.data.rows) != 1 || fmt.Sprint(empty.grid.data.rows[0][0]) != "5" {
+		t.Fatalf("rows = %v, want only the empty-string row", empty.grid.data.rows)
 	}
 
 	// tab moves onto the NULL toggle, space flips it: the NULL row.
 	null := runQuery(t, m, sql)
 	paramsPrompt(t, null)
 	null = send(t, null, special(tea.KeyTab, 0), press(' '), special(tea.KeyEnter, 0))
-	if len(null.data.rows) != 1 || fmt.Sprint(null.data.rows[0][0]) != "4" {
-		t.Fatalf("rows = %v, want only the NULL row", null.data.rows)
+	if len(null.grid.data.rows) != 1 || fmt.Sprint(null.grid.data.rows[0][0]) != "4" {
+		t.Fatalf("rows = %v, want only the NULL row", null.grid.data.rows)
 	}
 	// The command log carries the bound value next to the statement it ran
 	// with, so the audit trail says what actually reached the server.
@@ -817,8 +817,8 @@ func TestStatusLineShowsRunOutcome(t *testing.T) {
 // action that matters mid-flight.
 func TestStatusLineShowsRunningState(t *testing.T) {
 	m := queryable(t)
-	m.run.running = true
-	m.run.startedAt = time.Now()
+	m.query.run.running = true
+	m.query.run.startedAt = time.Now()
 	line := m.queryStatusLine(200)
 	if !strings.Contains(line, "running") || !strings.Contains(line, "cancel") {
 		t.Fatalf("status line = %q, want the running state and its cancel key", line)

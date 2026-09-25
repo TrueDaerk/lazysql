@@ -384,7 +384,7 @@ func (m Model) completionSite() completionSite {
 	if m.filterInputOpen() {
 		return siteFilter
 	}
-	if m.focus == panelQuery && m.editor.editing {
+	if m.focus == panelQuery && m.query.editor.editing {
 		return siteEditor
 	}
 	return siteNone
@@ -412,13 +412,13 @@ func (m Model) completionScopeAt(site completionSite) (completionScope, bool) {
 	case siteEditor:
 		return completionScope{ctx: m.editorContext(), stmt: m.script()}, true
 	case siteFilter:
-		if m.filterInput == nil {
+		if m.grid.filterInput == nil {
 			return completionScope{}, false
 		}
-		clause := m.filterInput.input.Value()
+		clause := m.grid.filterInput.input.Value()
 		return completionScope{
-			ctx:  completionContextAt(clause, m.filterInput.input.Position()),
-			stmt: m.filterInput.prefix + clause,
+			ctx:  completionContextAt(clause, m.grid.filterInput.input.Position()),
+			stmt: m.grid.filterInput.prefix + clause,
 		}, true
 	}
 	return completionScope{}, false
@@ -427,11 +427,11 @@ func (m Model) completionScopeAt(site completionSite) (completionScope, bool) {
 // editorContext reads the word under the editor's caret.
 func (m Model) editorContext() completionContext {
 	lines := strings.Split(m.script(), "\n")
-	row := m.editor.area.Line()
+	row := m.query.editor.area.Line()
 	if row < 0 || row >= len(lines) {
 		return completionContext{line: row}
 	}
-	ctx := completionContextAt(lines[row], m.editor.area.Column())
+	ctx := completionContextAt(lines[row], m.query.editor.area.Column())
 	ctx.line = row
 	return ctx
 }
@@ -504,19 +504,19 @@ func (m *Model) refreshCompletion(explicit bool) tea.Cmd {
 // and pinning it would leave the arriving columns ranked below a keyword
 // that happened to match first.
 func (m *Model) restackCompletion() tea.Cmd {
-	if !m.completion.open && !m.completion.loading {
+	if !m.query.completion.open && !m.query.completion.loading {
 		return nil
 	}
 	keep := ""
-	if it, ok := m.completion.selected(); ok && m.completion.picked {
+	if it, ok := m.query.completion.selected(); ok && m.query.completion.picked {
 		keep = it.text
 	}
-	picked := m.completion.picked
-	cmd := m.rebuildCompletion(m.completion.explicit, keep)
+	picked := m.query.completion.picked
+	cmd := m.rebuildCompletion(m.query.completion.explicit, keep)
 	// A row the user had chosen is still chosen: the fetch is not a
 	// keystroke, and it must not turn a picked selection back into the
 	// default one.
-	m.completion.picked = picked && m.completion.open
+	m.query.completion.picked = picked && m.query.completion.open
 	return cmd
 }
 
@@ -526,12 +526,12 @@ func (m *Model) rebuildCompletion(explicit bool, keep string) tea.Cmd {
 	site := m.completionSite()
 	scope, ok := m.completionScopeAt(site)
 	if !ok {
-		m.completion = completion{}
+		m.query.completion = completion{}
 		return nil
 	}
 	ctx := scope.ctx
 	if !explicit && len([]rune(ctx.word)) < minCompletionPrefix {
-		m.completion = completion{}
+		m.query.completion = completion{}
 		return nil
 	}
 	items, want := m.completionSources(ctx, scope.stmt)
@@ -541,7 +541,7 @@ func (m *Model) rebuildCompletion(explicit bool, keep string) tea.Cmd {
 		// Nothing matches. An open popup with no rows would be a border
 		// drawn over the line for no reason — but a fetch may still be
 		// in flight, and its reply comes back through here.
-		m.completion = completion{loading: loading, explicit: explicit, site: site}
+		m.query.completion = completion{loading: loading, explicit: explicit, site: site}
 		return cmd
 	}
 	next := completion{open: true, items: ranked, loading: loading, explicit: explicit, site: site}
@@ -551,7 +551,7 @@ func (m *Model) rebuildCompletion(explicit bool, keep string) tea.Cmd {
 			break
 		}
 	}
-	m.completion = next
+	m.query.completion = next
 	return cmd
 }
 
@@ -559,33 +559,33 @@ func (m *Model) rebuildCompletion(explicit bool, keep string) tea.Cmd {
 // that jumps from the last row back to the first hides how long the list
 // is, and `down` held down should stop at the end.
 func (m *Model) moveCompletion(delta int) {
-	if !m.completion.open {
+	if !m.query.completion.open {
 		return
 	}
-	m.completion.picked = true
-	c := m.completion.cursor + delta
+	m.query.completion.picked = true
+	c := m.query.completion.cursor + delta
 	if c < 0 {
 		c = 0
 	}
-	if c >= len(m.completion.items) {
-		c = len(m.completion.items) - 1
+	if c >= len(m.query.completion.items) {
+		c = len(m.query.completion.items) - 1
 	}
-	m.completion.cursor = c
+	m.query.completion.cursor = c
 }
 
 // closeCompletion is `esc` while the popup is open: it closes the popup
 // and touches nothing else — not the line being typed, not insert mode,
 // not the filter line, not the focus. It is what makes the *second* esc
 // the one that leaves whatever the popup was floating over.
-func (m *Model) closeCompletion() { m.completion = completion{} }
+func (m *Model) closeCompletion() { m.query.completion = completion{} }
 
 // acceptCompletion inserts the selected item over the word under the
 // caret and closes the popup. Keywords go in as they are; a function
 // brings its call parens along, with the caret left inside them ready for
 // an argument; everything else goes through the dialect's quoting rules.
 func (m *Model) acceptCompletion() {
-	it, ok := m.completion.selected()
-	m.completion = completion{}
+	it, ok := m.query.completion.selected()
+	m.query.completion = completion{}
 	if !ok {
 		return
 	}
@@ -628,7 +628,7 @@ func (m *Model) replaceCompletionWord(text string, cursor int) {
 // with no rows to walk — the clause is one line by construction, and the
 // prefix in front of it is not part of the value.
 func (m *Model) replaceFilterWord(text string, cursor int) {
-	fi := m.filterInput
+	fi := m.grid.filterInput
 	if fi == nil {
 		return
 	}
@@ -660,8 +660,8 @@ func (m *Model) replaceEditorWord(text string, cursor int) {
 		start = col
 	}
 	lines[ctx.line] = string(runes[:start]) + text + string(runes[col:])
-	m.editor.area.SetValue(strings.Join(lines, "\n"))
-	moveEditorCursor(&m.editor.area, ctx.line, start+cursor)
+	m.query.editor.area.SetValue(strings.Join(lines, "\n"))
+	moveEditorCursor(&m.query.editor.area, ctx.line, start+cursor)
 }
 
 // moveEditorCursor puts the textarea's caret on a logical line and
@@ -682,7 +682,7 @@ func moveEditorCursor(ta *textarea.Model, row, col int) {
 // completionPopup renders the floating list. It returns "" when there is
 // nothing to draw, so the caller can skip the layer entirely.
 func (m Model) completionPopup(maxW, maxH int) string {
-	c := m.completion
+	c := m.query.completion
 	if !c.open || len(c.items) == 0 {
 		return ""
 	}

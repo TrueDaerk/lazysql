@@ -48,7 +48,7 @@ func completing(t *testing.T) Model {
 // select list would.
 func typeInto(m *Model, text string, col int) {
 	m.setScript(text)
-	moveEditorCursor(&m.editor.area, 0, col)
+	moveEditorCursor(&m.query.editor.area, 0, col)
 }
 
 func completionTexts(c completion) []string {
@@ -238,7 +238,7 @@ func TestSchemaCacheInvalidatesWhenTheDatabaseChanges(t *testing.T) {
 	m := sized(120, 40)
 	m.active, m.database = "conn", "db1"
 	req := m.syncSchema()
-	m.schema.cols["customers"] = []string{"customer_id"}
+	m.query.schema.cols["customers"] = []string{"customer_id"}
 	if got := m.schemaColumns("customers"); len(got) != 1 {
 		t.Fatalf("cached columns = %v, want the entry just written", got)
 	}
@@ -252,7 +252,7 @@ func TestSchemaCacheInvalidatesWhenTheDatabaseChanges(t *testing.T) {
 	}
 
 	// The same for a different connection with the same database name.
-	m.schema.cols["customers"] = []string{"customer_id"}
+	m.query.schema.cols["customers"] = []string{"customer_id"}
 	m.active = "other"
 	m.syncSchema()
 	if got := m.schemaColumns("customers"); got != nil {
@@ -277,7 +277,7 @@ func TestSchemaReplyForASupersededNamespaceIsDropped(t *testing.T) {
 
 	// The current namespace's reply lands.
 	m.applySchemaColumns(schemaColumnsMsg{
-		req: m.schema.req, conn: "conn", database: "db2", table: "customers",
+		req: m.query.schema.req, conn: "conn", database: "db2", table: "customers",
 		cols: []db.Column{{Name: "customer_id"}},
 	})
 	if got := m.schemaColumns("customers"); len(got) != 1 {
@@ -305,20 +305,20 @@ func TestFailedColumnFetchIsNotRetried(t *testing.T) {
 func TestTypingSelOffersSelectAndEnterInsertsIt(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('S'), press('E'), press('L'))
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing three identifier characters did not open the popup")
 	}
-	if got := m.completion.items[0].text; got != "SELECT" {
-		t.Fatalf("best match = %q, want SELECT; list is %v", got, completionTexts(m.completion))
+	if got := m.query.completion.items[0].text; got != "SELECT" {
+		t.Fatalf("best match = %q, want SELECT; list is %v", got, completionTexts(m.query.completion))
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.script() != "SELECT" {
 		t.Fatalf("buffer = %q, want the accepted keyword", m.script())
 	}
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("accepting left the popup open")
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("accepting left insert mode")
 	}
 }
@@ -328,11 +328,11 @@ func TestTypingSelOffersSelectAndEnterInsertsIt(t *testing.T) {
 func TestPopupTriggers(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('S'))
-	if m.completion.open {
-		t.Fatalf("the popup opened on one character: %v", completionTexts(m.completion))
+	if m.query.completion.open {
+		t.Fatalf("the popup opened on one character: %v", completionTexts(m.query.completion))
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("ctrl+space did not open the popup")
 	}
 }
@@ -343,7 +343,7 @@ func TestPopupTriggers(t *testing.T) {
 func TestNavigatingIntoAWordDoesNotOpenThePopup(t *testing.T) {
 	m := completing(t)
 	typeInto(&m, "SELECT id FROM customers WHERE id = 1", 38)
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("the popup opened while placing the caret with typeInto")
 	}
 	// Walk the caret left, off the trailing "1" and back through "id =
@@ -351,7 +351,7 @@ func TestNavigatingIntoAWordDoesNotOpenThePopup(t *testing.T) {
 	// characters before the caret partway through it.
 	for i := 0; i < 15; i++ {
 		m = send(t, m, special(tea.KeyLeft, 0))
-		if m.completion.open {
+		if m.query.completion.open {
 			t.Fatalf("left-arrow #%d opened the popup over %q", i+1, m.editorContext().word)
 		}
 	}
@@ -361,15 +361,15 @@ func TestNavigatingIntoAWordDoesNotOpenThePopup(t *testing.T) {
 
 	// home/end and the word-jump keys must not open it either.
 	m = send(t, m, special(tea.KeyHome, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("home opened the popup")
 	}
 	m = send(t, m, special(tea.KeyEnd, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("end opened the popup")
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: tea.KeyLeft, Mod: tea.ModCtrl})
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("ctrl+left opened the popup")
 	}
 }
@@ -380,28 +380,28 @@ func TestUpDownMoveTheCaretOnlyWhenThePopupIsClosed(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'))
 	m.setScript("one\ntwo")
-	moveEditorCursor(&m.editor.area, 1, 3)
-	if m.completion.open {
+	moveEditorCursor(&m.query.editor.area, 1, 3)
+	if m.query.completion.open {
 		t.Fatal("setting up the fixture opened the popup")
 	}
-	if m.editor.area.Line() != 1 {
-		t.Fatalf("fixture caret is on line %d, want line 1", m.editor.area.Line())
+	if m.query.editor.area.Line() != 1 {
+		t.Fatalf("fixture caret is on line %d, want line 1", m.query.editor.area.Line())
 	}
 	m = send(t, m, special(tea.KeyUp, 0))
-	if m.editor.area.Line() != 0 {
-		t.Fatalf("up did not move the caret to the previous line: line = %d", m.editor.area.Line())
+	if m.query.editor.area.Line() != 0 {
+		t.Fatalf("up did not move the caret to the previous line: line = %d", m.query.editor.area.Line())
 	}
 
 	// Now open the popup with typing and check up/down drive its cursor
 	// instead of the caret.
 	m2 := sized(120, 40)
 	m2 = send(t, m2, press(':'), press('I'), press('N'))
-	if !m2.completion.open {
+	if !m2.query.completion.open {
 		t.Fatal("typing IN did not open the popup")
 	}
 	m2 = send(t, m2, special(tea.KeyDown, 0))
-	if m2.completion.cursor != 1 {
-		t.Fatalf("down moved the caret instead of the popup cursor: cursor = %d", m2.completion.cursor)
+	if m2.query.completion.cursor != 1 {
+		t.Fatalf("down moved the caret instead of the popup cursor: cursor = %d", m2.query.completion.cursor)
 	}
 }
 
@@ -410,11 +410,11 @@ func TestUpDownMoveTheCaretOnlyWhenThePopupIsClosed(t *testing.T) {
 func TestCaretMovementClosesAnOpenPopup(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('S'), press('E'), press('L'))
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing SEL did not open the popup")
 	}
 	m = send(t, m, special(tea.KeyLeft, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("left-arrow left the popup open")
 	}
 	if m.script() != "SEL" {
@@ -430,11 +430,11 @@ func TestExplicitCompletionWorksAfterNavigation(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		m = send(t, m, special(tea.KeyLeft, 0))
 	}
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("navigation opened the popup")
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("ctrl+space after navigation did not open the popup")
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
@@ -445,7 +445,7 @@ func TestExplicitCompletionWorksAfterNavigation(t *testing.T) {
 		m2 = send(t, m2, special(tea.KeyLeft, 0))
 	}
 	m2 = send(t, m2, special(tea.KeyTab, 0))
-	if !m2.completion.open {
+	if !m2.query.completion.open {
 		t.Fatal("tab after navigation did not open the popup")
 	}
 }
@@ -455,12 +455,12 @@ func TestExplicitCompletionWorksAfterNavigation(t *testing.T) {
 func TestTabCompletesAWordAndOtherwiseTypes(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('S'), special(tea.KeyTab, 0))
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("tab after an identifier character did not open the popup")
 	}
 	// A second tab accepts.
 	m = send(t, m, special(tea.KeyTab, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("tab did not accept the selection")
 	}
 	if m.script() == "S" {
@@ -469,7 +469,7 @@ func TestTabCompletesAWordAndOtherwiseTypes(t *testing.T) {
 
 	m2 := sized(120, 40)
 	m2 = send(t, m2, press(':'), special(tea.KeyTab, 0))
-	if m2.completion.open {
+	if m2.query.completion.open {
 		t.Fatal("tab on an empty buffer opened the popup instead of typing")
 	}
 }
@@ -479,23 +479,23 @@ func TestPopupKeysSelectAndAccept(t *testing.T) {
 	// `IN` matches a whole family of keywords, so there is a second row
 	// to move onto.
 	m = send(t, m, press(':'), press('I'), press('N'))
-	if len(m.completion.items) < 2 {
-		t.Fatalf("suggestions = %v, want at least two", completionTexts(m.completion))
+	if len(m.query.completion.items) < 2 {
+		t.Fatalf("suggestions = %v, want at least two", completionTexts(m.query.completion))
 	}
 	m = send(t, m, special(tea.KeyDown, 0))
-	if m.completion.cursor != 1 {
-		t.Fatalf("cursor = %d after down, want 1", m.completion.cursor)
+	if m.query.completion.cursor != 1 {
+		t.Fatalf("cursor = %d after down, want 1", m.query.completion.cursor)
 	}
-	second := m.completion.items[1].text
+	second := m.query.completion.items[1].text
 	// ctrl+p is the other spelling of up.
 	m = send(t, m, tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
-	if m.completion.cursor != 0 {
-		t.Fatalf("cursor = %d after ctrl+p, want 0", m.completion.cursor)
+	if m.query.completion.cursor != 0 {
+		t.Fatalf("cursor = %d after ctrl+p, want 0", m.query.completion.cursor)
 	}
 	// The cursor clamps rather than wrapping.
 	m = send(t, m, tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
-	if m.completion.cursor != 0 {
-		t.Fatalf("cursor = %d, want it to stop at the top", m.completion.cursor)
+	if m.query.completion.cursor != 0 {
+		t.Fatalf("cursor = %d, want it to stop at the top", m.query.completion.cursor)
 	}
 	m = send(t, m, tea.KeyPressMsg{Code: 'n', Mod: tea.ModCtrl}, special(tea.KeyEnter, 0))
 	if m.script() != second {
@@ -509,10 +509,10 @@ func TestEscClosesOnlyThePopup(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('S'), press('E'), press('L'))
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("esc did not close the popup")
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("esc left insert mode")
 	}
 	if m.focus != panelQuery {
@@ -527,7 +527,7 @@ func TestAcceptedIdentifierIsInsertedAtTheCaret(t *testing.T) {
 	m := completing(t)
 	typeInto(&m, "SELECT  FROM customers", 7)
 	m = send(t, m, press('c'), press('u'), press('s'))
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing did not open the popup")
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
@@ -548,20 +548,20 @@ func TestRelationsOfTheCurrentDatabaseAreSuggested(t *testing.T) {
 	m := completing(t)
 	typeInto(&m, "SELECT * FROM cus", 17)
 	m.refreshCompletion(false)
-	if !hasCompletion(m.completion, "customers") {
-		t.Fatalf("suggestions = %v, want the table", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "customers") {
+		t.Fatalf("suggestions = %v, want the table", completionTexts(m.query.completion))
 	}
 	// Views are offered too, and tagged apart from tables.
 	typeInto(&m, "SELECT * FROM act", 17)
 	m.refreshCompletion(false)
 	found := false
-	for _, it := range m.completion.items {
+	for _, it := range m.query.completion.items {
 		if it.text == "active_customers" {
 			found = it.kind == completeView
 		}
 	}
 	if !found {
-		t.Fatalf("suggestions = %v, want the view tagged as one", completionTexts(m.completion))
+		t.Fatalf("suggestions = %v, want the view tagged as one", completionTexts(m.query.completion))
 	}
 }
 
@@ -569,12 +569,12 @@ func TestColumnsOfReferencedTablesAreSuggested(t *testing.T) {
 	m := completing(t)
 	typeInto(&m, "SELECT ema FROM customers", 10)
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-	if !hasCompletion(m.completion, "email") {
-		t.Fatalf("suggestions = %v, want a column of the referenced table", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "email") {
+		t.Fatalf("suggestions = %v, want a column of the referenced table", completionTexts(m.query.completion))
 	}
 	// A table the buffer does not mention contributes no columns.
-	if hasCompletion(m.completion, "total") {
-		t.Fatalf("suggestions = %v, want no columns of an unreferenced table", completionTexts(m.completion))
+	if hasCompletion(m.query.completion, "total") {
+		t.Fatalf("suggestions = %v, want no columns of an unreferenced table", completionTexts(m.query.completion))
 	}
 }
 
@@ -582,12 +582,12 @@ func TestQualifiedWordCompletesOnlyThatRelationsColumns(t *testing.T) {
 	m := completing(t)
 	typeInto(&m, "SELECT invoices.", 16)
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-	if !hasCompletion(m.completion, "total") {
-		t.Fatalf("suggestions = %v, want the qualified table's columns", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "total") {
+		t.Fatalf("suggestions = %v, want the qualified table's columns", completionTexts(m.query.completion))
 	}
-	for _, it := range m.completion.items {
+	for _, it := range m.query.completion.items {
 		if it.kind != completeColumn {
-			t.Fatalf("suggestions = %v, want columns only after a dot", completionTexts(m.completion))
+			t.Fatalf("suggestions = %v, want columns only after a dot", completionTexts(m.query.completion))
 		}
 		if it.detail != "invoices" {
 			t.Fatalf("suggestion %q came from %q, want invoices only", it.text, it.detail)
@@ -600,31 +600,31 @@ func TestQualifiedWordCompletesOnlyThatRelationsColumns(t *testing.T) {
 func TestPopupOpensBeforeTheColumnsArrive(t *testing.T) {
 	m := completing(t)
 	// A cold cache: nothing has asked for this relation's columns yet.
-	m.schema = schemaCache{}
+	m.query.schema = schemaCache{}
 	typeInto(&m, "SELECT ema FROM customers", 10)
 
 	cmd := m.refreshCompletion(true)
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("the popup waited for the metadata instead of showing what it had")
 	}
-	if !m.completion.loading {
+	if !m.query.completion.loading {
 		t.Fatal("the popup does not report the fetch in flight")
 	}
 	if cmd == nil {
 		t.Fatal("no fetch was started for the referenced relation")
 	}
-	if hasCompletion(m.completion, "email") {
+	if hasCompletion(m.query.completion, "email") {
 		t.Fatal("a column appeared before its fetch returned")
 	}
 
 	for _, msg := range drain(cmd) {
 		m = send(t, m, msg)
 	}
-	if !hasCompletion(m.completion, "email") {
+	if !hasCompletion(m.query.completion, "email") {
 		t.Fatalf("suggestions = %v, want the popup to update when the fetch landed",
-			completionTexts(m.completion))
+			completionTexts(m.query.completion))
 	}
-	if m.completion.loading {
+	if m.query.completion.loading {
 		t.Fatal("the popup still reports a fetch in flight")
 	}
 }
@@ -632,16 +632,16 @@ func TestPopupOpensBeforeTheColumnsArrive(t *testing.T) {
 // A refresh triggered by a landed fetch keeps the row the user selected.
 func TestLateColumnsKeepTheSelection(t *testing.T) {
 	m := completing(t)
-	m.schema = schemaCache{}
+	m.query.schema = schemaCache{}
 	typeInto(&m, "SELECT c FROM customers", 8)
 	cmd := m.refreshCompletion(true)
 	m.moveCompletion(1)
-	want := m.completion.items[1].text
+	want := m.query.completion.items[1].text
 
 	for _, msg := range drain(cmd) {
 		m = send(t, m, msg)
 	}
-	got, ok := m.completion.selected()
+	got, ok := m.query.completion.selected()
 	if !ok || got.text != want {
 		t.Fatalf("selection = %q, want %q kept across the metadata reply", got.text, want)
 	}
@@ -670,10 +670,10 @@ func TestKeywordSuggestionsDifferPerDriver(t *testing.T) {
 		if cmd := m.refreshCompletion(true); cmd != nil {
 			drain(cmd)
 		}
-		if !hasCompletion(m.completion, c.want) {
+		if !hasCompletion(m.query.completion, c.want) {
 			t.Errorf("%s: %q is missing from the suggestions", c.engine, c.want)
 		}
-		if hasCompletion(m.completion, c.gone) {
+		if hasCompletion(m.query.completion, c.gone) {
 			t.Errorf("%s: %q is another dialect's keyword and should not be offered", c.engine, c.gone)
 		}
 	}
@@ -706,16 +706,16 @@ func TestFunctionSuggestionsDifferPerDriver(t *testing.T) {
 		if cmd := m.refreshCompletion(true); cmd != nil {
 			drain(cmd)
 		}
-		if !hasCompletion(m.completion, "COALESCE") {
+		if !hasCompletion(m.query.completion, "COALESCE") {
 			t.Errorf("%s: the shared core function COALESCE is missing", c.engine)
 		}
-		if !hasCompletion(m.completion, c.want) {
+		if !hasCompletion(m.query.completion, c.want) {
 			t.Errorf("%s: %q is missing from the suggestions", c.engine, c.want)
 		}
-		if hasCompletion(m.completion, c.gone) {
+		if hasCompletion(m.query.completion, c.gone) {
 			t.Errorf("%s: %q is another dialect's function and should not be offered", c.engine, c.gone)
 		}
-		for _, it := range m.completion.items {
+		for _, it := range m.query.completion.items {
 			if it.text == "COALESCE" && it.kind != completeFunction {
 				t.Errorf("%s: COALESCE has kind %v, want completeFunction", c.engine, it.kind)
 			}
@@ -728,19 +728,19 @@ func TestFunctionSuggestionsDifferPerDriver(t *testing.T) {
 func TestAcceptedFunctionInsertsParensWithCaretInside(t *testing.T) {
 	m := sized(120, 40)
 	m = send(t, m, press(':'), press('C'), press('O'), press('A'), press('L'))
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing did not open the popup")
 	}
 	found := false
-	for i, it := range m.completion.items {
+	for i, it := range m.query.completion.items {
 		if it.text == "COALESCE" {
-			m.completion.cursor = i
+			m.query.completion.cursor = i
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("suggestions = %v, want COALESCE", completionTexts(m.completion))
+		t.Fatalf("suggestions = %v, want COALESCE", completionTexts(m.query.completion))
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.script() != "COALESCE()" {

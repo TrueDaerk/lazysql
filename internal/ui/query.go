@@ -234,35 +234,35 @@ func newQueryEditor() queryEditor {
 // script is the buffer's text. It is the only copy of the draft the
 // model keeps: the editor is never torn down, so there is nothing to
 // save it into and nothing that can go out of sync with it.
-func (m Model) script() string { return m.editor.area.Value() }
+func (m Model) script() string { return m.query.editor.area.Value() }
 
 // setScript replaces the buffer and leaves the cursor at its end.
 func (m *Model) setScript(sql string) {
-	m.editor.area.SetValue(sql)
-	m.editor.area.MoveToEnd()
+	m.query.editor.area.SetValue(sql)
+	m.query.editor.area.MoveToEnd()
 }
 
 // setEditing switches the editor between normal and insert mode. The
 // textarea's own focus follows, so a blurred buffer cannot swallow a key
 // even if one reached it.
 func (m *Model) setEditing(on bool) {
-	m.editor.editing = on
-	m.editor.pending = 0
+	m.query.editor.editing = on
+	m.query.editor.pending = 0
 	// Whatever column insert mode ends on is where normal mode starts
 	// aiming; a want kept across an editing session would jump the
 	// first j/k to a column the user left minutes ago.
-	m.editor.want = -1
+	m.query.editor.want = -1
 	if on {
 		// Typing means the editor is wanted back on screen; the plan is
 		// what was covering it.
 		m.plan = nil
-		m.editor.area.Focus()
+		m.query.editor.area.Focus()
 		return
 	}
 	// The completion popup belongs to insert mode: it is anchored on a
 	// caret that is no longer taking input.
-	m.completion = completion{}
-	m.editor.area.Blur()
+	m.query.completion = completion{}
+	m.query.editor.area.Blur()
 	// Insert mode may leave the caret one past the last character; vim's
 	// normal mode sits on it, not after it.
 	m.applyVim(m.vimBuffer(), false)
@@ -312,7 +312,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// An open completion popup claims its four keys ahead of everything
 	// else. esc is the one that matters: it closes the popup and nothing
 	// else, so the buffer and insert mode survive it.
-	if m.completion.open {
+	if m.query.completion.open {
 		switch {
 		case key.Matches(msg, k.CloseCompletion):
 			m.closeCompletion()
@@ -365,7 +365,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// quit key. With nothing running it leaves insert mode, the
 		// closest thing to "stop" it can mean here.
 		m.closeCompletion()
-		if m.run.running {
+		if m.query.run.running {
 			cmd := m.cancelQuery()
 			return m, cmd
 		}
@@ -385,7 +385,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	before := m.script()
 	var cmd tea.Cmd
-	m.editor.area, cmd = m.editor.area.Update(msg)
+	m.query.editor.area, cmd = m.query.editor.area.Update(msg)
 	// The popup follows the buffer, not the caret: it only re-derives when
 	// the key actually changed the text — typing, deleting, pasting — which
 	// is what narrows it as the word grows and closes it when the word
@@ -398,7 +398,7 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.script() != before {
 		return m, tea.Batch(cmd, m.refreshCompletion(false))
 	}
-	if m.completion.open {
+	if m.query.completion.open {
 		m.closeCompletion()
 	}
 	return m, cmd
@@ -407,9 +407,9 @@ func (m Model) updateEditor(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // vimBuffer reads the textarea into the pure vim engine: its text, its
 // cursor, and the remembered vertical-motion column.
 func (m Model) vimBuffer() vimBuffer {
-	b := newVimBuffer(m.script(), m.editor.area.Line(), m.editor.area.Column())
-	if m.editor.want > b.want {
-		b.want = m.editor.want
+	b := newVimBuffer(m.script(), m.query.editor.area.Line(), m.query.editor.area.Column())
+	if m.query.editor.want > b.want {
+		b.want = m.query.editor.want
 	}
 	return b
 }
@@ -419,14 +419,14 @@ func (m Model) vimBuffer() vimBuffer {
 // walked from the top — buffers here are a few hundred lines at most.
 func (m *Model) applyVim(b vimBuffer, changed bool) {
 	if changed {
-		m.editor.area.SetValue(b.text())
+		m.query.editor.area.SetValue(b.text())
 	}
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	for i := 0; i < b.row; i++ {
-		m.editor.area.CursorDown()
+		m.query.editor.area.CursorDown()
 	}
-	m.editor.area.SetCursorColumn(b.col)
-	m.editor.want = b.want
+	m.query.editor.area.SetCursorColumn(b.col)
+	m.query.editor.want = b.want
 }
 
 // vimMotion applies one cursor-only command.
@@ -445,7 +445,7 @@ func (m *Model) vimInsertAt(b vimBuffer, col int, changed bool) {
 	// line end is one short; re-set once focused, when the textarea
 	// allows the past-the-end column.
 	m.setEditing(true)
-	m.editor.area.SetCursorColumn(col)
+	m.query.editor.area.SetCursorColumn(col)
 }
 
 // updateQuery is normal mode on panel [3]: the vim layer first, then the
@@ -464,16 +464,16 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	// A started dd/yy/gg chord claims this key: its double completes the
 	// command, anything else cancels the chord and acts as itself.
-	if p := m.editor.pending; p != 0 {
-		m.editor.pending = 0
+	if p := m.query.editor.pending; p != 0 {
+		m.query.editor.pending = 0
 		if s := msg.String(); len(s) == 1 && rune(s[0]) == p {
 			switch p {
 			case 'd':
 				b := m.vimBuffer()
-				m.editor.register = b.deleteLine()
+				m.query.editor.register = b.deleteLine()
 				m.applyVim(b, true)
 			case 'y':
-				m.editor.register = m.vimBuffer().yankLine()
+				m.query.editor.register = m.vimBuffer().yankLine()
 			case 'g':
 				m.vimMotion((*vimBuffer).top)
 			}
@@ -486,7 +486,7 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// chord rebinds its opener.
 	case key.Matches(msg, k.VimDeleteLine), key.Matches(msg, k.VimYankLine), key.Matches(msg, k.VimTop):
 		if s := msg.String(); len(s) == 1 {
-			m.editor.pending = rune(s[0])
+			m.query.editor.pending = rune(s[0])
 		}
 		return m, nil
 
@@ -555,13 +555,13 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, k.VimDeleteChar):
 		b := m.vimBuffer()
 		if reg, ok := b.deleteChar(); ok {
-			m.editor.register = reg
+			m.query.editor.register = reg
 			m.applyVim(b, true)
 		}
 		return m, nil
 	case key.Matches(msg, k.VimPaste):
 		b := m.vimBuffer()
-		if b.paste(m.editor.register) {
+		if b.paste(m.query.editor.register) {
 			m.applyVim(b, true)
 		}
 		return m, nil
@@ -575,7 +575,7 @@ func (m Model) updateQuery(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.runAction(a.id)
 		}
 	}
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		return m.updateData(msg)
 	}
 	return m, nil
@@ -594,7 +594,7 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	if m.driver == nil {
 		return logCmd("-- run query skipped: not connected")
 	}
-	if m.run.running {
+	if m.query.run.running {
 		return logCmd("-- run query skipped: a query is still running (ctrl+c cancels it)")
 	}
 	stmts := db.SplitStatements(m.driver.Engine(), script)
@@ -618,12 +618,12 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	if len(stmts) == 1 {
 		if phs := db.ExtractPlaceholders(m.driver.Engine(), stmts[0]); len(phs) > 0 {
 			stmt := stmts[0]
-			m.modal = newParamsForm(m.style, stmt, m.sqlDialect(), phs, m.params.recall(stmt),
+			m.modal = newParamsForm(m.style, stmt, m.sqlDialect(), phs, m.query.params.recall(stmt),
 				func(mm *Model, values []db.ParamValue) tea.Cmd {
 					// Remembered before the run, not after it: a statement
 					// that fails on the server is exactly the one whose
 					// values are worth getting back on the next attempt.
-					mm.params.remember(stmt, values)
+					mm.query.params.remember(stmt, values)
 					bound, args, err := db.BindPlaceholders(
 						mm.driver.Dialect(), mm.driver.Engine(), stmt, values)
 					if err != nil {
@@ -722,13 +722,13 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	// A new result replaces whatever the tab showed; the notice and the
 	// old rows belong to the previous run. An open plan goes too — the
 	// result is what the run was for.
-	m.data.notice = ""
+	m.grid.data.notice = ""
 	m.plan = nil
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.run = queryRun{
+	m.query.run = queryRun{
 		running:   true,
-		id:        m.run.id + 1,
+		id:        m.query.run.id + 1,
 		total:     len(stmts),
 		cancel:    cancel,
 		ch:        make(chan tea.Msg),
@@ -737,7 +737,7 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	m.keys.CancelQuery.SetEnabled(true)
 
 	job := queryJob{
-		id: m.run.id, ctx: ctx, drv: m.driver, stmts: stmts, ch: m.run.ch,
+		id: m.query.run.id, ctx: ctx, drv: m.driver, stmts: stmts, ch: m.query.run.ch,
 		args: args, display: display,
 	}
 	return tea.Batch(
@@ -768,20 +768,20 @@ func (m *Model) runStatementAtCursor() tea.Cmd {
 // rerunQuery is `enter`/`R` on a query result: execute the same script
 // again. It goes through submitQuery so a re-run of DML asks again.
 func (m *Model) rerunQuery() tea.Cmd {
-	if !m.data.isQuery() {
+	if !m.grid.data.isQuery() {
 		return nil
 	}
-	return m.submitQuery(m.data.query)
+	return m.submitQuery(m.grid.data.query)
 }
 
 // cancelQuery is ctrl+c while a run is in flight. The context reaches
 // the driver, which aborts the statement server-side where the engine
 // supports it; the connection itself stays open.
 func (m *Model) cancelQuery() tea.Cmd {
-	if !m.run.running {
+	if !m.query.run.running {
 		return nil
 	}
-	m.run.cancel()
+	m.query.run.cancel()
 	return logCmd("-- cancelling the running query…")
 }
 
@@ -802,10 +802,10 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 	switch {
 	case errors.Is(msg.err, context.Canceled):
 		cmds = append(cmds, logCmd("-- cancelled%s after %s", where, formatTook(msg.took)))
-		m.run.outcome = "cancelled after " + formatTook(msg.took)
+		m.query.run.outcome = "cancelled after " + formatTook(msg.took)
 	case msg.err != nil:
 		cmds = append(cmds, logCmd("-- FAILED%s: %v", where, msg.err))
-		m.run.outcome = "failed"
+		m.query.run.outcome = "failed"
 		m.showQueryError(msg.sql, msg.err)
 	case msg.read:
 		rows := 0
@@ -818,22 +818,22 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 		}
 		cmds = append(cmds, logCmd("-- %d rows%s%s in %s",
 			rows, note, where, formatTook(msg.took)))
-		m.run.outcome = fmt.Sprintf("%d rows%s in %s", rows, note, formatTook(msg.took))
+		m.query.run.outcome = fmt.Sprintf("%d rows%s in %s", rows, note, formatTook(msg.took))
 		if msg.rs != nil {
 			m.showQueryResult(msg.sql, msg.exec, msg.args, msg.rs, msg.truncated)
-			m.run.gotRows = true
+			m.query.run.gotRows = true
 		}
 	default:
-		m.run.affected += msg.affected
+		m.query.run.affected += msg.affected
 		cmds = append(cmds, logCmd("-- %s%s in %s",
 			countAffected(msg.affected), where, formatTook(msg.took)))
-		if !m.run.gotRows {
-			m.run.outcome = countAffected(msg.affected) + " in " + formatTook(msg.took)
+		if !m.query.run.gotRows {
+			m.query.run.outcome = countAffected(msg.affected) + " in " + formatTook(msg.took)
 		}
 		// A run that only writes still has to show something; a run
 		// that already produced rows keeps them, because the last
 		// SELECT is what the user asked to see.
-		if !m.run.gotRows {
+		if !m.query.run.gotRows {
 			m.showQueryNotice(msg.sql, msg.affected)
 		}
 	}
@@ -842,23 +842,23 @@ func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 
 // finishQuery clears the in-flight state and renders the outcome.
 func (m *Model) finishQuery(msg queryDoneMsg) tea.Cmd {
-	m.run.running = false
-	m.run.cancel = nil
-	m.run.ch = nil
+	m.query.run.running = false
+	m.query.run.cancel = nil
+	m.query.run.ch = nil
 	m.keys.CancelQuery.SetEnabled(false)
 
 	switch {
 	case errors.Is(msg.err, context.Canceled):
-		m.run.outcome = "cancelled after " + formatTook(time.Since(m.run.startedAt))
-		return logCmd("-- query cancelled after %s", formatTook(time.Since(m.run.startedAt)))
+		m.query.run.outcome = "cancelled after " + formatTook(time.Since(m.query.run.startedAt))
+		return logCmd("-- query cancelled after %s", formatTook(time.Since(m.query.run.startedAt)))
 	case msg.err != nil:
 		// The per-statement message already named the error; this line
 		// says how much of the script got as far as running.
-		m.run.outcome = fmt.Sprintf("stopped at statement %d of %d", msg.ran, m.run.total)
-		return logCmd("-- query stopped at statement %d of %d", msg.ran, m.run.total)
-	case m.run.total > 1:
-		m.run.outcome = fmt.Sprintf("%s ok, %s", countStatements(msg.ran), countAffected(m.run.affected))
-		return logCmd("-- %s ok, %s total", countStatements(msg.ran), countAffected(m.run.affected))
+		m.query.run.outcome = fmt.Sprintf("stopped at statement %d of %d", msg.ran, m.query.run.total)
+		return logCmd("-- query stopped at statement %d of %d", msg.ran, m.query.run.total)
+	case m.query.run.total > 1:
+		m.query.run.outcome = fmt.Sprintf("%s ok, %s", countStatements(msg.ran), countAffected(m.query.run.affected))
+		return logCmd("-- %s ok, %s total", countStatements(msg.ran), countAffected(m.query.run.affected))
 	default:
 		return nil
 	}
@@ -880,7 +880,7 @@ func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, 
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:      m.active,
 		database:  m.database,
 		query:     sql,
@@ -893,10 +893,10 @@ func (m *Model) showQueryResult(sql, exec string, args []any, rs *db.ResultSet, 
 		hasTotal:  true,
 		// A bumped req invalidates any page or count still in flight
 		// for the relation this result replaced.
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
-	m.data.setPage(0)
+	m.grid.data.setPage(0)
 	m.clampCursor()
 }
 
@@ -908,13 +908,13 @@ func (m *Model) showQueryError(sql string, err error) {
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: m.database,
 		query:    sql,
 		err:      err.Error(),
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
 }
 
@@ -925,13 +925,13 @@ func (m *Model) showQueryNotice(sql string, affected int64) {
 	m.resetMeta()
 	m.tab = mainTabData
 	m.focusResult()
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: m.database,
 		query:    sql,
 		notice:   db.FirstKeyword(sql) + " — " + countAffected(affected),
-		req:      m.data.req + 1,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req + 1,
+		pageSize: m.grid.pageSize,
 	}
 }
 
@@ -955,10 +955,10 @@ func formatElapsed(d time.Duration) string {
 // query runs, in the options bar and panel [3]'s preview. Empty when
 // nothing is running, so callers can append it unconditionally.
 func (m Model) runningIndicator() string {
-	if !m.run.running {
+	if !m.query.run.running {
 		return ""
 	}
-	return m.spin.View() + " " + formatElapsed(time.Since(m.run.startedAt))
+	return m.spin.View() + " " + formatElapsed(time.Since(m.query.run.startedAt))
 }
 
 // countStatements spells "1 statement" / "3 statements".
@@ -1056,9 +1056,9 @@ func (m Model) queryPanelTitle() string {
 	}
 	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(panelQuery)+1, panelTitles[panelQuery]))
 	switch {
-	case m.run.running:
+	case m.query.run.running:
 		line += " " + s.pending.Render("running "+m.runningIndicator())
-	case focused && m.editor.editing:
+	case focused && m.query.editor.editing:
 		line += " " + s.keyHint.Render("insert")
 	case focused:
 		line += " " + s.muted.Render("normal")
@@ -1085,7 +1085,7 @@ func (m Model) queryContent(w, h int) string {
 	}
 
 	body = append(body, m.queryStatusLine(w))
-	if rows--; rows > 0 && m.data.open() {
+	if rows--; rows > 0 && m.grid.data.open() {
 		body = append(body, m.dataContent(w, rows))
 	}
 	return clipHeight(strings.Join(body, "\n"), h)
@@ -1117,7 +1117,7 @@ func clipHeight(block string, h int) string {
 
 // editorMode names the mode for the main view's header.
 func (m Model) editorMode() string {
-	if m.editor.editing {
+	if m.query.editor.editing {
 		return "insert"
 	}
 	return "normal"
@@ -1132,18 +1132,18 @@ func (m Model) editorMode() string {
 func (m Model) queryStatusLine(w int) string {
 	s := m.style
 	badge := s.modeNormal.Render(" NORMAL ")
-	if m.editor.editing {
+	if m.query.editor.editing {
 		badge = s.modeInsert.Render(" INSERT ")
 	}
 	line := badge
 	switch {
-	case m.run.running:
+	case m.query.run.running:
 		line += " " + s.pending.Render(m.runningIndicator()+" running — "+
 			m.keys.CancelQuery.Help().Key+" cancels")
-	case m.data.isQuery() && m.data.err != "":
+	case m.grid.data.isQuery() && m.grid.data.err != "":
 		line += " " + s.danger.Render("failed — error below")
-	case m.data.isQuery() && m.run.outcome != "":
-		line += " " + s.keyHint.Render(m.run.outcome+" ↓")
+	case m.grid.data.isQuery() && m.query.run.outcome != "":
+		line += " " + s.keyHint.Render(m.query.run.outcome+" ↓")
 	}
 	if hint := m.queryStatusHint(); hint != "" {
 		line += s.muted.Render("  " + hint)
@@ -1157,17 +1157,17 @@ func (m Model) queryStatusHint() string {
 	k := m.keys
 	pair := func(b key.Binding, verb string) string { return b.Help().Key + " " + verb }
 	switch {
-	case m.completion.open:
+	case m.query.completion.open:
 		return strings.Join([]string{
 			pair(k.CompleteNext, "next"), pair(k.AcceptCompletion, "accept"),
 			pair(k.CloseCompletion, "close popup"),
 		}, " · ")
-	case m.editor.editing:
+	case m.query.editor.editing:
 		return strings.Join([]string{
 			"type SQL", pair(k.Complete, "complete"), pair(k.RunEditor, "run"),
 			pair(k.LeaveInsert, "done"),
 		}, " · ")
-	case m.data.isQuery():
+	case m.grid.data.isQuery():
 		// A result sits under the buffer: name the keys that reach it from
 		// here, and the tab that focuses the grid for the full set.
 		return strings.Join([]string{

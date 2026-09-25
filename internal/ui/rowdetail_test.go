@@ -18,8 +18,8 @@ func TestRowDetailListsColumnsWithNullAndValue(t *testing.T) {
 	if !ok {
 		t.Fatalf("x opened %T, want the row detail modal", m.modal)
 	}
-	if len(rd.fields) != len(m.data.cols) {
-		t.Fatalf("fields = %d, want %d columns", len(rd.fields), len(m.data.cols))
+	if len(rd.fields) != len(m.grid.data.cols) {
+		t.Fatalf("fields = %d, want %d columns", len(rd.fields), len(m.grid.data.cols))
 	}
 	if rd.fields[0].name != "id" || rd.fields[0].text != "1" {
 		t.Fatalf("id field = %+v, want text \"1\"", rd.fields[0])
@@ -77,7 +77,7 @@ func TestRowDetailShowsStagedInsert(t *testing.T) {
 	setField(f, "name", "phantom")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	m.data.row = len(m.data.rows)
+	m.grid.data.row = len(m.grid.data.rows)
 	m.clampCursor()
 	m = send(t, m, press('x'))
 	rd, ok := m.modal.(*rowDetailModal)
@@ -153,13 +153,13 @@ func colDefs(names []string) []string {
 func TestRowDetailEscPreservesCursor(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, press('j'), press('l'))
-	row, col := m.data.row, m.data.col
+	row, col := m.grid.data.row, m.grid.data.col
 	m = send(t, m, press('x'), special(tea.KeyEscape, 0))
 	if m.modal != nil {
 		t.Fatal("esc did not close the row detail modal")
 	}
-	if m.data.row != row || m.data.col != col {
-		t.Fatalf("cursor = (%d,%d), want (%d,%d) preserved", m.data.row, m.data.col, row, col)
+	if m.grid.data.row != row || m.grid.data.col != col {
+		t.Fatalf("cursor = (%d,%d), want (%d,%d) preserved", m.grid.data.row, m.grid.data.col, row, col)
 	}
 }
 

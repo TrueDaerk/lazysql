@@ -59,7 +59,7 @@ func rowsInGrid(t *testing.T, m Model) int64 {
 // Browsing itself is unaffected: the page loads and the grid renders.
 func TestReadOnlyStillBrowses(t *testing.T) {
 	m := readOnlyGrid(t)
-	if len(m.data.rows) == 0 {
+	if len(m.grid.data.rows) == 0 {
 		t.Fatal("no rows loaded on a read-only connection")
 	}
 }
@@ -83,8 +83,8 @@ func TestReadOnlyBlocksStagingKeys(t *testing.T) {
 			if m.modal != nil {
 				t.Fatalf("%q opened %T, want no modal", c.key, m.modal)
 			}
-			if m.changes.Len() != 0 {
-				t.Fatalf("%q staged %d changes", c.key, m.changes.Len())
+			if m.grid.changes.Len() != 0 {
+				t.Fatalf("%q staged %d changes", c.key, m.grid.changes.Len())
 			}
 			if !logContains(m, c.want) {
 				t.Fatalf("log = %v, want %q", m.commandLog, c.want)
@@ -99,8 +99,8 @@ func TestReadOnlyBlocksCommit(t *testing.T) {
 	m := readOnlyGrid(t)
 	// Stage behind the UI's back: the keys that would normally do it are
 	// already blocked, and the commit path is what is under test.
-	m.changes.Stage(db.CellChange{
-		Database: m.data.database, Table: "grid",
+	m.grid.changes.Stage(db.CellChange{
+		Database: m.grid.data.database, Table: "grid",
 		PKCols: []string{"id"}, PKVals: []any{int64(1)},
 		Column: "name", OldValue: "name-1", NewValue: "renamed",
 	})
@@ -113,7 +113,7 @@ func TestReadOnlyBlocksCommit(t *testing.T) {
 	if !logContains(m, "-- commit blocked: connection is read-only") {
 		t.Fatalf("log = %v, want the commit refusal", m.commandLog)
 	}
-	if m.changes.Len() != 1 {
+	if m.grid.changes.Len() != 1 {
 		t.Fatal("the changeset was cleared by a blocked commit")
 	}
 	if got := rowsInGrid(t, m); got != before {
@@ -136,14 +136,14 @@ func TestReadOnlyEditorRejectsWrites(t *testing.T) {
 			before := rowsInGrid(t, m)
 			m = runQuery(t, m, script)
 
-			if m.run.running {
+			if m.query.run.running {
 				t.Fatal("a rejected script started a run")
 			}
 			if !logContains(m, "REJECTED") || !logContains(m, "connection is read-only") {
 				t.Fatalf("log = %v, want a read-only rejection", m.commandLogEntries())
 			}
-			if !strings.Contains(m.data.err, "connection is read-only") {
-				t.Fatalf("Data tab error = %q, want the rejection", m.data.err)
+			if !strings.Contains(m.grid.data.err, "connection is read-only") {
+				t.Fatalf("Data tab error = %q, want the rejection", m.grid.data.err)
 			}
 			if got := rowsInGrid(t, m); got != before {
 				t.Fatalf("rows = %d, want %d — the statement ran", got, before)
@@ -156,11 +156,11 @@ func TestReadOnlyEditorRejectsWrites(t *testing.T) {
 func TestReadOnlyEditorRunsSelect(t *testing.T) {
 	m := readOnlyGrid(t)
 	m = runQuery(t, m, "SELECT id, name FROM grid ORDER BY id LIMIT 3")
-	if m.data.err != "" {
-		t.Fatalf("SELECT failed on a read-only connection: %s", m.data.err)
+	if m.grid.data.err != "" {
+		t.Fatalf("SELECT failed on a read-only connection: %s", m.grid.data.err)
 	}
-	if len(m.data.rows) != 3 {
-		t.Fatalf("rows = %d, want the 3 the SELECT asked for", len(m.data.rows))
+	if len(m.grid.data.rows) != 3 {
+		t.Fatalf("rows = %d, want the 3 the SELECT asked for", len(m.grid.data.rows))
 	}
 }
 

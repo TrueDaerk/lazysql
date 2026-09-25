@@ -201,7 +201,7 @@ func TestExportDatabaseDDLFallsBackOnCycle(t *testing.T) {
 // Two whole-database exports never run at once.
 func TestOnlyOneDatabaseDDLExportRunsAtATime(t *testing.T) {
 	m := ddlDatabaseBrowsing(t)
-	m.dbDDLExport = dbDDLExportState{running: true}
+	m.exports.ddl = dbDDLExportState{running: true}
 	next, cmd := m.runAction(actExportDatabaseDDL)
 	if next.modal != nil {
 		t.Error("a second export opened a prompt")
@@ -222,10 +222,10 @@ func TestOnlyOneDatabaseDDLExportRunsAtATime(t *testing.T) {
 // is ignored rather than clobbering the newer export's in-flight state.
 func TestStaleDatabaseDDLExportReplyIsIgnored(t *testing.T) {
 	m := ddlDatabaseBrowsing(t)
-	m.dbDDLExport = dbDDLExportState{running: true, id: 2}
+	m.exports.ddl = dbDDLExportState{running: true, id: 2}
 	m = send(t, m, databaseDDLExportedMsg{id: 1, database: "stale", path: "/tmp/stale.sql"})
-	if !m.dbDDLExport.running || m.dbDDLExport.id != 2 {
-		t.Fatalf("a stale reply changed the running export's state: %+v", m.dbDDLExport)
+	if !m.exports.ddl.running || m.exports.ddl.id != 2 {
+		t.Fatalf("a stale reply changed the running export's state: %+v", m.exports.ddl)
 	}
 	if logContains(m, "stale") {
 		t.Fatalf("the stale reply was logged: %v", m.commandLog)
@@ -238,7 +238,7 @@ func TestStaleDatabaseDDLExportReplyIsIgnored(t *testing.T) {
 func TestResetBrowseCancelsRunningDatabaseDDLExport(t *testing.T) {
 	cancelled := false
 	m := ddlDatabaseBrowsing(t)
-	m.dbDDLExport = dbDDLExportState{running: true, id: 1, cancel: func() { cancelled = true }}
+	m.exports.ddl = dbDDLExportState{running: true, id: 1, cancel: func() { cancelled = true }}
 	m.resetBrowse()
 	if !cancelled {
 		t.Fatal("resetBrowse did not cancel the running database DDL export")

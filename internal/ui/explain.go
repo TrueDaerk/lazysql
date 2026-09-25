@@ -135,7 +135,7 @@ func (m *Model) closePlan() { m.plan = nil }
 // so the rows above the caret are measured here.
 func (m Model) editorOffset() int {
 	lines := strings.Split(m.script(), "\n")
-	row := m.editor.area.Line()
+	row := m.query.editor.area.Line()
 	if row >= len(lines) {
 		row = len(lines) - 1
 	}
@@ -143,7 +143,7 @@ func (m Model) editorOffset() int {
 	for i := 0; i < row; i++ {
 		off += len([]rune(lines[i])) + 1 // the newline
 	}
-	col := m.editor.area.Column()
+	col := m.query.editor.area.Column()
 	if row >= 0 && row < len(lines) {
 		if n := len([]rune(lines[row])); col > n {
 			col = n

@@ -305,7 +305,7 @@ func TestStaleMetadataReplyIsDropped(t *testing.T) {
 	stale := metaLoadedMsg{
 		req:   m.meta.req - 1,
 		conn:  m.active,
-		table: m.data.table,
+		table: m.grid.data.table,
 		cols:  []db.Column{{Name: "ghost"}},
 	}
 	next, _ := m.Update(stale)
@@ -324,7 +324,7 @@ func TestMetadataErrorIsShown(t *testing.T) {
 	next, _ := m.Update(metaLoadedMsg{
 		req:   m.meta.req,
 		conn:  m.active,
-		table: m.data.table,
+		table: m.grid.data.table,
 		err:   context.DeadlineExceeded,
 	})
 	m = next.(Model)

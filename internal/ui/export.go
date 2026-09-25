@@ -77,7 +77,7 @@ type exportDoneMsg struct {
 // pre-filled with a plausible name so the common case is one keystroke
 // plus enter.
 func (m *Model) startExport() tea.Cmd {
-	if !m.data.browsing() && !(m.data.isQuery() && m.data.hasResult()) {
+	if !m.grid.data.browsing() && !(m.grid.data.isQuery() && m.grid.data.hasResult()) {
 		return logCmd("-- export skipped: nothing to export")
 	}
 	if m.driver == nil {
@@ -90,8 +90,8 @@ func (m *Model) startExport() tea.Cmd {
 	if m.tab == mainTabDDL {
 		return m.startDDLExport()
 	}
-	if m.export.running {
-		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.export.table)
+	if m.exports.file.running {
+		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.exports.file.table)
 	}
 	subject := m.dataSubject()
 	m.modal = newPromptModal(
@@ -145,9 +145,9 @@ func (m *Model) runExport(path string) tea.Cmd {
 		return logCmd("-- export skipped: nothing open")
 	}
 	switch {
-	case m.data.browsing():
+	case m.grid.data.browsing():
 		return m.runTableExport(full, format)
-	case m.data.isQuery() && m.data.hasResult():
+	case m.grid.data.isQuery() && m.grid.data.hasResult():
 		return m.runQueryExport(full, format)
 	default:
 		return logCmd("-- export skipped: nothing open")
@@ -163,28 +163,28 @@ func (m *Model) runTableExport(full string, format export.Format) tea.Cmd {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.export = exportState{
+	m.exports.file = exportState{
 		running: true,
-		id:      m.export.id + 1,
-		table:   m.data.table,
+		id:      m.exports.file.id + 1,
+		table:   m.grid.data.table,
 		cancel:  cancel,
 		ch:      make(chan tea.Msg),
 	}
 	m.keys.CancelExport.SetEnabled(true)
 
 	job := exportJob{
-		id:      m.export.id,
+		id:      m.exports.file.id,
 		ctx:     ctx,
 		file:    f,
 		path:    full,
 		format:  format,
 		options: m.exportOptions(""),
-		source:  tableSource(pagerFor(m.driver, m.data)),
-		ch:      m.export.ch,
+		source:  tableSource(pagerFor(m.driver, m.grid.data)),
+		ch:      m.exports.file.ch,
 	}
 	return tea.Batch(
 		logCmd("-- export %s to %s as %s (streaming %d rows per page)…",
-			m.data.table, full, strings.ToUpper(string(format)), export.DefaultPageSize),
+			m.grid.data.table, full, strings.ToUpper(string(format)), export.DefaultPageSize),
 		startExportCmd(job),
 	)
 }
@@ -196,7 +196,7 @@ func (m *Model) runTableExport(full string, format export.Format) tea.Cmd {
 func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
 	table := ""
 	if format == export.FormatSQL {
-		t, ok := db.SingleTableSelect(m.driver.Engine(), m.data.query)
+		t, ok := db.SingleTableSelect(m.driver.Engine(), m.grid.data.query)
 		if !ok {
 			return logCmd(
 				"-- export %s FAILED: query result has no single-table mapping for SQL — use .csv, .json or .md",
@@ -211,9 +211,9 @@ func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.export = exportState{
+	m.exports.file = exportState{
 		running: true,
-		id:      m.export.id + 1,
+		id:      m.exports.file.id + 1,
 		table:   "query result",
 		cancel:  cancel,
 		ch:      make(chan tea.Msg),
@@ -221,14 +221,14 @@ func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
 	m.keys.CancelExport.SetEnabled(true)
 
 	job := exportJob{
-		id:      m.export.id,
+		id:      m.exports.file.id,
 		ctx:     ctx,
 		file:    f,
 		path:    full,
 		format:  format,
-		options: export.Options{Database: m.data.database, Table: table, Dialect: m.driver.Dialect()},
-		source:  querySource(queryRunnerFor(m.driver, m.data)),
-		ch:      m.export.ch,
+		options: export.Options{Database: m.grid.data.database, Table: table, Dialect: m.driver.Dialect()},
+		source:  querySource(queryRunnerFor(m.driver, m.grid.data)),
+		ch:      m.exports.file.ch,
 	}
 	return tea.Batch(
 		logCmd("-- export query result to %s as %s (streaming)…", full, strings.ToUpper(string(format))),
@@ -364,18 +364,18 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // cancelExport is `X`. The worker notices the cancelled context between
 // pages and between rows and removes the partial file.
 func (m *Model) cancelExport() tea.Cmd {
-	if !m.export.running {
+	if !m.exports.file.running {
 		return nil
 	}
-	m.export.cancel()
-	return logCmd("-- cancelling export of %s…", m.export.table)
+	m.exports.file.cancel()
+	return logCmd("-- cancelling export of %s…", m.exports.file.table)
 }
 
 // finishExport clears the in-flight state and renders the outcome.
 func (m *Model) finishExport(msg exportDoneMsg) tea.Cmd {
-	m.export.running = false
-	m.export.cancel = nil
-	m.export.ch = nil
+	m.exports.file.running = false
+	m.exports.file.cancel = nil
+	m.exports.file.ch = nil
 	m.keys.CancelExport.SetEnabled(false)
 	switch {
 	case errors.Is(msg.err, context.Canceled):
@@ -404,12 +404,12 @@ func (m *Model) startDDLExport() tea.Cmd {
 		return m.deferUntilMeta(actExportDDL)
 	}
 	if m.meta.ddl == "" {
-		return logCmd("-- export DDL of %s skipped: %s", m.data.table, m.ddlProblem())
+		return logCmd("-- export DDL of %s skipped: %s", m.grid.data.table, m.ddlProblem())
 	}
 	m.modal = newPromptModal(
-		"Export "+m.data.table+" DDL — file path",
-		"~/"+defaultDDLExportPath(m.data.table),
-		defaultDDLExportPath(m.data.table),
+		"Export "+m.grid.data.table+" DDL — file path",
+		"~/"+defaultDDLExportPath(m.grid.data.table),
+		defaultDDLExportPath(m.grid.data.table),
 		func(mm *Model, value string) tea.Cmd { return mm.runDDLExport(value) },
 	)
 	return nil
@@ -430,11 +430,11 @@ func (m *Model) runDDLExport(path string) tea.Cmd {
 	if !strings.EqualFold(filepath.Ext(full), ".sql") {
 		return logCmd("-- export %s FAILED: DDL export needs a .sql path", full)
 	}
-	if !m.data.browsing() || m.meta.ddl == "" {
+	if !m.grid.data.browsing() || m.meta.ddl == "" {
 		return logCmd("-- export skipped: nothing to export")
 	}
 
-	table, ddl := m.data.table, m.meta.ddl
+	table, ddl := m.grid.data.table, m.meta.ddl
 	return func() tea.Msg {
 		if err := os.WriteFile(full, []byte(ddl), 0o644); err != nil {
 			return commandLogMsg{line: fmt.Sprintf("-- export DDL of %s FAILED: %v", table, err)}

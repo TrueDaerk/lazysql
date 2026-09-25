@@ -39,7 +39,7 @@ func TestExportCSVWritesEveryRow(t *testing.T) {
 	m := send(t, copyBrowsing(t), press('E'))
 	m = typePath(t, m, path)
 
-	if m.export.running {
+	if m.exports.file.running {
 		t.Error("the export is still marked as running after it finished")
 	}
 	if !logContains(m, "export wrote 3 rows") {
@@ -235,8 +235,8 @@ func TestExportQueryResultStreamsBeyondGridCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	m = runQuery(t, m, "SELECT id FROM q")
-	if !m.data.truncated {
-		t.Fatalf("grid data = %#v, want the maxQueryRows cap to have kicked in", m.data)
+	if !m.grid.data.truncated {
+		t.Fatalf("grid data = %#v, want the maxQueryRows cap to have kicked in", m.grid.data)
 	}
 
 	dir := t.TempDir()
@@ -264,8 +264,8 @@ func TestExportQueryResultReusesBoundPlaceholderArgs(t *testing.T) {
 	setParam(t, p, 0, "2")
 	setParam(t, p, 1, "row")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if !m.data.isQuery() || len(m.data.rows) != 1 {
-		t.Fatalf("data = %#v, want the one matching row", m.data)
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 1 {
+		t.Fatalf("data = %#v, want the one matching row", m.grid.data)
 	}
 
 	dir := t.TempDir()
@@ -370,10 +370,10 @@ func TestExportCancellationRemovesPartialFile(t *testing.T) {
 
 	// The model turns that message into a log line and stops offering X.
 	m := copyBrowsing(t)
-	m.export = exportState{running: true, id: 1, table: "orders", cancel: func() {}}
+	m.exports.file = exportState{running: true, id: 1, table: "orders", cancel: func() {}}
 	m.keys.CancelExport.SetEnabled(true)
 	m = send(t, m, done)
-	if m.export.running || m.keys.CancelExport.Enabled() {
+	if m.exports.file.running || m.keys.CancelExport.Enabled() {
 		t.Error("the export state survived its own completion")
 	}
 	if !logContains(m, "export cancelled") {
@@ -385,7 +385,7 @@ func TestExportCancellationRemovesPartialFile(t *testing.T) {
 func TestCancelExportKeyCancels(t *testing.T) {
 	cancelled := false
 	m := copyBrowsing(t)
-	m.export = exportState{running: true, id: 1, table: "orders", cancel: func() { cancelled = true }}
+	m.exports.file = exportState{running: true, id: 1, table: "orders", cancel: func() { cancelled = true }}
 	m.keys.CancelExport.SetEnabled(true)
 
 	m = send(t, m, press('X'))
@@ -430,8 +430,8 @@ func helpGroupsInclude(groups []helpGroup, desc string) bool {
 // racing the first over the log.
 func TestOnlyOneExportRunsAtATime(t *testing.T) {
 	m := copyBrowsing(t)
-	m.export.running = true
-	m.export.table = "orders"
+	m.exports.file.running = true
+	m.exports.file.table = "orders"
 	next, cmd := m.runAction(actExportTable)
 	if next.modal != nil {
 		t.Error("a second export opened a prompt")

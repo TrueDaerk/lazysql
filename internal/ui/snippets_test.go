@@ -29,7 +29,7 @@ func withSnippets(t *testing.T) Model {
 
 	m := sized(120, 40)
 	at := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	m.snippets = []snippets.Snippet{
+	m.query.snippets = []snippets.Snippet{
 		{Name: "active users", SQL: "SELECT * FROM users WHERE active", Engine: "sqlite", CreatedAt: at},
 		{Name: "order by id", SQL: "SELECT *\nFROM orders\nWHERE id = :id", Engine: "sqlite", CreatedAt: at},
 	}
@@ -72,15 +72,15 @@ func TestSaveSnippetFromTheEditorPersists(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("saving left %T open", m.modal)
 	}
-	if len(m.snippets) != 1 || m.snippets[0].Name != "one" || m.snippets[0].SQL != "SELECT 1" {
-		t.Fatalf("snippets = %#v, want the named buffer", m.snippets)
+	if len(m.query.snippets) != 1 || m.query.snippets[0].Name != "one" || m.query.snippets[0].SQL != "SELECT 1" {
+		t.Fatalf("snippets = %#v, want the named buffer", m.query.snippets)
 	}
 
 	// A fresh model loads it back through Init, the way a restart does.
 	next := sized(120, 40)
 	next = send(t, next, drainInit(t, next)...)
-	if len(next.snippets) != 1 || next.snippets[0].SQL != "SELECT 1" {
-		t.Fatalf("reloaded snippets = %#v, want the one from the previous run", next.snippets)
+	if len(next.query.snippets) != 1 || next.query.snippets[0].SQL != "SELECT 1" {
+		t.Fatalf("reloaded snippets = %#v, want the one from the previous run", next.query.snippets)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestSaveSnippetKeepsInsertModeAndTheBuffer(t *testing.T) {
 	m = typeKeys(t, m, "two")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Error("saving a snippet ended insert mode")
 	}
 	if m.script() != "SELECT 2" {
@@ -108,8 +108,8 @@ func TestSaveSnippetRefusesAnEmptyBuffer(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("ctrl+s on an empty buffer opened %T, want nothing to save", m.modal)
 	}
-	if len(m.snippets) != 0 {
-		t.Fatalf("snippets = %#v, want none", m.snippets)
+	if len(m.query.snippets) != 0 {
+		t.Fatalf("snippets = %#v, want none", m.query.snippets)
 	}
 }
 
@@ -119,8 +119,8 @@ func TestSaveSnippetRefusesAnEmptyName(t *testing.T) {
 	m = send(t, m, press(':'))
 	m = typeKeys(t, m, "SELECT 3")
 	m = send(t, m, ctrl('s'), special(tea.KeyEnter, 0))
-	if len(m.snippets) != 0 {
-		t.Fatalf("snippets = %#v, want an unnamed save refused", m.snippets)
+	if len(m.query.snippets) != 0 {
+		t.Fatalf("snippets = %#v, want an unnamed save refused", m.query.snippets)
 	}
 }
 
@@ -139,17 +139,17 @@ func TestDuplicateNamePromptsBeforeOverwrite(t *testing.T) {
 	if !strings.Contains(cm.body, "active users") {
 		t.Errorf("the confirm does not name the snippet: %q", cm.body)
 	}
-	if got, _ := snippets.Find(m.snippets, "active users"); got.SQL == "SELECT replacement" {
+	if got, _ := snippets.Find(m.query.snippets, "active users"); got.SQL == "SELECT replacement" {
 		t.Fatal("the snippet was overwritten before the confirm was answered")
 	}
 
 	m = send(t, m, press('y'))
-	got, ok := snippets.Find(m.snippets, "active users")
+	got, ok := snippets.Find(m.query.snippets, "active users")
 	if !ok || got.SQL != "SELECT replacement" {
 		t.Fatalf("after the confirm: %#v, want the replacement statement", got)
 	}
-	if len(m.snippets) != 2 {
-		t.Fatalf("snippets = %#v, want the overwrite not to add an entry", m.snippets)
+	if len(m.query.snippets) != 2 {
+		t.Fatalf("snippets = %#v, want the overwrite not to add an entry", m.query.snippets)
 	}
 	// The name is the identity; the creation date says how long it has
 	// been in use, so an overwrite keeps it.
@@ -166,7 +166,7 @@ func TestOverwriteCancelKeepsTheOldStatement(t *testing.T) {
 	m = typeKeys(t, m, "active users")
 	m = send(t, m, special(tea.KeyEnter, 0), special(tea.KeyEscape, 0))
 
-	got, _ := snippets.Find(m.snippets, "active users")
+	got, _ := snippets.Find(m.query.snippets, "active users")
 	if got.SQL != "SELECT * FROM users WHERE active" {
 		t.Fatalf("SQL = %q, want the cancelled overwrite to have changed nothing", got.SQL)
 	}
@@ -175,7 +175,7 @@ func TestOverwriteCancelKeepsTheOldStatement(t *testing.T) {
 func TestSaveSnippetFromAHistoryEntry(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m := sized(120, 40)
-	m.history = []history.Entry{
+	m.query.history = []history.Entry{
 		{SQL: "SELECT from history", Engine: "sqlite", At: time.Now()},
 	}
 	m = send(t, m, press('3'), special(tea.KeyBackspace, 0), press('s'))
@@ -185,9 +185,9 @@ func TestSaveSnippetFromAHistoryEntry(t *testing.T) {
 	m = typeKeys(t, m, "kept")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
-	got, ok := snippets.Find(m.snippets, "kept")
+	got, ok := snippets.Find(m.query.snippets, "kept")
 	if !ok || got.SQL != "SELECT from history" {
-		t.Fatalf("snippets = %#v, want the history entry saved under its name", m.snippets)
+		t.Fatalf("snippets = %#v, want the history entry saved under its name", m.query.snippets)
 	}
 }
 
@@ -226,7 +226,7 @@ func TestSnippetLoadIntoEditor(t *testing.T) {
 	if m.script() != "SELECT *\nFROM orders\nWHERE id = :id" {
 		t.Fatalf("editor holds %q, want the selected snippet", m.script())
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Error("loading a snippet started insert mode")
 	}
 }
@@ -256,13 +256,13 @@ func TestSnippetDeleteAsksAndPersists(t *testing.T) {
 	if _, ok := m.modal.(*confirmModal); !ok {
 		t.Fatalf("`d` opened %T, want a confirm before a snippet is lost", m.modal)
 	}
-	if len(m.snippets) != 2 {
+	if len(m.query.snippets) != 2 {
 		t.Fatal("the snippet was deleted before the confirm was answered")
 	}
 
 	m = send(t, m, press('y'))
-	if len(m.snippets) != 1 || m.snippets[0].Name != "order by id" {
-		t.Fatalf("snippets = %#v, want only the other one left", m.snippets)
+	if len(m.query.snippets) != 1 || m.query.snippets[0].Name != "order by id" {
+		t.Fatalf("snippets = %#v, want only the other one left", m.query.snippets)
 	}
 	path, err := snippets.Path()
 	if err != nil {
@@ -281,14 +281,14 @@ func TestSnippetDeleteCancelKeepsIt(t *testing.T) {
 	m := withSnippets(t)
 	m, _ = snippetsPane(t, m)
 	m = send(t, m, press('d'), special(tea.KeyEscape, 0))
-	if len(m.snippets) != 2 {
-		t.Fatalf("snippets = %#v, want the cancelled delete to have changed nothing", m.snippets)
+	if len(m.query.snippets) != 2 {
+		t.Fatalf("snippets = %#v, want the cancelled delete to have changed nothing", m.query.snippets)
 	}
 }
 
 func TestSnippetsPaneKeepsAPerSectionCursor(t *testing.T) {
 	m := withSnippets(t)
-	m.history = []history.Entry{
+	m.query.history = []history.Entry{
 		{SQL: "SELECT 1", Engine: "sqlite", At: time.Now()},
 		{SQL: "SELECT 2", Engine: "sqlite", At: time.Now()},
 	}

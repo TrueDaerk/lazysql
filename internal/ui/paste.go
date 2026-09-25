@@ -76,9 +76,9 @@ func (m Model) updatePaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 // newlines become rows, the cursor lands after the last character — so
 // this only has to get the message to it.
 func (m Model) pasteIntoEditor(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
-	if m.editor.editing {
+	if m.query.editor.editing {
 		var cmd tea.Cmd
-		m.editor.area, cmd = m.editor.area.Update(msg)
+		m.query.editor.area, cmd = m.query.editor.area.Update(msg)
 		// The completion popup follows the buffer like it does after any
 		// other insertion.
 		return m, tea.Batch(cmd, m.refreshCompletion(false))
@@ -87,15 +87,15 @@ func (m Model) pasteIntoEditor(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	// every message. It is focused for the insertion alone — the editor
 	// stays in normal mode afterwards, because a paste is text arriving,
 	// not a request to start typing.
-	m.editor.area.Focus()
-	m.editor.area, _ = m.editor.area.Update(msg)
-	m.editor.area.Blur()
+	m.query.editor.area.Focus()
+	m.query.editor.area, _ = m.query.editor.area.Update(msg)
+	m.query.editor.area.Blur()
 	// An unfinished dd/yy chord cannot survive text landing between its
 	// two keys.
-	m.editor.pending = 0
+	m.query.editor.pending = 0
 	// The vertical-motion column follows the paste: a want remembered
 	// from before it would aim j/k at a column the text has moved.
-	m.editor.want = -1
+	m.query.editor.want = -1
 	// Insertion can leave the caret one past the last character, which
 	// is an insert-mode position; normal mode sits on the character.
 	m.applyVim(m.vimBuffer(), false)

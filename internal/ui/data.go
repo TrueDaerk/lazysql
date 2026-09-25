@@ -392,7 +392,7 @@ func countRowsCmd(ctx context.Context, drv db.Driver, d dataView, req int) tea.C
 // sorted three times in a row leaves one statement running on the server
 // rather than three.
 //
-// The Model holds it through a pointer (Model.inflight): a value
+// The Model holds it through a pointer (Model.grid.inflight): a value
 // receiver — Model.fresh and every `func (m Model)` handler — must not
 // be able to lose the handle by writing it into a copy that is thrown
 // away. It is only ever touched from Update, which is single-threaded,
@@ -454,23 +454,6 @@ func (p *pageQueries) done(req int, page bool) {
 	}
 }
 
-// ensureInflight returns the Model's page-query handle, creating it on
-// first use so a Model built by hand (a test fixture) behaves like one
-// that came through New.
-func (m *Model) ensureInflight() *pageQueries {
-	if m.inflight == nil {
-		m.inflight = &pageQueries{}
-	}
-	return m.inflight
-}
-
-// stopPageQueries cancels the page and count queries in flight, if any.
-func (m *Model) stopPageQueries() { m.inflight.stop() }
-
-// pageQueryDone reports one of the two replies of the current request to
-// the cancel handle.
-func (m *Model) pageQueryDone(req int, page bool) { m.inflight.done(req, page) }
-
 // cancelled reports an error that is a context cancellation — a query a
 // newer request superseded, or one the view being closed stopped. It is
 // an outcome, not a failure: nothing may report it in the grid or colour
@@ -497,22 +480,21 @@ func (m *Model) openTable(name string) tea.Cmd {
 	m.resetMeta()
 	// The page and count queries of the relation being left run for a
 	// view that is about to be replaced; nothing will ever read them.
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 	if m.driver == nil {
-		m.data = dataView{}
+		m.grid.data = dataView{}
 		return logCmd("-- open %s skipped: not connected", name)
 	}
-	m.data = dataView{
+	m.grid.data = dataView{
 		conn:     m.active,
 		database: m.database,
 		table:    name,
-		req:      m.data.req,
-		pageSize: m.pageSize,
+		req:      m.grid.data.req,
+		pageSize: m.grid.pageSize,
 	}
 	// Picking a relation from panel [3] is a fresh start, so the jump
 	// history of whatever chain of references was being followed goes.
-	m.browseStack = nil
-	m.fkAfter = actNone
+	m.grid.clearBrowse()
 	// The Data tab always loads: it backs the row count in the status
 	// line and is where `esc`-and-back lands. The foreign keys come
 	// along because the grid header marks the columns that have one.
@@ -523,18 +505,18 @@ func (m *Model) openTable(name string) tea.Cmd {
 // filter/sort/page. Both land in the command log through the Driver's
 // Logger as QueryPage/CountRows run them.
 func (m *Model) reloadPage() tea.Cmd {
-	if m.driver == nil || !m.data.browsing() {
+	if m.driver == nil || !m.grid.data.browsing() {
 		return nil
 	}
-	m.data.req++
-	m.data.loading = true
-	m.data.err = ""
+	m.grid.data.req++
+	m.grid.data.loading = true
+	m.grid.data.err = ""
 	m.clearSelection()
 	// Whatever the previous reload left running is superseded: its
 	// context is cancelled so the server stops working on a page nobody
 	// is going to look at. Bumping req above only drops the reply.
-	ctx := m.ensureInflight().start(m.data.req)
-	d := m.data
+	ctx := m.grid.ensureInflight().start(m.grid.data.req)
+	d := m.grid.data
 
 	var cmds []tea.Cmd
 	// The warning goes first so it is not lost above the statement it
@@ -547,26 +529,26 @@ func (m *Model) reloadPage() tea.Cmd {
 	// Driver's Logger, and it deliberately never reaches the query
 	// history, which only holds statements the user submitted.
 	cmds = append(cmds,
-		loadPageCmd(ctx, m.driver, d, m.data.req),
-		countRowsCmd(ctx, m.driver, d, m.data.req),
+		loadPageCmd(ctx, m.driver, d, m.grid.data.req),
+		countRowsCmd(ctx, m.driver, d, m.grid.data.req),
 	)
 	return tea.Batch(cmds...)
 }
 
 // fresh reports whether a reply still belongs to the page on screen.
 func (m Model) fresh(req int, conn, table string) bool {
-	return req == m.data.req && conn == m.active && table == m.data.table
+	return req == m.grid.data.req && conn == m.active && table == m.grid.data.table
 }
 
 // setDataFilter applies a new WHERE fragment and returns to page one.
 // An empty fragment clears the filter.
 func (m *Model) setDataFilter(raw string) tea.Cmd {
-	if !m.data.browsing() || m.driver == nil {
+	if !m.grid.data.browsing() || m.driver == nil {
 		return nil
 	}
-	m.data.filter = db.ParseFilter(m.driver.Dialect(), raw)
-	m.data.page = 0
-	m.data.row = 0
+	m.grid.data.filter = db.ParseFilter(m.driver.Dialect(), raw)
+	m.grid.data.page = 0
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 
@@ -574,75 +556,75 @@ func (m *Model) setDataFilter(raw string) tea.Cmd {
 // page. It is a no-op — with a note in the log — when nothing is
 // filtered, so the key never costs a round trip for nothing.
 func (m *Model) clearFilter() tea.Cmd {
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return nil
 	}
-	if m.data.filter == nil {
+	if m.grid.data.filter == nil {
 		return logCmd("-- no filter to clear")
 	}
-	m.data.filter = nil
-	m.data.page = 0
-	m.data.row = 0
+	m.grid.data.filter = nil
+	m.grid.data.page = 0
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 
 // toggleSort cycles the column under the cursor through ASC, DESC and
 // unsorted. The filter is untouched, so the two compose.
 func (m *Model) toggleSort() tea.Cmd {
-	if !m.data.browsing() || m.data.col >= len(m.data.cols) {
+	if !m.grid.data.browsing() || m.grid.data.col >= len(m.grid.data.cols) {
 		return nil
 	}
-	name := m.data.cols[m.data.col].Name
+	name := m.grid.data.cols[m.grid.data.col].Name
 	switch {
-	case m.data.sort == nil || m.data.sort.Column != name:
-		m.data.sort = &db.Sort{Column: name}
-	case !m.data.sort.Desc:
-		m.data.sort = &db.Sort{Column: name, Desc: true}
+	case m.grid.data.sort == nil || m.grid.data.sort.Column != name:
+		m.grid.data.sort = &db.Sort{Column: name}
+	case !m.grid.data.sort.Desc:
+		m.grid.data.sort = &db.Sort{Column: name, Desc: true}
 	default:
-		m.data.sort = nil
+		m.grid.data.sort = nil
 	}
 	// A different ordering makes the old offset meaningless.
-	m.data.page = 0
-	m.data.row = 0
+	m.grid.data.page = 0
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 
 // turnPage moves by whole pages. It refuses to walk off either end so a
 // mistyped page key cannot leave the grid on an empty page.
 func (m *Model) turnPage(delta int) tea.Cmd {
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		return nil
 	}
-	next := m.data.page + delta
+	next := m.grid.data.page + delta
 	if next < 0 {
 		return nil
 	}
 	// A query result is already in memory: paging it is a slice, not a
 	// round trip.
-	if m.data.isQuery() {
-		if next > m.data.page && next*m.data.limit() >= len(m.data.all) {
+	if m.grid.data.isQuery() {
+		if next > m.grid.data.page && next*m.grid.data.limit() >= len(m.grid.data.all) {
 			return logCmd("-- already on the last page")
 		}
-		if next == m.data.page {
+		if next == m.grid.data.page {
 			return nil
 		}
-		m.data.setPage(next)
+		m.grid.data.setPage(next)
 		m.clampCursor()
 		return nil
 	}
-	if next > m.data.page {
-		if m.data.hasTotal && next*m.data.limit() >= int(m.data.total) {
+	if next > m.grid.data.page {
+		if m.grid.data.hasTotal && next*m.grid.data.limit() >= int(m.grid.data.total) {
 			return logCmd("-- already on the last page")
 		}
-		if !m.data.hasTotal && len(m.data.rows) < m.data.limit() {
+		if !m.grid.data.hasTotal && len(m.grid.data.rows) < m.grid.data.limit() {
 			return logCmd("-- already on the last page")
 		}
 	}
-	if next == m.data.page {
+	if next == m.grid.data.page {
 		return nil
 	}
-	m.data.page = next
-	m.data.row = 0
+	m.grid.data.page = next
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 
@@ -824,14 +806,14 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// esc leaves selection mode before anything else: while a
 		// selection is up it is the mode the user is in, and leaving it
 		// must not also undo a foreign-key jump or the focus.
-		if m.data.selecting() {
+		if m.grid.data.selecting() {
 			m.clearSelection()
 			return m, logCmd("-- selection cleared")
 		}
 		// esc unwinds the foreign-key jumps first: coming back to where
 		// the chain started is what the key means while there is a
 		// history, and only an empty history hands it to the focus stack.
-		if len(m.browseStack) > 0 {
+		if len(m.grid.browseStack) > 0 {
 			cmd := m.browseBack()
 			return m, cmd
 		}
@@ -853,7 +835,7 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			cmd := m.reloadMeta()
 			return m, cmd
 		}
-		if m.data.isQuery() {
+		if m.grid.data.isQuery() {
 			cmd := m.rerunQuery()
 			return m, cmd
 		}
@@ -876,7 +858,7 @@ func (m Model) updateData(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // — the binding is the single source both the options bar and `?` read,
 // so disabling it is what hides it from both.
 func (m *Model) clearSelection() {
-	m.data.clearSelection()
+	m.grid.data.clearSelection()
 	m.keys.CopySelection.SetEnabled(false)
 }
 
@@ -885,18 +867,18 @@ func (m *Model) clearSelection() {
 // insert) cannot anchor one — it has no fetched values for a copy or a
 // bulk edit to work from.
 func (m *Model) toggleSelection() tea.Cmd {
-	if m.data.selecting() {
+	if m.grid.data.selecting() {
 		m.clearSelection()
 		return logCmd("-- selection cleared")
 	}
-	if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
+	if m.tab.metadata() || m.grid.data.row < 0 || m.grid.data.row >= len(m.grid.data.rows) {
 		return logCmd("-- selection skipped: no row under the cursor")
 	}
-	m.data.sel = gridSelection{active: true, anchor: m.data.row}
+	m.grid.data.sel = gridSelection{active: true, anchor: m.grid.data.row}
 	m.keys.CopySelection.SetEnabled(true)
 	return logCmd(
 		"-- selection started at row %d (j/k extend, shift+←/→ narrows it to columns, e edits the cursor column in every row, ctrl+c copies, esc clears)",
-		m.data.offset()+m.data.row+1)
+		m.grid.data.offset()+m.grid.data.row+1)
 }
 
 // extendSelection is `shift+up`/`shift+down` — or their `K`/`J` fallbacks
@@ -921,11 +903,11 @@ func (m *Model) extendColumnSelection(delta int) tea.Cmd {
 	if !m.startSelection() {
 		return nil
 	}
-	if !m.data.sel.cols {
-		m.data.sel.cols = true
-		m.data.sel.colAnchor = m.data.col
+	if !m.grid.data.sel.cols {
+		m.grid.data.sel.cols = true
+		m.grid.data.sel.colAnchor = m.grid.data.col
 	}
-	m.data.stepCol(delta)
+	m.grid.data.stepCol(delta)
 	m.clampCursor()
 	return nil
 }
@@ -936,15 +918,15 @@ func (m *Model) extendColumnSelection(delta int) tea.Cmd {
 // shift+arrows. It needs no direction key of its own: once the span is
 // anchored, plain `h`/`l` move the cell cursor, which *is* its open edge.
 func (m *Model) toggleColumnSelection() tea.Cmd {
-	if m.data.selecting() && m.data.sel.cols {
-		m.data.sel.cols = false
+	if m.grid.data.selecting() && m.grid.data.sel.cols {
+		m.grid.data.sel.cols = false
 		return logCmd("-- column selection cleared (the rows stay selected)")
 	}
 	if !m.startSelection() {
 		return logCmd("-- column selection skipped: no row under the cursor")
 	}
-	m.data.sel.cols = true
-	m.data.sel.colAnchor = m.data.col
+	m.grid.data.sel.cols = true
+	m.grid.data.sel.colAnchor = m.grid.data.col
 	name := m.cursorColumnLabel()
 	return logCmd("-- column selection anchored at %s (h/l extend, C clears it)", name)
 }
@@ -954,13 +936,13 @@ func (m *Model) toggleColumnSelection() tea.Cmd {
 // all: the metadata tabs have no rows, and a phantom row (a staged
 // insert) has no fetched values for a copy or a bulk edit to work from.
 func (m *Model) startSelection() bool {
-	if m.data.selecting() {
+	if m.grid.data.selecting() {
 		return true
 	}
-	if m.tab.metadata() || m.data.row < 0 || m.data.row >= len(m.data.rows) {
+	if m.tab.metadata() || m.grid.data.row < 0 || m.grid.data.row >= len(m.grid.data.rows) {
 		return false
 	}
-	m.data.sel = gridSelection{active: true, anchor: m.data.row}
+	m.grid.data.sel = gridSelection{active: true, anchor: m.grid.data.row}
 	m.keys.CopySelection.SetEnabled(true)
 	return true
 }
@@ -981,10 +963,10 @@ func (m *Model) focusBack() {
 func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 	switch id {
 	case actColLeft:
-		m.data.stepCol(-1)
+		m.grid.data.stepCol(-1)
 		m.clampCursor()
 	case actColRight:
-		m.data.stepCol(1)
+		m.grid.data.stepCol(1)
 		m.clampCursor()
 	case actPinColumn:
 		cmd := m.togglePin()
@@ -1048,9 +1030,9 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, cmd, true
 	case actViewCell:
 		name, colType := "", ""
-		if m.data.col >= 0 && m.data.col < len(m.data.cols) {
-			name = m.data.cols[m.data.col].Name
-			colType = m.data.cols[m.data.col].DataType
+		if m.grid.data.col >= 0 && m.grid.data.col < len(m.grid.data.cols) {
+			name = m.grid.data.cols[m.grid.data.col].Name
+			colType = m.grid.data.cols[m.grid.data.col].DataType
 		}
 		if ins, ok := m.phantomAtCursor(); ok {
 			// A staged insert has no fetched cell; show what it will bind.
@@ -1062,7 +1044,7 @@ func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 			m.modal = newCellModal(m.dataSubject(), name, colType, v)
 			return m, nil, true
 		}
-		v, ok := m.data.cell()
+		v, ok := m.grid.data.cell()
 		if !ok {
 			return m, nil, true
 		}

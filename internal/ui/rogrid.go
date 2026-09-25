@@ -193,9 +193,9 @@ func (g *roGrid) clampCursor() {
 
 func (g *roGrid) selecting() bool { return g.sel.active }
 
-func (g *roGrid) selectedRows() []int  { return rangeSlice(g.sel.rowRange(g.row, g.n)) }
-func (g *roGrid) selectedCols() []int  { return rangeSlice(g.sel.colRange(g.col, len(g.cols))) }
-func (g *roGrid) clearSelection()      { g.sel = gridSelection{} }
+func (g *roGrid) selectedRows() []int { return rangeSlice(g.sel.rowRange(g.row, g.n)) }
+func (g *roGrid) selectedCols() []int { return rangeSlice(g.sel.colRange(g.col, len(g.cols))) }
+func (g *roGrid) clearSelection()     { g.sel = gridSelection{} }
 func (g *roGrid) inSelection(r int) bool {
 	start, end := g.sel.rowRange(g.row, g.n)
 	return r >= start && r < end

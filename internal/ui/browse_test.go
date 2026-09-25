@@ -533,8 +533,8 @@ func TestMultiNamespaceTreeKeepsDatabaseLevel(t *testing.T) {
 	if m.database != "main" {
 		t.Fatalf("database = %q, want the opened object's namespace", m.database)
 	}
-	if m.data.table != "nsprobe" {
-		t.Fatalf("table = %q, want nsprobe", m.data.table)
+	if m.grid.data.table != "nsprobe" {
+		t.Fatalf("table = %q, want nsprobe", m.grid.data.table)
 	}
 	if !logContains(m, "USE main;") {
 		t.Fatalf("command log = %v", m.commandLog)

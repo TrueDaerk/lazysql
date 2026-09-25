@@ -36,7 +36,7 @@ func TestExportDatabaseDDLToClipboardMatchesTheFile(t *testing.T) {
 	if !logContains(m, "copy DDL of") || !logContains(m, "to clipboard (") {
 		t.Fatalf("command log = %v", m.commandLog)
 	}
-	if m.dbDDLExport.running {
+	if m.exports.ddl.running {
 		t.Error("the clipboard export is still marked as running")
 	}
 }
@@ -53,7 +53,7 @@ func TestExportDatabaseDDLMenuCancels(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("modal after esc = %T, want none", m.modal)
 	}
-	if m.dbDDLExport.running {
+	if m.exports.ddl.running {
 		t.Error("esc started an export anyway")
 	}
 }

@@ -223,6 +223,10 @@ func newQueryEditor() queryEditor {
 	// two must not both wrap.
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
+	// highlight.go draws the caret too, so the textarea's own virtual
+	// cursor is off: left on, every keystroke that moves it would arm a
+	// real Blink() timer for a cursor cell nobody draws.
+	ta.SetVirtualCursor(false)
 	ta.SetWidth(editorWrapWidth)
 	return queryEditor{area: ta, want: -1}
 }

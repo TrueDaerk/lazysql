@@ -270,7 +270,10 @@ func (m Model) copyRow(f export.Format) tea.Cmd {
 	if !ok {
 		return logCmd("-- copy row skipped: no row under the cursor")
 	}
-	return copyRowValues(f, m.exportOptions(""), m.dataSubject(), m.data.cols, values)
+	// The columns on screen, in the order they are drawn: a hidden
+	// column is not silently carried along.
+	cols, idx := m.data.visibleColumns()
+	return copyRowValues(f, m.exportOptions(""), m.dataSubject(), cols, cutColumns([][]any{values}, idx)[0])
 }
 
 // ---------- the multi-row selection ----------
@@ -475,7 +478,8 @@ func (m Model) copyQueryPage(f export.Format) tea.Cmd {
 	if !m.data.isQuery() {
 		return logCmd("-- copy skipped: no query result open")
 	}
-	text, err := export.Rows(f, m.exportOptions(""), m.data.cols, m.data.rows)
+	cols, idx := m.data.visibleColumns()
+	text, err := export.Rows(f, m.exportOptions(""), cols, cutColumns(m.data.rows, idx))
 	if err != nil {
 		return logCmd("-- copy page FAILED: %v", err)
 	}
@@ -485,11 +489,12 @@ func (m Model) copyQueryPage(f export.Format) tea.Cmd {
 }
 
 // pagerFor closes over the driver and the grid's query shape, so an
-// export reads exactly the rows the grid would page through.
+// export reads exactly the rows the grid would page through — and only
+// the columns it shows, in the order it shows them.
 func pagerFor(drv db.Driver, d dataView) export.Pager {
-	return func(ctx context.Context, limit, offset int) (*db.ResultSet, error) {
+	return d.projection().Pager(func(ctx context.Context, limit, offset int) (*db.ResultSet, error) {
 		return drv.QueryPage(ctx, d.database, d.table, d.filter, d.sort, limit, offset)
-	}
+	})
 }
 
 // queryRunnerFor closes over the driver and a query result's own
@@ -500,9 +505,9 @@ func pagerFor(drv db.Driver, d dataView) export.Pager {
 // what it selects, so the statement runs once and streams straight
 // through Driver.QueryStream.
 func queryRunnerFor(drv db.Driver, d dataView) export.QueryRunner {
-	return func(ctx context.Context, onRow func(cols []db.Column, row []any) error) error {
+	return d.projection().QueryRunner(func(ctx context.Context, onRow func(cols []db.Column, row []any) error) error {
 		return drv.QueryStream(ctx, d.queryExec, d.queryArgs, onRow)
-	}
+	})
 }
 
 // ---------- dispatch ----------

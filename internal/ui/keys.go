@@ -197,6 +197,16 @@ type keyMap struct {
 	ViewCell    key.Binding
 	RowDetail   key.Binding
 
+	// Column layout of the grid (issue #222). PinColumn pins the cursor
+	// column to the left edge (and unpins it), HideColumn takes it out of
+	// the grid and of every copy/export scope, HiddenColumns lists the
+	// hidden ones in a menu that shows them again. All three are plain
+	// letters, so no layout needs AltGr for them — see
+	// wiki/reference/keyboard-layout-portability.md.
+	PinColumn     key.Binding
+	HideColumn    key.Binding
+	HiddenColumns key.Binding
+
 	// The inline WHERE line `/` opens on the grid. Like the editor's
 	// LeaveInsert these are bindings of their own rather than second
 	// meanings of Enter and Back, so `?` can name what the keys do while
@@ -510,6 +520,11 @@ func newKeyMap() keyMap {
 		ClearFilter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "clear filter")),
 		ViewCell:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view cell")),
 		RowDetail:   key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "row detail")),
+
+		PinColumn:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pin/unpin column")),
+		HideColumn: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "hide column")),
+		HiddenColumns: key.NewBinding(
+			key.WithKeys("Z"), key.WithHelp("Z", "show hidden columns…")),
 
 		// ctrl+enter/cmd+enter alias enter here through acceptKeys, like
 		// everywhere else a line is submitted.
@@ -877,6 +892,9 @@ const (
 	actClearFilter
 	actViewCell
 	actRowDetail
+	actPinColumn
+	actHideColumn
+	actHiddenColumns
 	actFollowFK
 	actIncomingRefs
 	actBrowseBack
@@ -1020,6 +1038,11 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actExportTable, k.ExportTable},
 			{actCancelExport, k.CancelExport},
 			{actRefresh, k.Refresh},
+			// Column layout (issue #222) comes last: it shapes the view
+			// rather than acting on the data.
+			{actPinColumn, k.PinColumn},
+			{actHideColumn, k.HideColumn},
+			{actHiddenColumns, k.HiddenColumns},
 		}
 	}
 	return nil
@@ -1192,6 +1215,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"prev-page", &k.PrevPage}, {"sort-column", &k.SortColumn}, {"where-filter", &k.WhereFilter},
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
+		{"pin-column", &k.PinColumn}, {"hide-column", &k.HideColumn},
+		{"hidden-columns", &k.HiddenColumns},
 		{"apply-filter", &k.ApplyFilter}, {"cancel-filter", &k.CancelFilter},
 		{"filter-hist-prev", &k.FilterHistPrev}, {"filter-hist-next", &k.FilterHistNext},
 		{"select-rows", &k.SelectRows}, {"select-columns", &k.SelectColumns}, {"copy-selection", &k.CopySelection},

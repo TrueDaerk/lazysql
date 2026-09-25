@@ -2020,3 +2020,12 @@ Chronological history of wiki changes, newest last.
   the strip's rows everywhere at once), `@`/`L` still opens the expanded
   modal, and the choice persists in `config.State.LogCollapsed` next to
   `ScreenMode`.
+
+## 2026-09-25 — Pin and hide columns in the data grid (issue #222)
+
+- Added [design/grid-pinned-hidden-columns](design/grid-pinned-hidden-columns.md):
+  `p`/`z`/`Z` over `dataView.pinned`/`hidden` (column names), a display
+  order separate from the data-index cursor, `gridSpan` replacing the
+  contiguous `cols[cs:ce]` the renderers took, the `┃` pin edge, the
+  `columns X–Y of N · k pinned · k hidden` hint, selection spans in display
+  positions, and `export.Projection` for the streamed copy/export scopes.

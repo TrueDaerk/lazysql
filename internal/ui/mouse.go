@@ -569,8 +569,10 @@ func (m *Model) clickGrid(row, col int) {
 		return
 	}
 	m.data.row = r
-	if c, ok := gridColumnAt(g.cols[g.cs:g.ce], col); ok {
-		m.data.col = g.cs + c
+	// The pinned columns are drawn first, so a click is mapped through
+	// the same left-to-right run the frame drew.
+	if c, ok := gridColumnAt(g.shownCols(), col); ok {
+		m.data.col = g.shown()[c]
 	}
 	m.clampCursor()
 }

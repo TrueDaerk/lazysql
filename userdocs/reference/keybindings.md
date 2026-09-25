@@ -263,6 +263,9 @@ Live while the main view has the focus.
 | `ctrl+f` · `pgdn` | Next page | `next-page` |
 | `ctrl+b` · `pgup` | Previous page | `prev-page` |
 | `s` | Sort the cursor column | `sort-column` |
+| `p` | Pin / unpin the cursor column at the left edge | `pin-column` |
+| `z` | Hide the cursor column | `hide-column` |
+| `Z` | Show hidden columns… | `hidden-columns` |
 | `ctrl+v` · `V` | Select rows | `select-rows` |
 | `C` | Select columns (`h`/`l` extend) | `select-columns` |
 | `shift+↑` · `K` | Extend the selection up | `shift-up` |

@@ -282,14 +282,14 @@ func editorAt(t *testing.T, script string) Model {
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("panel [3] gained focus in insert mode, want normal")
 	}
 	return send(t, m, press('g'), press('g'))
 }
 
 func editorCursor(m Model) (int, int) {
-	return m.editor.area.Line(), m.editor.area.Column()
+	return m.query.editor.area.Line(), m.query.editor.area.Column()
 }
 
 func TestNormalModeTypingNeverInsertsText(t *testing.T) {
@@ -304,7 +304,7 @@ func TestNormalModeTypingNeverInsertsText(t *testing.T) {
 	if m.script() != "SELECT 1" {
 		t.Fatalf("normal-mode keys changed the buffer to %q", m.script())
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("normal-mode keys entered insert mode")
 	}
 }
@@ -312,19 +312,19 @@ func TestNormalModeTypingNeverInsertsText(t *testing.T) {
 func TestInsertRoundTripAndBackingOut(t *testing.T) {
 	m := editorAt(t, "")
 	m = send(t, m, press('i'))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("i did not enter insert mode")
 	}
 	m = send(t, m, press('S'), press('E'), press('L'))
 	// Typing SEL opens the completion popup, whose own esc closes it
 	// first; the next esc is the one that ends insert mode.
-	if m = send(t, m, special(tea.KeyEscape, 0)); m.completion.open {
+	if m = send(t, m, special(tea.KeyEscape, 0)); m.query.completion.open {
 		t.Fatal("esc did not close the completion popup")
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		m = send(t, m, special(tea.KeyEscape, 0))
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("esc did not leave insert mode")
 	}
 	if m.script() != "SEL" {
@@ -401,7 +401,7 @@ func TestPendingChordDoesNotSurviveLeavingThePanel(t *testing.T) {
 func TestAppendAndOpenEnterInsertWithPlacement(t *testing.T) {
 	m := editorAt(t, "ab")
 	m = send(t, m, press('a'))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("a did not enter insert mode")
 	}
 	m = send(t, m, press('X'))
@@ -423,7 +423,7 @@ func TestAppendAndOpenEnterInsertWithPlacement(t *testing.T) {
 func TestInsertStartAndAppendEOLPlacement(t *testing.T) {
 	m := editorAt(t, "  SELECT 1")
 	m = send(t, m, press('$'), press('I'))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("I did not enter insert mode")
 	}
 	m = send(t, m, press('X'))
@@ -433,7 +433,7 @@ func TestInsertStartAndAppendEOLPlacement(t *testing.T) {
 
 	m = editorAt(t, "ab")
 	m = send(t, m, press('A'))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("A did not enter insert mode")
 	}
 	m = send(t, m, press('X'))

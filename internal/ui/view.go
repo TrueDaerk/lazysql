@@ -257,7 +257,7 @@ func (m Model) commandLogHeight(h int) int {
 // log under it, which is what makes a popup anchored on the last row of
 // the grid readable at all.
 func (m Model) completionLayer() (box string, x, y int, ok bool) {
-	if !m.completion.open || m.modal != nil {
+	if !m.query.completion.open || m.modal != nil {
 		return "", 0, 0, false
 	}
 	mx, my, mw, mh, ok := m.mainColumnRect()
@@ -265,7 +265,7 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 		return "", 0, 0, false
 	}
 	var ax, ay int
-	switch m.completion.site {
+	switch m.query.completion.site {
 	case siteEditor:
 		ax, ay, ok = m.editorAnchor(mx, my, mw, mh)
 	case siteFilter:
@@ -291,7 +291,7 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 	// both sizes the box to the room above it and makes placePopup flip
 	// it up there.
 	limit := mh
-	if m.completion.site == siteFilter {
+	if m.query.completion.site == siteFilter {
 		limit = ay - my + 1
 	}
 	box = m.completionPopup(mw, limit)
@@ -306,7 +306,7 @@ func (m Model) completionLayer() (box string, x, y int, ok bool) {
 // main column at mx,my,mw,mh: the box's border — whose top line carries
 // the title — then the editor block, which is the first content row.
 func (m Model) editorAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
-	if m.focus != panelQuery || !m.editor.editing {
+	if m.focus != panelQuery || !m.query.editor.editing {
 		return 0, 0, false
 	}
 	cw, rows := maxInt(mw-2, 1), maxInt(mh-m.commandLogHeight(mh)-2, 1)
@@ -702,9 +702,9 @@ func (m Model) renderOptionsBar() string {
 	// Insert mode leaves almost nothing bound, so the bar shows the keys
 	// that still act instead of a list the buffer would swallow — and an
 	// open popup narrows that further to the four keys it claims.
-	if m.focus == panelQuery && m.editor.editing {
+	if m.focus == panelQuery && m.query.editor.editing {
 		bindings = m.keys.editorInsert()
-		if m.completion.open {
+		if m.query.completion.open {
 			bindings = m.keys.completionKeys()
 		}
 	}
@@ -714,7 +714,7 @@ func (m Model) renderOptionsBar() string {
 	// something else there.
 	if m.filterInputOpen() {
 		bindings = m.keys.filterInput()
-		if m.completion.open {
+		if m.query.completion.open {
 			bindings = m.keys.completionKeys()
 		}
 	}
@@ -769,7 +769,7 @@ func (m Model) renderOptionsBar() string {
 	}
 	left := renderShortHelpPinned(h, bindings, m.keys.Help)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
-	if m.run.running {
+	if m.query.run.running {
 		right = m.runningIndicator() + " · " + right
 	}
 

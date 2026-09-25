@@ -446,14 +446,14 @@ func TestWheelScrollsQueryEditor(t *testing.T) {
 		script += fmt.Sprintf("SELECT %d;\n", i)
 	}
 	m.setScript(script)
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	m, _ = raw(m, wheelDown(60, 5)) // over the editor in the main view
-	if got := m.editor.area.Line(); got != wheelStep {
+	if got := m.query.editor.area.Line(); got != wheelStep {
 		t.Fatalf("caret line = %d, want %d", got, wheelStep)
 	}
 	m, _ = raw(m, wheelUp(60, 5))
 	m, _ = raw(m, wheelFlushMsg{gen: m.wheel.gen})
-	if got := m.editor.area.Line(); got != 0 {
+	if got := m.query.editor.area.Line(); got != 0 {
 		t.Fatalf("caret line = %d, want the top back", got)
 	}
 }

@@ -750,7 +750,7 @@ func (m *Model) afterSchemaCommit(changes []db.SchemaChange) tea.Cmd {
 	m.grid.refsCache = map[fkKey][]namespaceFK{}
 	// A nil column map is what makes syncSchema rebuild the completion
 	// cache under a new generation on its next use.
-	m.schema.cols = nil
+	m.query.schema.cols = nil
 	for database := range namespaces {
 		cmds = append(cmds, m.reloadRelationsOf(database))
 	}

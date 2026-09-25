@@ -17,7 +17,7 @@ func TestPasteIntoTheEditorInsertsVerbatim(t *testing.T) {
 	m := sized(120, 40)
 	m.setScript("SELECT *")
 	m = send(t, m, press(':'))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("`:` did not enter insert mode")
 	}
 	m = send(t, m, paste("\nFROM users\nWHERE id = 1"))
@@ -26,7 +26,7 @@ func TestPasteIntoTheEditorInsertsVerbatim(t *testing.T) {
 	if got := m.script(); got != want {
 		t.Fatalf("buffer = %q, want %q", got, want)
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("a paste left insert mode")
 	}
 }
@@ -39,7 +39,7 @@ func TestPasteIntoNormalModeIsTextNotVimCommands(t *testing.T) {
 	m := sized(120, 40)
 	m.setScript("")
 	m = send(t, m, press(':'), special(tea.KeyEscape, 0))
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("esc did not leave insert mode")
 	}
 
@@ -52,11 +52,11 @@ func TestPasteIntoNormalModeIsTextNotVimCommands(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("paste opened %T — its characters were run as commands", m.modal)
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("a paste switched the editor into insert mode")
 	}
-	if m.editor.register.text != "" {
-		t.Fatalf("vim register = %q, want a paste to leave it alone", m.editor.register.text)
+	if m.query.editor.register.text != "" {
+		t.Fatalf("vim register = %q, want a paste to leave it alone", m.query.editor.register.text)
 	}
 }
 
@@ -74,7 +74,7 @@ func TestPasteInNormalModeLandsAtTheCursor(t *testing.T) {
 	if got := m.script(); got != want {
 		t.Fatalf("buffer = %q, want %q", got, want)
 	}
-	if col := m.editor.area.Column(); col < 0 {
+	if col := m.query.editor.area.Column(); col < 0 {
 		t.Fatalf("cursor column = %d", col)
 	}
 }
@@ -171,7 +171,7 @@ func TestPasteInInsertModeDoesNotLeaveAStaleCompletion(t *testing.T) {
 	m := sized(120, 40)
 	m.setScript("")
 	m = send(t, m, press(':'), paste("SELECT 1;\n"))
-	if m.completion.open && !strings.HasSuffix(m.script(), "\n") {
+	if m.query.completion.open && !strings.HasSuffix(m.script(), "\n") {
 		t.Fatal("completion popup left open on a buffer ending in a newline")
 	}
 }

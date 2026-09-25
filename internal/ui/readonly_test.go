@@ -136,7 +136,7 @@ func TestReadOnlyEditorRejectsWrites(t *testing.T) {
 			before := rowsInGrid(t, m)
 			m = runQuery(t, m, script)
 
-			if m.run.running {
+			if m.query.run.running {
 				t.Fatal("a rejected script started a run")
 			}
 			if !logContains(m, "REJECTED") || !logContains(m, "connection is read-only") {

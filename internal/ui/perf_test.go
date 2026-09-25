@@ -36,7 +36,7 @@ func benchQueryModel(b *testing.B, lines int) Model {
 	m.setScript(sb.String())
 	m.setFocus(panelQuery)
 	m.setEditing(false)
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	return m
 }
 

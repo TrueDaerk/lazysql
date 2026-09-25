@@ -51,18 +51,18 @@ func TestFilterCompletionOffersTheOpenRelationsColumns(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "ca")
 
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing two characters in the clause opened no popup")
 	}
-	if !hasCompletion(m.completion, "carrier") {
-		t.Fatalf("suggestions = %v, want the open relation's column", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "carrier") {
+		t.Fatalf("suggestions = %v, want the open relation's column", completionTexts(m.query.completion))
 	}
 	// Schema before keywords: `CASE` and `CAST` match `ca` too, and the
 	// column is the one the user cannot look up in their head.
-	if got := m.completion.items[0]; got.text != "carrier" || got.kind != completeColumn {
+	if got := m.query.completion.items[0]; got.text != "carrier" || got.kind != completeColumn {
 		t.Fatalf("first suggestion = %+v, want the column", got)
 	}
-	if got := m.completion.items[0].detail; got != "shipments" {
+	if got := m.query.completion.items[0].detail; got != "shipments" {
 		t.Fatalf("column detail = %q, want the relation it belongs to", got)
 	}
 }
@@ -95,16 +95,16 @@ func TestFilterCompletionContextSpansThePrefix(t *testing.T) {
 func TestFilterCompletionOffersKeywordsAndOpensOnNothing(t *testing.T) {
 	m := filterCompleting(t)
 	m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("ctrl+space opened no popup on an empty clause")
 	}
-	if !hasCompletion(m.completion, "carrier") {
-		t.Fatalf("suggestions = %v, want the relation's columns", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "carrier") {
+		t.Fatalf("suggestions = %v, want the relation's columns", completionTexts(m.query.completion))
 	}
 
 	m = typeKeys(t, m, "carrier li")
-	if !hasCompletion(m.completion, "LIKE") {
-		t.Fatalf("suggestions = %v, want the operator keyword", completionTexts(m.completion))
+	if !hasCompletion(m.query.completion, "LIKE") {
+		t.Fatalf("suggestions = %v, want the operator keyword", completionTexts(m.query.completion))
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
 	if got := m.grid.filterInput.value(); got != "carrier LIKE" {
@@ -120,16 +120,16 @@ func TestFilterCompletionOffersKeywordsAndOpensOnNothing(t *testing.T) {
 func TestFilterCompletionQuotesAnAcceptedIdentifier(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "or")
-	if !hasCompletion(m.completion, "order date") {
+	if !hasCompletion(m.query.completion, "order date") {
 		t.Fatalf("suggestions = %v, want the column that needs quoting",
-			completionTexts(m.completion))
+			completionTexts(m.query.completion))
 	}
 	m = send(t, m, special(tea.KeyTab, 0))
 
 	if got := m.grid.filterInput.input.Value(); got != `"order date"` {
 		t.Fatalf("clause = %q, want the identifier quoted for the dialect", got)
 	}
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("accepting left the popup open")
 	}
 	if !m.filterInputOpen() {
@@ -166,12 +166,12 @@ func TestFilterCompletionReplacesTheWordUnderTheCaret(t *testing.T) {
 func TestFilterEscClosesThePopupThenTheLine(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "ca")
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing opened no popup")
 	}
 
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.completion.open {
+	if m.query.completion.open {
 		t.Fatal("the first esc did not close the popup")
 	}
 	if !m.filterInputOpen() {
@@ -201,8 +201,8 @@ func TestFilterPopupTakesTheArrowsFromTheHistory(t *testing.T) {
 	if got := m.grid.filterInput.value(); got != "ca" {
 		t.Fatalf("clause = %q, want ↓ to have moved the selection, not recalled", got)
 	}
-	if m.completion.cursor != 1 {
-		t.Fatalf("popup cursor = %d, want ↓ to have moved it", m.completion.cursor)
+	if m.query.completion.cursor != 1 {
+		t.Fatalf("popup cursor = %d, want ↓ to have moved it", m.query.completion.cursor)
 	}
 
 	m = send(t, m, special(tea.KeyEscape, 0))
@@ -218,7 +218,7 @@ func TestFilterPopupTakesTheArrowsFromTheHistory(t *testing.T) {
 func TestFilterEnterAppliesUnlessARowWasPicked(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "carrier = 'dhl' AND id")
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("the last word opened no popup — the test asserts nothing")
 	}
 	m = send(t, m, special(tea.KeyEnter, 0))
@@ -289,7 +289,7 @@ func TestFilterCompletionPopupFitsASmallTerminal(t *testing.T) {
 	} {
 		m = send(t, m, size)
 		m = send(t, m, tea.KeyPressMsg{Code: ' ', Mod: tea.ModCtrl})
-		if !m.completion.open {
+		if !m.query.completion.open {
 			t.Fatalf("%dx%d: ctrl+space opened no popup", size.Width, size.Height)
 		}
 		_ = m.View()
@@ -313,7 +313,7 @@ func TestFilterCompletionPopupFitsASmallTerminal(t *testing.T) {
 func TestFilterAndEditorPopupsDoNotShareASite(t *testing.T) {
 	m := filterCompleting(t)
 	m = typeKeys(t, m, "ca")
-	if got := m.completion.site; got != siteFilter {
+	if got := m.query.completion.site; got != siteFilter {
 		t.Fatalf("site = %v, want the filter line's", got)
 	}
 
@@ -321,19 +321,19 @@ func TestFilterAndEditorPopupsDoNotShareASite(t *testing.T) {
 	// that does it cannot be pressed here — while the line is open a `3`
 	// types into the clause — so this is the focus change itself.)
 	m.setFocus(panelQuery)
-	if m.completion.open || m.grid.filterInput != nil {
+	if m.query.completion.open || m.grid.filterInput != nil {
 		t.Fatal("the popup outlived the line it was floating over")
 	}
 
 	m = send(t, m, press(':'))
 	m = typeKeys(t, m, "SEL")
-	if !m.completion.open || m.completion.site != siteEditor {
-		t.Fatalf("the editor's popup did not open (site = %v)", m.completion.site)
+	if !m.query.completion.open || m.query.completion.site != siteEditor {
+		t.Fatalf("the editor's popup did not open (site = %v)", m.query.completion.site)
 	}
 	// closeFilterInput runs on paths the editor takes too — it must not
 	// clear a popup that is not the filter line's.
 	m.closeFilterInput()
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("closing the (absent) filter line cleared the editor's popup")
 	}
 }

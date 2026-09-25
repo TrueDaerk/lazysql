@@ -274,8 +274,8 @@ func (m *Model) closeFilterInput() {
 	// A popup floating over the line goes with it. Only that one: the
 	// editor's popup is not this function's business, and closing the
 	// filter line is on the path a query run takes.
-	if m.completion.site == siteFilter {
-		m.completion = completion{}
+	if m.query.completion.site == siteFilter {
+		m.query.completion = completion{}
 	}
 }
 
@@ -301,7 +301,7 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// filter history, which is reachable again the moment the popup is
 	// gone (ctrl+p/ctrl+n included — they are the same keys twice over,
 	// and a popup on screen is what decides which meaning is live).
-	if m.completion.open {
+	if m.query.completion.open {
 		switch {
 		case key.Matches(msg, k.CloseCompletion):
 			m.closeCompletion()
@@ -320,7 +320,7 @@ func (m Model) updateFilterInput(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// would make running a filter a two-key gesture for no
 			// reason. Having moved in the list is the difference between
 			// "take this suggestion" and "I am done typing".
-			if msg.String() == "tab" || m.completion.picked {
+			if msg.String() == "tab" || m.query.completion.picked {
 				m.acceptCompletion()
 				return m, nil
 			}

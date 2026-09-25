@@ -95,13 +95,15 @@ unexported API the rest of the shell reaches into (`view.go`, `mouse.go`,
 | Field on `Model` | Type | Holds | File |
 | --- | --- | --- | --- |
 | `grid` | `gridModel` | the Data tab page, its in-flight page/count queries, the inline `/` filter line and filter history, the staged changeset, the FK caches, jump history and the action waiting on an FK fetch | `grid.go` |
+| `query` | `queryModel` | panel [3]: the editor buffer and mode, the running script, query history, snippets, the session-scoped parameter memory, the completion popup with its schema cache, and the highlight cache | `querymodel.go` |
 
 What moves onto a sub-model is only the state and the helpers that touch
 nothing but that state (`gridModel.pushBrowse`/`popBrowse`/`clearBrowse`,
-`cacheFKs`, the page-query cancel handle). Anything that also reads root
+`cacheFKs`, the page-query cancel handle; `queryModel.pushHistory`/
+`dropHistory`, `putSnippet`/`removeSnippet`). Anything that also reads root
 state — the open relation, the selected tab, the driver — stays a `Model`
 method and reaches in as `m.grid.…`. The pay-off is that the sub-model can
-be unit-tested without a shell (`grid_test.go`), and that a new feature widens
+be unit-tested without a shell (`grid_test.go`, `querymodel_test.go`), and that a new feature widens
 one struct instead of the root.
 
 See also [keybindings single source](keybindings-single-source.md) and

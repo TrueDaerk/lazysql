@@ -77,14 +77,14 @@ func TestEditorLeavesIdentifiersUnstyled(t *testing.T) {
 
 func TestEditorCursorSitsOnTheCharacterUnderIt(t *testing.T) {
 	m := focusedEditor(t, "SELECT 1")
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	out := m.editorBlock(60, 3)
 	if want := m.style.editorCursor.Render("S"); !strings.Contains(out, want) {
 		t.Fatalf("the cursor is not on the first character:\n%q", out)
 	}
 
 	// Two columns in, it is on the L — and nowhere else.
-	m.editor.area.SetCursorColumn(2)
+	m.query.editor.area.SetCursorColumn(2)
 	out = m.editorBlock(60, 3)
 	if want := m.style.editorCursor.Render("L"); !strings.Contains(out, want) {
 		t.Fatalf("the cursor is not on column 2:\n%q", out)
@@ -95,7 +95,7 @@ func TestEditorCursorSitsOnTheCharacterUnderIt(t *testing.T) {
 
 	// At the end of the buffer it becomes a trailing cell rather than
 	// disappearing.
-	m.editor.area.MoveToEnd()
+	m.query.editor.area.MoveToEnd()
 	out = m.editorBlock(60, 3)
 	if want := m.style.editorCursor.Render(" "); !strings.Contains(out, want) {
 		t.Fatalf("no cursor at the end of the buffer:\n%q", out)
@@ -106,7 +106,7 @@ func TestEditorCursorSitsOnTheCharacterUnderIt(t *testing.T) {
 // second column.
 func TestEditorCursorOnALaterLine(t *testing.T) {
 	m := focusedEditor(t, "SELECT 1\nFROM t")
-	m.editor.area.MoveToEnd()
+	m.query.editor.area.MoveToEnd()
 	rows := blockRows(m.editorBlock(60, 4))
 	if !strings.Contains(rows[1], m.style.editorCursor.Render(" ")) {
 		t.Fatalf("the cursor is not on row 2:\n%q", rows)
@@ -134,7 +134,7 @@ func TestEditorWrapsLinesWiderThanThePanel(t *testing.T) {
 	const w = 24
 	long := "SELECT " + strings.Repeat("a", 60) + " FROM t"
 	m := focusedEditor(t, long)
-	m.editor.area.MoveToEnd()
+	m.query.editor.area.MoveToEnd()
 
 	rows := blockRows(m.editorBlock(w, 10))
 	filled := 0
@@ -180,13 +180,13 @@ func TestEditorScrollsToKeepTheCursorVisible(t *testing.T) {
 		b.WriteString("SELECT " + strings.Repeat("x", i%5) + "\n")
 	}
 	m := focusedEditor(t, b.String())
-	m.editor.area.MoveToEnd()
+	m.query.editor.area.MoveToEnd()
 	out := m.editorBlock(40, 5)
 	if !strings.Contains(out, m.style.editorCursor.Render(" ")) {
 		t.Fatalf("the cursor scrolled out of view:\n%q", out)
 	}
 	// Back at the top, the window is back at line 1.
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	out = m.editorBlock(40, 5)
 	if !strings.Contains(blockRows(out)[0], " 1 ") {
 		t.Fatalf("the window did not scroll back to the first line:\n%q", out)
@@ -366,15 +366,15 @@ func TestEditorCaretSitsOnTheCharacterUnderTheCursor(t *testing.T) {
 			for row := range lines {
 				cells := lineCells(lines[row].runes)
 				for col := 0; col <= len(lines[row].runes); col++ {
-					m.editor.area.MoveToBegin()
+					m.query.editor.area.MoveToBegin()
 					for i := 0; i < row; i++ {
-						m.editor.area.CursorDown()
+						m.query.editor.area.CursorDown()
 					}
-					m.editor.area.SetCursorColumn(col)
+					m.query.editor.area.SetCursorColumn(col)
 					// Every render is asked of a fresh cache: the memo is
 					// keyed on the caret, and reusing one would test the
 					// key rather than the rendering.
-					m.hl = &editorCache{}
+					m.query.hl = &editorCache{}
 					block := m.editorBlock(w, 40)
 
 					got, _, x, ok := caretText(block)
@@ -415,8 +415,8 @@ func TestEditorCaretIgnoresHighlightingEscapes(t *testing.T) {
 	m := focusedEditor(t, "SELECT 'lit' FROM t -- note")
 	runes := []rune(m.script())
 	for col := range runes {
-		m.editor.area.SetCursorColumn(col)
-		m.hl = &editorCache{}
+		m.query.editor.area.SetCursorColumn(col)
+		m.query.hl = &editorCache{}
 		got, _, x, ok := caretText(m.editorBlock(60, 4))
 		if !ok {
 			t.Fatalf("column %d: no caret", col)
@@ -436,12 +436,12 @@ func TestEditorCaretIgnoresHighlightingEscapes(t *testing.T) {
 // character under it either way.
 func TestEditorCaretAfterATab(t *testing.T) {
 	m := focusedEditor(t, "")
-	m.editor.area.InsertString("SELECT\tid")
+	m.query.editor.area.InsertString("SELECT\tid")
 	if strings.Contains(m.script(), "\t") {
 		t.Fatalf("the textarea kept a raw tab in the buffer: %q", m.script())
 	}
 	runes := []rune(m.script())
-	m.editor.area.SetCursorColumn(len(runes) - 1)
+	m.query.editor.area.SetCursorColumn(len(runes) - 1)
 	got, _, x, ok := caretText(m.editorBlock(60, 4))
 	if !ok {
 		t.Fatal("no caret after a tab")

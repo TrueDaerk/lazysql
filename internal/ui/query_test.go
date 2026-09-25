@@ -33,7 +33,7 @@ func queryable(t *testing.T) Model {
 	}
 	// Start from an empty history so the assertions below count only
 	// what the test itself ran.
-	m.history = nil
+	m.query.history = nil
 	m.commandLog = nil
 	return m
 }
@@ -42,9 +42,9 @@ func queryable(t *testing.T) Model {
 func runQuery(t *testing.T, m Model, script string) Model {
 	t.Helper()
 	m = send(t, m, press(':'))
-	if m.focus != panelQuery || !m.editor.editing {
+	if m.focus != panelQuery || !m.query.editor.editing {
 		t.Fatalf("`:` left focus on %v (editing=%v), want insert mode in panel [3]",
-			m.focus, m.editor.editing)
+			m.focus, m.query.editor.editing)
 	}
 	m.setScript(script)
 	return send(t, m, tea.KeyPressMsg{Code: 'r', Mod: tea.ModCtrl})
@@ -60,7 +60,7 @@ func TestColonFocusesTheEditorPanelWithTheBuffer(t *testing.T) {
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want the query panel", m.focus)
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("`:` did not start insert mode")
 	}
 	if m.script() != "SELECT 1" {
@@ -76,7 +76,7 @@ func TestDigitThreeFocusesTheEditorPanel(t *testing.T) {
 	}
 	// `3` jumps to the panel, it does not start typing: the panel's own
 	// keys have to stay reachable.
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("`3` started insert mode")
 	}
 	if out := m.View().Content; !strings.Contains(out, "[3] Query") {
@@ -93,15 +93,15 @@ func TestEscLeavesInsertModeAndKeepsTheBuffer(t *testing.T) {
 	}
 	// Typing opened the completion popup, and the first esc is its: it
 	// closes the popup and leaves insert mode alone.
-	if !m.completion.open {
+	if !m.query.completion.open {
 		t.Fatal("typing SEL did not open the completion popup")
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("esc left insert mode instead of only closing the popup")
 	}
 	m = send(t, m, special(tea.KeyEscape, 0))
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("esc did not leave insert mode")
 	}
 	if m.focus != panelQuery {
@@ -146,7 +146,7 @@ func TestRunKeepsTheEditorOpenWithItsContent(t *testing.T) {
 		t.Fatalf("focus = %v, want to stay in the editor", m.focus)
 	}
 	// The run ends insert mode so the result is navigable straight away.
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("ctrl+r stayed in insert mode")
 	}
 	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
@@ -218,12 +218,12 @@ func TestEnterRunsTheStatementUnderTheCursor(t *testing.T) {
 	m := queryable(t)
 	m.setScript("SELECT id FROM q ORDER BY id;\nSELECT name FROM q")
 	m = send(t, m, press('3'))
-	if m.focus != panelQuery || m.editor.editing {
+	if m.focus != panelQuery || m.query.editor.editing {
 		t.Fatalf("focus = %v (editing=%v), want panel [3] in normal mode",
-			m.focus, m.editor.editing)
+			m.focus, m.query.editor.editing)
 	}
 	m = send(t, m, press('g'), press('g'), special(tea.KeyEnter, 0))
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("enter in normal mode entered insert mode")
 	}
 	if len(m.grid.data.cols) != 1 || m.grid.data.cols[0].Name != "id" {
@@ -361,7 +361,7 @@ func TestCancelledUnguardedDMLDoesNotRun(t *testing.T) {
 	if m.modal != nil {
 		t.Fatalf("esc left %T open", m.modal)
 	}
-	if m.run.running || logContains(m, "rows affected") {
+	if m.query.run.running || logContains(m, "rows affected") {
 		t.Fatalf("the declined statement ran anyway: %v", m.commandLog)
 	}
 }
@@ -404,8 +404,8 @@ func TestMultipleStatementsRunInOrderAndAllAreLogged(t *testing.T) {
 	if m.grid.data.notice != "" {
 		t.Fatalf("notice = %q, want the SELECT result to win", m.grid.data.notice)
 	}
-	if len(m.history) != 3 {
-		t.Fatalf("history has %d entries, want one per statement: %v", len(m.history), m.history)
+	if len(m.query.history) != 3 {
+		t.Fatalf("history has %d entries, want one per statement: %v", len(m.query.history), m.query.history)
 	}
 }
 
@@ -418,7 +418,7 @@ func TestFailingStatementStopsTheScript(t *testing.T) {
 	if !logContains(m, "FAILED") {
 		t.Fatalf("the failure was not reported: %v", m.commandLog)
 	}
-	if m.run.running {
+	if m.query.run.running {
 		t.Fatal("the run is still marked as in flight")
 	}
 }
@@ -430,8 +430,8 @@ func TestCancelKeyIsOnlyBoundWhileAQueryRuns(t *testing.T) {
 	}
 	// Enter the running state without a worker, then cancel it the way
 	// the key handler does.
-	m.run.running = true
-	m.run.cancel = func() {}
+	m.query.run.running = true
+	m.query.run.cancel = func() {}
 	m.keys.CancelQuery.SetEnabled(true)
 	handled, next, _ := m.updateGlobal(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !handled {
@@ -442,7 +442,7 @@ func TestCancelKeyIsOnlyBoundWhileAQueryRuns(t *testing.T) {
 	}
 	// finishQuery clears it again.
 	mm := next.(Model)
-	mm.finishQuery(queryDoneMsg{id: mm.run.id})
+	mm.finishQuery(queryDoneMsg{id: mm.query.run.id})
 	if mm.keys.CancelQuery.Enabled() {
 		t.Fatal("ctrl+c stayed bound to cancel after the run finished")
 	}
@@ -495,7 +495,7 @@ func TestQueryRunIsCancellable(t *testing.T) {
 	script := "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < 20000000) SELECT count(*) FROM n"
 	stmts := db.SplitStatements(m.driver.Engine(), script)
 	cmd := m.startQuery(stmts, nil, "")
-	if !m.run.running {
+	if !m.query.run.running {
 		t.Fatal("startQuery did not mark the run as in flight")
 	}
 	// Cancel before draining, so the worker sees a dead context.
@@ -508,7 +508,7 @@ func TestQueryRunIsCancellable(t *testing.T) {
 			m = next.(Model)
 		}
 	}
-	if m.run.running {
+	if m.query.run.running {
 		t.Fatal("the cancelled run is still in flight")
 	}
 	if m.driver == nil {
@@ -568,10 +568,10 @@ func TestQueryResultHasNoTableActions(t *testing.T) {
 
 func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id FROM q")
-	if len(m.history) != 1 {
-		t.Fatalf("history = %#v, want the statement", m.history)
+	if len(m.query.history) != 1 {
+		t.Fatalf("history = %#v, want the statement", m.query.history)
 	}
-	e := m.history[0]
+	e := m.query.history[0]
 	if e.SQL != "SELECT id FROM q" {
 		t.Fatalf("stored %q, want the statement without its terminator", e.SQL)
 	}
@@ -583,8 +583,8 @@ func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	}
 	// Re-running the newest entry does not duplicate it.
 	m = runQuery(t, m, "SELECT id FROM q")
-	if len(m.history) != 1 {
-		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.history)
+	if len(m.query.history) != 1 {
+		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.query.history)
 	}
 }
 
@@ -649,8 +649,8 @@ func TestPlaceholdersPromptAndBind(t *testing.T) {
 	if m.grid.data.query != "SELECT * FROM q WHERE id = ? AND name = :n" {
 		t.Fatalf("data.query = %q, want the original statement", m.grid.data.query)
 	}
-	if len(m.history) == 0 || m.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
-		t.Fatalf("history = %#v, want the original statement recorded", m.history)
+	if len(m.query.history) == 0 || m.query.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("history = %#v, want the original statement recorded", m.query.history)
 	}
 }
 
@@ -817,8 +817,8 @@ func TestStatusLineShowsRunOutcome(t *testing.T) {
 // action that matters mid-flight.
 func TestStatusLineShowsRunningState(t *testing.T) {
 	m := queryable(t)
-	m.run.running = true
-	m.run.startedAt = time.Now()
+	m.query.run.running = true
+	m.query.run.startedAt = time.Now()
 	line := m.queryStatusLine(200)
 	if !strings.Contains(line, "running") || !strings.Contains(line, "cancel") {
 		t.Fatalf("status line = %q, want the running state and its cancel key", line)

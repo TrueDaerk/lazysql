@@ -18,7 +18,6 @@ import (
 	"lazysql/internal/dump"
 	"lazysql/internal/history"
 	"lazysql/internal/session"
-	"lazysql/internal/snippets"
 	"lazysql/internal/sshtunnel"
 )
 
@@ -261,32 +260,10 @@ type Model struct {
 	// `esc` dismisses it with the buffer untouched.
 	plan *planView
 
-	// history is the persistent query history behind panel [3], newest
-	// first. editor is panel [3] — the buffer and its mode, which outlive
-	// every focus change — and run is the script currently executing, if
-	// any.
-	history []history.Entry
-	editor  queryEditor
-	run     queryRun
-
-	// snippets are the named statements behind the pane's Snippets
-	// section, sorted by name. They are the deliberate half of the recall
-	// story the history is the automatic half of.
-	snippets []snippets.Snippet
-
-	// params remembers the values last bound to each statement's
-	// placeholders, so re-running a query or a snippet opens the prompt
-	// pre-filled. It is a pointer so every copied Model shares one store,
-	// the way changes shares one changeset, and it is deliberately
-	// session-scoped: parameter values are often exactly the data that
-	// must not survive on disk. See params.go.
-	params *paramMemory
-
-	// completion is the editor's autocomplete popup, and schema the
-	// column cache behind it. The cache keys itself on connection +
-	// database and drops itself when either changes.
-	completion completion
-	schema     schemaCache
+	// query is panel [3] — the editor and its mode, the running script,
+	// history, snippets, parameter memory, completion and the schema and
+	// highlight caches behind it. See querymodel.go.
+	query queryModel
 
 	// restoreSess is the on-disk session's target — connection, database,
 	// table, tab, cursor — while startup is still dialing and navigating
@@ -306,11 +283,6 @@ type Model struct {
 	// navigation keys alike — into one state change per frame, so fast
 	// input cannot queue up behind the renderer. See mouse.go.
 	wheel wheelState
-
-	// hl caches the query editor's tokenization and wrap geometry, so a
-	// pure cursor move re-styles only the visible rows instead of
-	// re-highlighting the whole buffer. See highlight.go.
-	hl *editorCache
 
 	// spin animates the running indicator in the options bar. It ticks
 	// only while a query runs — the message handler drops any tick that
@@ -351,10 +323,8 @@ func New(noRestore bool) (Model, error) {
 		style:     newStyles(),
 		connState: map[string]connState{},
 		grid:      newGridModel(cfg.PageSizeOrDefault()),
-		params:    newParamMemory(),
+		query:     newQueryModel(),
 		cfg:       cfg,
-		editor:    newQueryEditor(),
-		hl:        &editorCache{},
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
 	if cfgErr != nil {
@@ -518,8 +488,8 @@ func (m *Model) resetBrowse() {
 		m.backup.cancel()
 	}
 	// So does a running script.
-	if m.run.running && m.run.cancel != nil {
-		m.run.cancel()
+	if m.query.run.running && m.query.run.cancel != nil {
+		m.query.run.cancel()
 	}
 	// And so do the page and count queries of the grid: the driver they
 	// were issued on is about to close.
@@ -684,7 +654,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// nothing else; the session keeps recording into it.
 			return m, logCmd("-- read query history FAILED: %v", msg.err)
 		}
-		m.history = msg.entries
+		m.query.history = msg.entries
 		return m, nil
 
 	case historyWrittenMsg:
@@ -714,7 +684,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and nothing else; a save rewrites the file from scratch.
 			return m, logCmd("-- read query snippets FAILED: %v", msg.err)
 		}
-		m.snippets = msg.list
+		m.query.snippets = msg.list
 		return m, nil
 
 	case snippetsWrittenMsg:
@@ -724,16 +694,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case queryStmtMsg:
-		if msg.id != m.run.id || !m.run.running {
+		if msg.id != m.query.run.id || !m.query.run.running {
 			return m, nil
 		}
 		// Bind the command first: applyQueryStmt mutates m, and Go may
 		// otherwise copy the pre-call model into the return value.
 		cmd := m.applyQueryStmt(msg)
-		return m, tea.Batch(cmd, waitQueryCmd(m.run.ch))
+		return m, tea.Batch(cmd, waitQueryCmd(m.query.run.ch))
 
 	case queryDoneMsg:
-		if msg.id != m.run.id {
+		if msg.id != m.query.run.id {
 			return m, nil
 		}
 		cmd := m.finishQuery(msg)
@@ -742,7 +712,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		// A tick that outlives its run is dropped rather than chained:
 		// that is what stops the spinner without a separate "stop" message.
-		if !m.run.running {
+		if !m.query.run.running {
 			return m, nil
 		}
 		var cmd tea.Cmd
@@ -1289,7 +1259,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 3. The query editor in insert mode captures every key it does
 		// not reserve — ahead of the global keys, or `q` would quit in
 		// the middle of a statement.
-		if m.focus == panelQuery && m.editor.editing {
+		if m.focus == panelQuery && m.query.editor.editing {
 			return m.updateEditor(msg)
 		}
 		// 4. Global keys.
@@ -1750,7 +1720,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actHistory:
-		m.modal = newHistoryModal(history.ForConnection(m.history, m.active), m.snippets, m.sqlDialect(), m.keys)
+		m.modal = newHistoryModal(history.ForConnection(m.query.history, m.active), m.query.snippets, m.sqlDialect(), m.keys)
 
 	case actSaveSnippet:
 		cmd := m.promptSaveSnippet(m.script())
@@ -1915,7 +1885,7 @@ func (m *Model) setFocus(id panelID) {
 	// A half-typed dd/yy/gg does not survive leaving the editor: coming
 	// back and pressing `d` must not complete a chord started before the
 	// detour.
-	m.editor.pending = 0
+	m.query.editor.pending = 0
 	// Nor does a half-typed WHERE clause survive leaving the grid: the
 	// line only takes keys while the grid has them, so one left open
 	// elsewhere would be a caret nothing types into.

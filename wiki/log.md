@@ -2058,3 +2058,9 @@ Chronological history of wiki changes, newest last.
   off the root `Model` into a `gridModel` sub-model (`grid.go`), kept in
   `package ui` rather than a sub-package. Documents the rule for what
   belongs on a sub-model versus the root.
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 2): the query state — editor, running script, history,
+  snippets, parameter memory, completion, schema cache and highlight cache —
+  moved off the root `Model` into a `queryModel` sub-model
+  (`querymodel.go`); the history dedupe/cap and snippet put/remove
+  bookkeeping live on it.

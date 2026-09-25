@@ -318,7 +318,7 @@ type blockMemo struct {
 // just computes.
 func (m Model) editorLines() []hlLine {
 	d, src := m.sqlDialect(), m.script()
-	c := m.hl
+	c := m.query.hl
 	if c == nil {
 		return highlightLines(d, src)
 	}
@@ -335,7 +335,7 @@ func (m Model) editorLines() []hlLine {
 // segments and their total, cached alongside the tokenization.
 func (m Model) editorGeometry(width int) (lines []hlLine, segs [][][2]int, rows int) {
 	lines = m.editorLines()
-	c := m.hl
+	c := m.query.hl
 	if c != nil && c.segs != nil && c.width == width {
 		return lines, c.segs, c.rows
 	}
@@ -355,7 +355,7 @@ func (m Model) editorGeometry(width int) (lines []hlLine, segs [][][2]int, rows 
 // editorRows is how many display rows the buffer needs at width w. The
 // caller uses it to decide how much of the main view the editor gets.
 func (m Model) editorRows(w int) int {
-	_, contentW := editorGutterWidth(m.editor.area.LineCount(), w)
+	_, contentW := editorGutterWidth(m.query.editor.area.LineCount(), w)
 	_, _, rows := m.editorGeometry(contentW)
 	return maxInt(rows, 1)
 }
@@ -412,22 +412,22 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 	// Where the caret is, and how it should look. It is only drawn while
 	// the panel has the keyboard: a cursor on an unfocused panel reads as
 	// "typing here works", which it does not.
-	cursorRow, cursorCol := m.editor.area.Line(), m.editor.area.Column()
+	cursorRow, cursorCol := m.query.editor.area.Line(), m.query.editor.area.Column()
 	cursorStyle := s.editorCursor
 	showCursor := m.focus == panelQuery
-	if showCursor && !m.editor.editing {
+	if showCursor && !m.query.editor.editing {
 		cursorStyle = s.editorCursorIdle
 	}
 	if cursorRow < 0 || cursorRow >= len(lines) {
 		showCursor = false
 	}
-	idle := showCursor && !m.editor.editing
+	idle := showCursor && !m.query.editor.editing
 
 	// The memo: same buffer (editorLines validated it above), same box,
 	// same caret, same styling inputs — same block. This is what the
 	// accumulate-only messages of a coalesced burst hit, so a backlogged
 	// input event costs a struct compare here instead of a render.
-	if c := m.hl; c != nil && c.valid && c.blk.valid &&
+	if c := m.query.hl; c != nil && c.valid && c.blk.valid &&
 		c.blk.w == w && c.blk.h == h &&
 		c.blk.row == cursorRow && c.blk.col == cursorCol &&
 		c.blk.show == showCursor && c.blk.idle == idle {
@@ -533,7 +533,7 @@ func (m Model) renderEditor(w, h int) (block string, caretRow, caretCol int, car
 		caretOK = false
 	}
 	block = padRows(rows, h)
-	if c := m.hl; c != nil {
+	if c := m.query.hl; c != nil {
 		c.blk = blockMemo{
 			valid: true, w: w, h: h, row: cursorRow, col: cursorCol,
 			show: showCursor, idle: idle,

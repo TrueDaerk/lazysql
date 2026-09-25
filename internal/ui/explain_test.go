@@ -40,7 +40,7 @@ func TestExplainShowsAPlanAndKeepsTheBuffer(t *testing.T) {
 	if m.focus != panelQuery {
 		t.Fatalf("focus = %v, want to stay in the editor panel", m.focus)
 	}
-	if m.editor.editing {
+	if m.query.editor.editing {
 		t.Fatal("ctrl+e stayed in insert mode — the plan would swallow no keys")
 	}
 	// The plan replaces the editor in the main view; it names itself in
@@ -111,7 +111,7 @@ func TestInsertModeClosesThePlan(t *testing.T) {
 	if m.plan != nil {
 		t.Fatal("entering insert mode left the plan on screen")
 	}
-	if !m.editor.editing {
+	if !m.query.editor.editing {
 		t.Fatal("`i` did not start insert mode")
 	}
 }
@@ -134,7 +134,7 @@ func TestExplainPicksTheStatementUnderTheCursor(t *testing.T) {
 	// With the caret moved back into the first statement, that one is
 	// explained instead.
 	m.plan = nil
-	m.editor.area.MoveToBegin()
+	m.query.editor.area.MoveToBegin()
 	m = send(t, m, ctrlE())
 	if m.plan == nil {
 		t.Fatal("no plan for the first statement")

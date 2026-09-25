@@ -97,22 +97,22 @@ func loadSchemaColumnsCmd(drv db.Driver, req int, conn, database, table string) 
 // Invalidation lives here rather than in openDatabase and resetBrowse so
 // that a future third way of changing the namespace cannot forget it.
 func (m *Model) syncSchema() int {
-	if m.schema.conn == m.active && m.schema.database == m.database && m.schema.cols != nil {
-		return m.schema.req
+	if m.query.schema.conn == m.active && m.query.schema.database == m.database && m.query.schema.cols != nil {
+		return m.query.schema.req
 	}
-	m.schema = schemaCache{
+	m.query.schema = schemaCache{
 		conn:     m.active,
 		database: m.database,
 		cols:     map[string][]string{},
 		pending:  map[string]bool{},
 		failed:   map[string]bool{},
-		req:      m.schema.req + 1,
+		req:      m.query.schema.req + 1,
 	}
-	return m.schema.req
+	return m.query.schema.req
 }
 
 // schemaColumns returns a relation's cached column names, if any.
-func (m Model) schemaColumns(table string) []string { return m.schema.cols[table] }
+func (m Model) schemaColumns(table string) []string { return m.query.schema.cols[table] }
 
 // ensureSchemaColumns starts a fetch for every named relation whose
 // columns are not cached, not already in flight and not known to fail. It
@@ -128,15 +128,15 @@ func (m *Model) ensureSchemaColumns(tables []string) (tea.Cmd, bool) {
 		if len(cmds) >= maxSchemaFetch {
 			break
 		}
-		if _, ok := m.schema.cols[t]; ok || m.schema.pending[t] || m.schema.failed[t] {
+		if _, ok := m.query.schema.cols[t]; ok || m.query.schema.pending[t] || m.query.schema.failed[t] {
 			continue
 		}
-		m.schema.pending[t] = true
+		m.query.schema.pending[t] = true
 		cmds = append(cmds, loadSchemaColumnsCmd(m.driver, req, m.active, m.database, t))
 	}
 	loading := len(cmds) > 0
 	for _, t := range tables {
-		if m.schema.pending[t] {
+		if m.query.schema.pending[t] {
 			loading = true
 		}
 	}
@@ -150,21 +150,21 @@ func (m *Model) ensureSchemaColumns(tables []string) (tea.Cmd, bool) {
 // generation, connection or namespace is dropped: the cache it was meant
 // for no longer exists.
 func (m *Model) applySchemaColumns(msg schemaColumnsMsg) tea.Cmd {
-	if msg.req != m.schema.req || msg.conn != m.schema.conn || msg.database != m.schema.database {
+	if msg.req != m.query.schema.req || msg.conn != m.query.schema.conn || msg.database != m.query.schema.database {
 		return nil
 	}
-	delete(m.schema.pending, msg.table)
+	delete(m.query.schema.pending, msg.table)
 	if msg.err != nil {
 		// The popup loses this relation's columns and nothing else, so the
 		// failure is a log line rather than an error on screen.
-		m.schema.failed[msg.table] = true
+		m.query.schema.failed[msg.table] = true
 		return logCmd("-- completion: read columns of %s FAILED: %v", msg.table, msg.err)
 	}
 	names := make([]string, 0, len(msg.cols))
 	for _, c := range msg.cols {
 		names = append(names, c.Name)
 	}
-	m.schema.cols[msg.table] = names
+	m.query.schema.cols[msg.table] = names
 	// An open popup showed what was cached when it opened; these columns
 	// belong in it now, without waiting for the next keystroke.
 	return m.restackCompletion()

@@ -1949,3 +1949,13 @@ Chronological history of wiki changes, newest last.
   unchanged, but `E` reaches the path prompt one keystroke later now, so it
   points at the new concept for the destination step.
 
+## 2026-09-25
+
+- Added [design/pinned-help-in-options-bar](design/pinned-help-in-options-bar.md)
+  (issue #215): the Data panel's action keys (`e`, `d`, `n`, `c`, `y`, `/`)
+  now list before tab/column navigation in `panelActions(panelMain)`, and
+  `? help` is pinned outside `bubbles/help.Model`'s own truncation so it
+  survives at every width down to `minWidth`. Documents a `help.Model`
+  quirk hit along the way: `ShortHelpView` stops bounding its output once
+  neither the next item nor its own ellipsis fits the remaining width.
+

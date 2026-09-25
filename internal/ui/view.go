@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -632,6 +633,52 @@ func (m Model) optionsBarBindings() []key.Binding {
 	return out
 }
 
+// renderShortHelpPinned renders bindings the way help.Model.ShortHelpView
+// does, except pinned always survives truncation. help.Model truncates from
+// the end of the list, so a wide keymap silently drops whichever binding
+// sorts last — for most panels that is `? help`, the app's only visible
+// route to the full keymap (issue #215). If pinned is not present in
+// bindings, this is exactly ShortHelpView: some contexts (an open modal, the
+// editor's insert mode) deliberately omit Help because `?` is not bound
+// there either.
+func renderShortHelpPinned(h help.Model, bindings []key.Binding, pinned key.Binding) string {
+	hasPinned := false
+	rest := make([]key.Binding, 0, len(bindings))
+	for _, b := range bindings {
+		if b.Help() == pinned.Help() {
+			hasPinned = true
+			continue
+		}
+		rest = append(rest, b)
+	}
+	if !hasPinned {
+		return h.ShortHelpView(bindings)
+	}
+
+	pinnedStr := h.Styles.ShortKey.Inline(true).Render(pinned.Help().Key) + " " +
+		h.Styles.ShortDesc.Inline(true).Render(pinned.Help().Desc)
+	sep := h.Styles.ShortSeparator.Inline(true).Render(h.ShortSeparator)
+
+	reserved := lipgloss.Width(pinnedStr)
+	if len(rest) > 0 {
+		reserved += lipgloss.Width(sep)
+	}
+	restBudget := maxInt(h.Width()-reserved, 0)
+
+	// help.Model.ShortHelpView only self-limits down to the width it is
+	// given when there is room left for its own ellipsis; below that it
+	// gives up and renders every remaining binding uncapped. restBudget is
+	// deliberately tight (the reserved pin eats into it), so render rest
+	// unrestricted and truncate it ourselves with the same ansi-safe
+	// truncate() the final fallback below uses.
+	h.SetWidth(0)
+	restStr := truncate(h.ShortHelpView(rest), restBudget)
+	if restStr == "" {
+		return pinnedStr
+	}
+	return restStr + sep + pinnedStr
+}
+
 // renderOptionsBar shows the focused panel's bindings — same slices as `?`.
 func (m Model) renderOptionsBar() string {
 	h := m.help
@@ -705,7 +752,7 @@ func (m Model) renderOptionsBar() string {
 		bindings = append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Back},
 			m.keys.Jump, m.keys.NextPanel, m.keys.OpenEditor, m.keys.Help, m.keys.Quit)
 	}
-	left := h.ShortHelpView(bindings)
+	left := renderShortHelpPinned(h, bindings, m.keys.Help)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
 	if m.run.running {
 		right = m.runningIndicator() + " · " + right

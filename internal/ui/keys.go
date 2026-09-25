@@ -965,6 +965,15 @@ func (k keyMap) panelActions(id panelID) []action {
 		}
 	case panelMain:
 		return []action{
+			// The keys that actually do something outrank tab/column
+			// navigation — see issue #215: the options bar truncates
+			// before it reaches the bindings a first-time user needs most.
+			{actEditCell, k.EditCell},
+			{actDeleteRow, k.DeleteRow},
+			{actInsertRow, k.InsertRow},
+			{actCommitChanges, k.CommitChanges},
+			{actCopyMenu, k.CopyMenu},
+			{actWhereFilter, k.WhereFilter},
 			{actPrevMainTab, k.PrevMainTab},
 			{actNextMainTab, k.NextMainTab},
 			{actColLeft, k.ColLeft},
@@ -979,21 +988,15 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actExtendSelectionLeft, k.ShiftLeft},
 			{actExtendSelectionRight, k.ShiftRight},
 			{actCopySelectionMenu, k.CopySelection},
-			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
 			{actRowDetail, k.RowDetail},
 			{actFollowFK, k.FollowFK},
 			{actIncomingRefs, k.IncomingRefs},
 			{actBrowseBack, k.BrowseBack},
-			{actEditCell, k.EditCell},
-			{actDeleteRow, k.DeleteRow},
-			{actInsertRow, k.InsertRow},
 			{actDuplicateRow, k.DuplicateRow},
-			{actCommitChanges, k.CommitChanges},
 			{actUnstageCell, k.UnstageCell},
 			{actDiscardChanges, k.DiscardChanges},
-			{actCopyMenu, k.CopyMenu},
 			{actExportTable, k.ExportTable},
 			{actCancelExport, k.CancelExport},
 			{actRefresh, k.Refresh},

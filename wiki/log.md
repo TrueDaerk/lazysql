@@ -2133,3 +2133,16 @@ Chronological history of wiki changes, newest last.
   a mismatch, the new `Driver.ImportRows` (one transaction, one prepared
   INSERT, read-only guard, condensed command log), and why DuckDB's and
   SQLite's native CSV loaders are not used.
+
+## 2026-09-25 — Opt-in EXPLAIN ANALYZE (issue #227)
+
+- Updated [design/explain-view](design/explain-view.md): `ctrl+a` requests
+  the analyzed plan through the new `Driver.ExplainAnalyze` /
+  `ExplainAnalyzeSupport`; reads only by `IsWrite`, a confirm modal that
+  says the statement is executed, a rolled-back (read-only where possible)
+  transaction, `ctrl+c` cancellation, and the estimated/analyzed labels in
+  the plan view.
+- Updated [reference/explain-per-dialect](reference/explain-per-dialect.md)
+  with each engine's analyzing spelling and output shape, MariaDB's
+  `ANALYZE FORMAT=JSON`, SQLite's lack of one, and go-duckdb's refusal of
+  read-only transactions.

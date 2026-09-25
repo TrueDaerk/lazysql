@@ -255,7 +255,7 @@ func (m *Model) setEditing(on bool) {
 	if on {
 		// Typing means the editor is wanted back on screen; the plan is
 		// what was covering it.
-		m.plan = nil
+		m.dropPlan()
 		m.query.editor.area.Focus()
 		return
 	}
@@ -723,7 +723,7 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 	// old rows belong to the previous run. An open plan goes too — the
 	// result is what the run was for.
 	m.grid.data.notice = ""
-	m.plan = nil
+	m.dropPlan()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.query.run = queryRun{
@@ -778,6 +778,10 @@ func (m *Model) rerunQuery() tea.Cmd {
 // the driver, which aborts the statement server-side where the engine
 // supports it; the connection itself stays open.
 func (m *Model) cancelQuery() tea.Cmd {
+	if p := m.plan; p != nil && p.running && p.cancel != nil {
+		p.cancel()
+		return logCmd("-- cancelling the running explain analyze…")
+	}
 	if !m.query.run.running {
 		return nil
 	}

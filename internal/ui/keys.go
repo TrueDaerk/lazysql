@@ -136,9 +136,14 @@ type keyMap struct {
 	// the caret. Like RunEditor it is bound in both editor modes —
 	// ctrl+e is not a character — and it never executes the statement.
 	ExplainQuery key.Binding
-	ClearQuery   key.Binding
-	History      key.Binding
-	SaveSnippet  key.Binding
+	// ExplainAnalyze asks for the analyzed plan, which executes the
+	// statement. It is deliberately not a modifier away from ctrl+e and is
+	// bound in normal mode only; a confirm modal stands between it and
+	// the server either way.
+	ExplainAnalyze key.Binding
+	ClearQuery     key.Binding
+	History        key.Binding
+	SaveSnippet    key.Binding
 
 	// The history/snippets pane. The pane is a modal, so these only act
 	// while it is open — but they are keyMap bindings, not literals in its
@@ -458,6 +463,8 @@ func newKeyMap() keyMap {
 			key.WithKeys("enter"), key.WithHelp("enter", "run statement at cursor")),
 		ExplainQuery: key.NewBinding(
 			key.WithKeys("ctrl+e"), key.WithHelp("ctrl+e", "explain")),
+		ExplainAnalyze: key.NewBinding(
+			key.WithKeys("ctrl+a"), key.WithHelp("ctrl+a", "explain analyze (executes)")),
 		ClearQuery: key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "clear buffer")),
 		// backspace was the pane's original opener; it stays as an alias
 		// for the muscle memory, H is the discoverable, mnemonic key.
@@ -917,6 +924,7 @@ const (
 	actRunEditor
 	actRunStatement
 	actExplainQuery
+	actExplainAnalyze
 	actClearQuery
 	actHistory
 	actSaveSnippet
@@ -1058,6 +1066,7 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actRunStatement, k.RunStatement},
 			{actRunEditor, k.RunEditor},
 			{actExplainQuery, k.ExplainQuery},
+			{actExplainAnalyze, k.ExplainAnalyze},
 			{actClearQuery, k.ClearQuery},
 			{actHistory, k.History},
 			{actSaveSnippet, k.SaveSnippet},
@@ -1254,7 +1263,8 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"edit-query", &k.EditQuery}, {"run-editor", &k.RunEditor},
 		{"run-statement", &k.RunStatement},
-		{"explain-query", &k.ExplainQuery}, {"clear-query", &k.ClearQuery},
+		{"explain-query", &k.ExplainQuery}, {"explain-analyze", &k.ExplainAnalyze},
+		{"clear-query", &k.ClearQuery},
 		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
 		{"hist-load", &k.HistLoad}, {"hist-run", &k.HistRun},
 		{"hist-snippet", &k.HistSnippet}, {"hist-delete", &k.HistDelete},

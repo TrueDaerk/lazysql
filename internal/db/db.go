@@ -276,6 +276,17 @@ type Driver interface {
 	// produces; UI code asks it for lines rather than branching on the
 	// engine.
 	Explain(ctx context.Context, sql string) (*Plan, error)
+	// ExplainAnalyzeSupport reports whether the engine has an analyzing
+	// EXPLAIN at all: nil, or an error wrapping ErrUnsupported whose
+	// message says why not. The UI asks it before offering the action.
+	ExplainAnalyzeSupport() error
+	// ExplainAnalyze is Explain with the statement actually executed, so
+	// the plan carries measured timings and row counts. It refuses any
+	// statement IsWrite classifies as a write with ErrAnalyzeWrite — on a
+	// read-only session and a read-write one alike — and runs the rest in
+	// a transaction that is always rolled back. The Plan comes back with
+	// Analyzed set.
+	ExplainAnalyze(ctx context.Context, sql string) (*Plan, error)
 	// QueryLimit is Query with a cap on how many rows it materializes;
 	// max <= 0 means unlimited. The second result reports that the
 	// server had more rows than the cap, so a capped result is never
@@ -339,6 +350,15 @@ type Dialect interface {
 	// explain runs the dialect's EXPLAIN prefix over one statement and
 	// shapes the answer into a Plan.
 	explain(ctx context.Context, q querier, sql string) (*Plan, error)
+	// analyzeSupport answers nil when the engine has an analyzing
+	// EXPLAIN, or an ErrUnsupported naming why it has none.
+	analyzeSupport() error
+	// analyzeTxOptions are the options of the transaction an analyzed
+	// run is wrapped in; ReadOnly where the driver supports it.
+	analyzeTxOptions() *sql.TxOptions
+	// explainAnalyze runs the dialect's analyzing EXPLAIN over one
+	// already-vetted read statement (no trailing semicolon).
+	explainAnalyze(ctx context.Context, q querier, body string) (*Plan, error)
 
 	// listProcesses reads the server's session list, or ErrUnsupported
 	// for an engine that has no server.

@@ -477,8 +477,9 @@ func (m *Model) resetBrowse() {
 	// And so do the page and count queries of the grid: the driver they
 	// were issued on is about to close.
 	m.grid.stopPageQueries()
-	// A plan describes a statement against the connection being left.
-	m.plan = nil
+	// A plan describes a statement against the connection being left; an
+	// analyzed one still running is cancelled with it.
+	m.dropPlan()
 	// So do the sessions of the server it was read from — and closing the
 	// view is what stops its auto-refresh.
 	m.closeActivity()
@@ -1751,6 +1752,10 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 
 	case actExplainQuery:
 		cmd := m.explainQuery()
+		return m, cmd
+
+	case actExplainAnalyze:
+		cmd := m.explainAnalyzeQuery()
 		return m, cmd
 
 	case actClearQuery:

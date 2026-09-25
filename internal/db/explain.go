@@ -2,7 +2,9 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -16,10 +18,12 @@ import (
 //
 // Two rules hold for every dialect:
 //
-//   - ANALYZE is never added. On PostgreSQL and MySQL it *executes* the
-//     statement, which for a DELETE means the rows are gone; a plan the
-//     user asked to look at must not change anything. Explaining a write
-//     is therefore safe on every engine lazysql supports.
+//   - Explain never adds ANALYZE. On PostgreSQL, MySQL and DuckDB it
+//     *executes* the statement, which for a DELETE means the rows are
+//     gone; a plan the user asked to look at must not change anything.
+//     Explaining a write is therefore safe on every engine lazysql
+//     supports. The analyzing form lives in its own method,
+//     ExplainAnalyze, which refuses writes outright (see conn.go).
 //   - The plan is read through the same querier as every other
 //     statement, so the EXPLAIN itself lands in the command log without
 //     anything re-formatting it by hand.
@@ -66,7 +70,19 @@ type Plan struct {
 	// MySQL's fallback from FORMAT=JSON to the tabular form. Empty when
 	// there is nothing to say.
 	Note string
+	// Footer are summary lines rendered after the plan — PostgreSQL's
+	// planning and execution times on an analyzed run.
+	Footer []string
+
+	// Analyzed marks a plan whose statement was executed: its figures
+	// are measured, not estimated. Only ExplainAnalyze sets it.
+	Analyzed bool
 }
+
+// ErrAnalyzeWrite is ExplainAnalyze's refusal of a statement IsWrite
+// classifies as a write. Its message is the explanation the UI shows.
+var ErrAnalyzeWrite = errors.New(
+	"EXPLAIN ANALYZE executes the statement, so only reads can be analyzed — use ctrl+e for the estimated plan of a write")
 
 // Lines renders the plan as display lines, indented tree first. It never
 // styles anything: the UI decides how a line looks.
@@ -87,6 +103,10 @@ func (p *Plan) Lines() []string {
 		for _, n := range p.Nodes {
 			out = append(out, nodeLines(n, 0)...)
 		}
+	}
+	if len(p.Footer) > 0 {
+		out = append(out, "")
+		out = append(out, p.Footer...)
 	}
 	return out
 }
@@ -184,6 +204,10 @@ func explainBody(sql string) (string, error) {
 // pgPlanRoot is one entry of `EXPLAIN (FORMAT JSON)`'s top-level array.
 type pgPlanRoot struct {
 	Plan pgPlanNode `json:"Plan"`
+	// PlanningTime and ExecutionTime are only present on an analyzed
+	// plan, in milliseconds.
+	PlanningTime  *float64 `json:"Planning Time"`
+	ExecutionTime *float64 `json:"Execution Time"`
 }
 
 // pgPlanNode is the subset of PostgreSQL's JSON plan lazysql renders.
@@ -202,6 +226,13 @@ type pgPlanNode struct {
 	PlanRows     float64 `json:"Plan Rows"`
 	PlanWidth    int     `json:"Plan Width"`
 
+	// The Actual* keys are only present under ANALYZE. A node that never
+	// ran reports zero loops.
+	ActualStartupTime *float64 `json:"Actual Startup Time"`
+	ActualTotalTime   *float64 `json:"Actual Total Time"`
+	ActualRows        *float64 `json:"Actual Rows"`
+	ActualLoops       *float64 `json:"Actual Loops"`
+
 	IndexCond   string   `json:"Index Cond"`
 	RecheckCond string   `json:"Recheck Cond"`
 	Filter      string   `json:"Filter"`
@@ -218,18 +249,32 @@ type pgPlanNode struct {
 // nodes. It is exported so the JSON shape can be tested against captured
 // server output without a live PostgreSQL.
 func ParsePostgresPlan(raw string) ([]PlanNode, error) {
+	nodes, _, err := parsePostgresPlan(raw)
+	return nodes, err
+}
+
+// parsePostgresPlan is ParsePostgresPlan plus the summary lines an
+// analyzed plan carries at its root: planning and execution time.
+func parsePostgresPlan(raw string) ([]PlanNode, []string, error) {
 	var roots []pgPlanRoot
 	if err := json.Unmarshal([]byte(raw), &roots); err != nil {
-		return nil, fmt.Errorf("db: unreadable PostgreSQL plan: %w", err)
+		return nil, nil, fmt.Errorf("db: unreadable PostgreSQL plan: %w", err)
 	}
 	if len(roots) == 0 {
-		return nil, fmt.Errorf("db: empty PostgreSQL plan")
+		return nil, nil, fmt.Errorf("db: empty PostgreSQL plan")
 	}
 	out := make([]PlanNode, 0, len(roots))
+	var footer []string
 	for _, r := range roots {
 		out = append(out, pgNode(r.Plan))
+		if r.PlanningTime != nil {
+			footer = append(footer, fmt.Sprintf("Planning Time: %.3f ms", *r.PlanningTime))
+		}
+		if r.ExecutionTime != nil {
+			footer = append(footer, fmt.Sprintf("Execution Time: %.3f ms", *r.ExecutionTime))
+		}
 	}
-	return out, nil
+	return out, footer, nil
 }
 
 func pgNode(n pgPlanNode) PlanNode {
@@ -258,6 +303,15 @@ func pgNode(n pgPlanNode) PlanNode {
 		Detail: fmt.Sprintf("(cost=%.2f..%.2f rows=%s width=%d)",
 			n.StartupCost, n.TotalCost, trimFloat(n.PlanRows), n.PlanWidth),
 	}
+	if n.ActualLoops != nil {
+		if *n.ActualLoops == 0 {
+			out.Detail += " (never executed)"
+		} else {
+			out.Detail += fmt.Sprintf(" (actual time=%.3f..%.3f rows=%s loops=%s)",
+				deref(n.ActualStartupTime), deref(n.ActualTotalTime),
+				trimFloat(deref(n.ActualRows)), trimFloat(*n.ActualLoops))
+		}
+	}
 	for _, note := range []struct{ key, val string }{
 		{"Index Cond", n.IndexCond},
 		{"Recheck Cond", n.RecheckCond},
@@ -276,6 +330,13 @@ func pgNode(n pgPlanNode) PlanNode {
 		out.Children = append(out.Children, pgNode(c))
 	}
 	return out
+}
+
+func deref(f *float64) float64 {
+	if f == nil {
+		return 0
+	}
+	return *f
 }
 
 // trimFloat renders a row estimate without a trailing ".0": PostgreSQL
@@ -299,6 +360,27 @@ func (d postgresDialect) explain(ctx context.Context, q querier, sql string) (*P
 		return nil, err
 	}
 	return &Plan{Engine: EnginePostgres, SQL: stmt, Format: PlanTree, Nodes: nodes}, nil
+}
+
+func (postgresDialect) analyzeSupport() error { return nil }
+
+// A READ ONLY transaction makes the server itself refuse a write the
+// classifier missed — a SELECT calling a function that modifies data.
+func (postgresDialect) analyzeTxOptions() *sql.TxOptions {
+	return &sql.TxOptions{ReadOnly: true}
+}
+
+func (postgresDialect) explainAnalyze(ctx context.Context, q querier, body string) (*Plan, error) {
+	stmt := "EXPLAIN (ANALYZE, FORMAT JSON) " + body
+	raw, err := scanSingleValue(ctx, q, stmt)
+	if err != nil {
+		return nil, err
+	}
+	nodes, footer, err := parsePostgresPlan(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &Plan{Engine: EnginePostgres, SQL: stmt, Format: PlanTree, Nodes: nodes, Footer: footer}, nil
 }
 
 // ---------- MySQL / MariaDB ----------
@@ -373,6 +455,41 @@ func (d mysqlDialect) explain(ctx context.Context, q querier, sql string) (*Plan
 		Engine: d.engine, SQL: stmt, Format: PlanGrid, Grid: rs,
 		Note: "-- FORMAT=JSON unavailable: tabular EXPLAIN",
 	}, nil
+}
+
+// MySQL has EXPLAIN ANALYZE from 8.0.18 and MariaDB has had the
+// analyzing ANALYZE statement since 10.1, so both are offered; an older
+// MySQL rejects the syntax and the server's error is what the view shows.
+func (mysqlDialect) analyzeSupport() error { return nil }
+
+func (mysqlDialect) analyzeTxOptions() *sql.TxOptions {
+	return &sql.TxOptions{ReadOnly: true}
+}
+
+func (d mysqlDialect) explainAnalyze(ctx context.Context, q querier, body string) (*Plan, error) {
+	// MariaDB never took MySQL's EXPLAIN ANALYZE spelling: its analyzing
+	// form is the ANALYZE statement, whose JSON is EXPLAIN FORMAT=JSON's
+	// with r_* (measured) keys beside the estimates.
+	if d.engine == EngineMariaDB {
+		stmt := "ANALYZE FORMAT=JSON " + body
+		raw, err := scanSingleValue(ctx, q, stmt)
+		if err != nil {
+			return nil, err
+		}
+		nodes, err := ParseMySQLPlan(raw)
+		if err != nil {
+			return nil, err
+		}
+		return &Plan{Engine: d.engine, SQL: stmt, Format: PlanTree, Nodes: nodes}, nil
+	}
+	// MySQL answers with one TREE-format text cell and has no JSON form
+	// of EXPLAIN ANALYZE, so the text is passed through as DuckDB's is.
+	stmt := "EXPLAIN ANALYZE " + body
+	raw, err := scanSingleValue(ctx, q, stmt)
+	if err != nil {
+		return nil, err
+	}
+	return &Plan{Engine: d.engine, SQL: stmt, Format: PlanText, Raw: raw}, nil
 }
 
 // ---------- SQLite ----------
@@ -459,6 +576,19 @@ func (sqliteDialect) explain(ctx context.Context, q querier, sql string) (*Plan,
 	return &Plan{Engine: EngineSQLite, SQL: stmt, Format: PlanTree, Nodes: nodes}, nil
 }
 
+// SQLite has no EXPLAIN ANALYZE: `EXPLAIN` dumps bytecode and
+// `EXPLAIN QUERY PLAN` never runs anything. Its only measuring tool is
+// the sqlite3 shell's `.scanstats`, which no driver exposes.
+func (sqliteDialect) analyzeSupport() error {
+	return unsupported("SQLite has no EXPLAIN ANALYZE — EXPLAIN QUERY PLAN (ctrl+e) is its only plan, and it is always an estimate")
+}
+
+func (sqliteDialect) analyzeTxOptions() *sql.TxOptions { return nil }
+
+func (d sqliteDialect) explainAnalyze(context.Context, querier, string) (*Plan, error) {
+	return nil, d.analyzeSupport()
+}
+
 // asInt reads a driver value that should be an integer, tolerating the
 // text form some drivers hand back.
 func asInt(v any) int64 {
@@ -481,11 +611,25 @@ func (duckdbDialect) explain(ctx context.Context, q querier, sql string) (*Plan,
 	if err != nil {
 		return nil, err
 	}
-	// DuckDB answers with (explain_key, explain_value) pairs whose value
-	// is a finished ASCII box diagram. Re-parsing that into nodes would
-	// only lose information, so it is passed through as preformatted
-	// text — the one dialect lazysql does not render itself.
-	stmt := "EXPLAIN " + body
+	return duckdbPlan(ctx, q, "EXPLAIN "+body)
+}
+
+func (duckdbDialect) analyzeSupport() error { return nil }
+
+// go-duckdb refuses a ReadOnly transaction outright, so the analyzed run
+// is only wrapped in a plain one that is rolled back.
+func (duckdbDialect) analyzeTxOptions() *sql.TxOptions { return nil }
+
+func (duckdbDialect) explainAnalyze(ctx context.Context, q querier, body string) (*Plan, error) {
+	return duckdbPlan(ctx, q, "EXPLAIN ANALYZE "+body)
+}
+
+// duckdbPlan runs one DuckDB EXPLAIN form. DuckDB answers with
+// (explain_key, explain_value) pairs whose value is a finished ASCII box
+// diagram. Re-parsing that into nodes would only lose information, so it
+// is passed through as preformatted text — the one dialect lazysql does
+// not render itself.
+func duckdbPlan(ctx context.Context, q querier, stmt string) (*Plan, error) {
 	rows, err := q.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

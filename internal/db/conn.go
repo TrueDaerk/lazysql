@@ -326,6 +326,57 @@ func (c *conn) Explain(ctx context.Context, sql string) (*Plan, error) {
 	return c.dialect.explain(ctx, q, sql)
 }
 
+func (c *conn) ExplainAnalyzeSupport() error { return c.dialect.analyzeSupport() }
+
+// ExplainAnalyze is the one EXPLAIN that executes its statement, so it is
+// guarded twice over. The statement must be a read by IsWrite's
+// classification — the same one the read-only guard uses, so a read-only
+// session may analyze exactly what it may run — and the run happens in a
+// transaction that is rolled back whatever it did, read-only where the
+// driver can ask for that. The classifier decides; the rollback is only
+// the second line for what a classifier cannot see, such as a SELECT
+// calling a function that writes.
+func (c *conn) ExplainAnalyze(ctx context.Context, sql string) (*Plan, error) {
+	if c.db == nil {
+		return nil, errNotConnected
+	}
+	if err := c.dialect.analyzeSupport(); err != nil {
+		return nil, err
+	}
+	body, err := explainBody(sql)
+	if err != nil {
+		return nil, err
+	}
+	if ContainsWrite(c.Engine(), body) {
+		return nil, ErrAnalyzeWrite
+	}
+	tx, err := c.db.BeginTx(ctx, c.dialect.analyzeTxOptions())
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	plan, err := c.dialect.explainAnalyze(ctx, txQuerier{tx, c.logger}, body)
+	if err != nil {
+		return nil, err
+	}
+	plan.Analyzed = true
+	return plan, nil
+}
+
+// txQuerier is userQ inside a transaction: an analyzed plan's statement
+// is logged untagged, like every statement the user asked for.
+type txQuerier struct {
+	tx     *sql.Tx
+	logger *Logger
+}
+
+func (q txQuerier) QueryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
+	start := time.Now()
+	rows, err := q.tx.QueryContext(ctx, query, args...)
+	q.logger.record(query, args, start, err)
+	return rows, err
+}
+
 // qualifiedTable renders database.table with per-dialect quoting,
 // omitting the database part when empty.
 func qualifiedTable(d Dialect, database, table string) string {

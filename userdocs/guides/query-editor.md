@@ -124,11 +124,33 @@ node's cost and row estimate (MySQL falls back to the tabular `EXPLAIN` on
 servers without the JSON format), SQLite's `EXPLAIN QUERY PLAN` as its
 id/parent tree, and DuckDB's `EXPLAIN` diagram as it comes.
 
-`ANALYZE` is **never** added, so nothing is executed: explaining a `DELETE` is
-as safe as explaining a `SELECT`. A statement with `?` / `:name` placeholders
-has no values to plan with and is refused — run it with ++ctrl+r++ to bind
-them. The `EXPLAIN` itself is appended to the command log like any other
-statement.
+++ctrl+e++ never adds `ANALYZE`, so nothing is executed: explaining a `DELETE`
+is as safe as explaining a `SELECT`. A statement with `?` / `:name`
+placeholders has no values to plan with and is refused — run it with
+++ctrl+r++ to bind them. The `EXPLAIN` itself is appended to the command log
+like any other statement.
+
+### Analyzed plans
+
+++ctrl+a++ (normal mode) asks for the **analyzed** plan instead: the statement
+is actually executed, and the plan shows measured times and row counts next to
+the estimates. Because it runs the statement it is guarded:
+
+- Only reads are offered. Anything lazysql classifies as a write — the same
+  rule a read-only connection refuses on — is refused with an explanation;
+  use ++ctrl+e++ for its estimated plan. A read-only connection may still
+  analyze a read.
+- A confirm modal says that the statement will be executed before anything
+  runs; ++esc++ backs out.
+- The run happens in a transaction that is rolled back (read-only where the
+  engine supports that), takes as long as the query itself, and is cancelled
+  with ++ctrl+c++ like any other query.
+- SQLite has no `EXPLAIN ANALYZE`; there ++ctrl+a++ says so instead of
+  offering it. PostgreSQL and MySQL 8.0.18+ use `EXPLAIN ANALYZE`, MariaDB its
+  `ANALYZE FORMAT=JSON`, DuckDB `EXPLAIN ANALYZE`.
+
+The plan view's title and first line always say which kind is on screen —
+**estimated** or **analyzed** — so the two are never confused.
 
 ## History and snippets
 

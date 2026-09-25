@@ -1,7 +1,7 @@
 ---
 type: Dialect Note
 title: EXPLAIN per engine
-description: What EXPLAIN looks like on PostgreSQL, MySQL/MariaDB, SQLite and DuckDB — the prefix, the answer's shape, which forms are machine-readable, and why lazysql never adds ANALYZE.
+description: What EXPLAIN looks like on PostgreSQL, MySQL/MariaDB, SQLite and DuckDB — the prefix, the answer's shape, which forms are machine-readable, why plain Explain never adds ANALYZE, and how each engine spells the opt-in analyzing form (or lacks one).
 tags: [db, dialect, explain, query-plan, postgres, mysql, sqlite, duckdb]
 generated:
   by: claude-code/opus-5
@@ -14,6 +14,11 @@ sources:
   - resource: https://duckdb.org/docs/guides/meta/explain
   - resource: https://github.com/TrueDaerk/lazysql/issues/46
     title: "Issue #46 — EXPLAIN view for the current query"
+  - resource: https://dev.mysql.com/doc/refman/8.0/en/explain.html#explain-analyze
+  - resource: https://mariadb.com/kb/en/analyze-statement/
+  - resource: https://duckdb.org/docs/guides/meta/explain_analyze
+  - resource: https://github.com/TrueDaerk/lazysql/issues/227
+    title: "Issue #227 — opt-in EXPLAIN ANALYZE guarded against writes"
 ---
 
 # EXPLAIN per engine
@@ -22,7 +27,7 @@ The four engines agree on the keyword and on nothing else. This is what
 `Dialect.explain` (`internal/db/explain.go`) has to absorb so the UI only
 ever sees a `db.Plan`.
 
-## The rule that holds everywhere: never ANALYZE
+## The rule that holds for `Explain`: never ANALYZE
 
 `EXPLAIN ANALYZE` **executes** the statement on PostgreSQL, MySQL 8.0+
 and DuckDB. For a `DELETE` that means the rows are gone by the time the
@@ -97,6 +102,37 @@ sharp edge of the classifier, not something the explain view introduces.
   plan lazysql does not lay out itself.
 - The diagram is wide. The main view truncates rather than wrapping, the
   same as every other long line in the shell.
+
+## The opt-in analyzing form (`ExplainAnalyze`)
+
+`Dialect.explainAnalyze` only ever sees a statement `IsWrite` classified as
+a read, inside a transaction that is rolled back (see
+[design/explain-view](../design/explain-view.md)).
+
+| Engine | Statement | Answer | Rendering |
+|---|---|---|---|
+| PostgreSQL | `EXPLAIN (ANALYZE, FORMAT JSON) <stmt>` | the same JSON array plus `Actual Startup Time`/`Actual Total Time`/`Actual Rows`/`Actual Loops` per node and `Planning Time`/`Execution Time` (ms) per root | tree; each node's detail gains `(actual time=a..b rows=r loops=l)`, a node with `Actual Loops = 0` reads `(never executed)`, the timings become the plan's footer |
+| MySQL 8.0.18+ | `EXPLAIN ANALYZE <stmt>` | one cell of `FORMAT=TREE` text with `(actual time=… rows=… loops=…)` inline | preformatted text — there is no JSON form of EXPLAIN ANALYZE |
+| MariaDB 10.1+ | `ANALYZE FORMAT=JSON <stmt>` | EXPLAIN FORMAT=JSON's JSON with `r_*` keys (`r_rows`, `r_total_time_ms`, `r_filtered`…) beside the estimates | tree, via the same generic ordered-JSON walk as MySQL's plan |
+| DuckDB | `EXPLAIN ANALYZE <stmt>` | `(explain_key, explain_value)` with key `analyzed_plan` and a box diagram carrying measured timings and cardinalities | preformatted text |
+| SQLite | — | no equivalent: `EXPLAIN` is bytecode, `EXPLAIN QUERY PLAN` never runs; only the shell's `.scanstats` measures, and no driver exposes it | `ErrUnsupported` with that reason |
+
+Quirks worth knowing:
+
+- **MariaDB never adopted MySQL's spelling.** `EXPLAIN ANALYZE` is a
+  syntax error there; its analyzing statement is `ANALYZE <stmt>`.
+- **MySQL < 8.0.18 has no EXPLAIN ANALYZE.** lazysql does not probe the
+  version; the server's syntax error is shown in the plan view.
+- **Read-only transactions:** PostgreSQL and MySQL/MariaDB honour
+  `sql.TxOptions{ReadOnly: true}` (`BEGIN READ ONLY` / `START TRANSACTION
+  READ ONLY`), which makes the server refuse a write the classifier missed.
+  go-duckdb v2 returns an error for a read-only `BeginTx`, so DuckDB runs
+  in a plain transaction that is rolled back.
+- **The read-only guard and a hand-typed `EXPLAIN ANALYZE`.** `IsWrite`
+  classifies a statement that *starts* with `EXPLAIN ANALYZE` as a write, so
+  `ctrl+r` refuses it on a read-only connection. `ExplainAnalyze` classifies
+  the statement *inside* instead, which is what lets a read-only session
+  analyze a `SELECT`.
 
 ## Shared
 

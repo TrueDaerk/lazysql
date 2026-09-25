@@ -191,14 +191,14 @@ func TestLastRowJumpLandsOnFinalPage(t *testing.T) {
 	m := dataBrowsing(t)
 	m = send(t, m, special(tea.KeyEnd, 0))
 
-	if m.data.page != 2 {
-		t.Fatalf("page = %d, want the last page (2)", m.data.page)
+	if m.grid.data.page != 2 {
+		t.Fatalf("page = %d, want the last page (2)", m.grid.data.page)
 	}
-	if got := len(m.data.rows); got != 50 {
+	if got := len(m.grid.data.rows); got != 50 {
 		t.Fatalf("rows on the last page = %d, want 50 (250 rows, page size 100)", got)
 	}
-	if m.data.row != 49 {
-		t.Fatalf("cursor row = %d, want the last row of the page (49)", m.data.row)
+	if m.grid.data.row != 49 {
+		t.Fatalf("cursor row = %d, want the last row of the page (49)", m.grid.data.row)
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 200") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -206,8 +206,8 @@ func TestLastRowJumpLandsOnFinalPage(t *testing.T) {
 
 	// `home` walks it straight back to the first row of the first page.
 	m = send(t, m, special(tea.KeyHome, 0))
-	if m.data.page != 0 || m.data.row != 0 {
-		t.Fatalf("page/row = %d/%d, want 0/0 after home", m.data.page, m.data.row)
+	if m.grid.data.page != 0 || m.grid.data.row != 0 {
+		t.Fatalf("page/row = %d/%d, want 0/0 after home", m.grid.data.page, m.grid.data.row)
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 0") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -232,22 +232,22 @@ func TestRowJumpsOnTheTargetPageCostNoRoundTrip(t *testing.T) {
 func TestLastRowJumpUsesTheFilteredCount(t *testing.T) {
 	m := dataBrowsing(t)
 	m = applyWhereFilter(t, m, "id > 150") // rows 151..250 match: 100 rows, one full page and none left over
-	if m.data.total != 100 {
-		t.Fatalf("filtered total = %d, want 100", m.data.total)
+	if m.grid.data.total != 100 {
+		t.Fatalf("filtered total = %d, want 100", m.grid.data.total)
 	}
 
 	m = send(t, m, special(tea.KeyEnd, 0))
-	if m.data.filter == nil || m.data.filter.Raw != "id > 150" {
-		t.Fatalf("filter lost across the jump: %+v", m.data.filter)
+	if m.grid.data.filter == nil || m.grid.data.filter.Raw != "id > 150" {
+		t.Fatalf("filter lost across the jump: %+v", m.grid.data.filter)
 	}
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want page 0 — the filtered set is exactly one page", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want page 0 — the filtered set is exactly one page", m.grid.data.page)
 	}
-	if got := len(m.data.rows); got != 100 {
+	if got := len(m.grid.data.rows); got != 100 {
 		t.Fatalf("rows on the last (only) filtered page = %d, want 100", got)
 	}
-	if m.data.row != 99 {
-		t.Fatalf("cursor row = %d, want the last row (99)", m.data.row)
+	if m.grid.data.row != 99 {
+		t.Fatalf("cursor row = %d, want the last row (99)", m.grid.data.row)
 	}
 	if !logContains(m, `WHERE "id" > ? LIMIT 100 OFFSET 0`) {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -259,12 +259,12 @@ func TestLastRowJumpUsesTheFilteredCount(t *testing.T) {
 // already depends on, and there is nothing to jump to until it exists.
 func TestLastRowJumpWaitsForTheCount(t *testing.T) {
 	m := dataBrowsing(t)
-	m.data.hasTotal = false
+	m.grid.data.hasTotal = false
 
 	cmd := m.jumpToLastRow()
 	m = send(t, m, drain(cmd)...)
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want the jump refused rather than guessing", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want the jump refused rather than guessing", m.grid.data.page)
 	}
 	if !logContains(m, "row count still loading") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -288,8 +288,8 @@ func TestGoToPageJumpsToTheGivenPage(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("the prompt stayed open")
 	}
-	if m.data.page != 1 {
-		t.Fatalf("page = %d, want page 2 (index 1)", m.data.page)
+	if m.grid.data.page != 1 {
+		t.Fatalf("page = %d, want page 2 (index 1)", m.grid.data.page)
 	}
 	if !logContains(m, "LIMIT 100 OFFSET 100") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -307,8 +307,8 @@ func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("the prompt stayed open")
 	}
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want the out-of-range request left the page alone", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want the out-of-range request left the page alone", m.grid.data.page)
 	}
 	if !logContains(m, "out of range") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -318,8 +318,8 @@ func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
 	m = send(t, m, press('P'))
 	m = typeKeys(t, m, "abc")
 	m = send(t, m, special(tea.KeyEnter, 0))
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want it unchanged", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want it unchanged", m.grid.data.page)
 	}
 	if !logContains(m, "not a whole number") {
 		t.Fatalf("command log = %v", m.commandLog)
@@ -336,8 +336,8 @@ func TestGoToPageEscCancels(t *testing.T) {
 	if m.modal != nil {
 		t.Fatal("esc left the prompt open")
 	}
-	if m.data.page != 0 {
-		t.Fatalf("page = %d, want esc to have changed nothing", m.data.page)
+	if m.grid.data.page != 0 {
+		t.Fatalf("page = %d, want esc to have changed nothing", m.grid.data.page)
 	}
 }
 
@@ -356,18 +356,18 @@ func TestLastRowJumpCancelsAnInFlightPageQuery(t *testing.T) {
 	}
 	go drain(cmd)
 	<-drv.pages
-	m.stopPageQueries()
+	m.grid.stopPageQueries()
 }
 
 // A jump drops any row selection, exactly like an ordinary page turn.
 func TestRowJumpsClearSelection(t *testing.T) {
 	m := send(t, dataBrowsing(t), ctrl('v'), press('j'), press('j'))
-	if got := len(m.data.selectedRows()); got != 3 {
+	if got := len(m.grid.data.selectedRows()); got != 3 {
 		t.Fatalf("selected %d rows, want 3 before the jump", got)
 	}
 	m = send(t, m, special(tea.KeyEnd, 0))
-	if m.data.selecting() {
-		t.Fatalf("the selection survived the last-row jump: %+v", m.data.sel)
+	if m.grid.data.selecting() {
+		t.Fatalf("the selection survived the last-row jump: %+v", m.grid.data.sel)
 	}
 	if m.keys.CopySelection.Enabled() {
 		t.Fatal("ctrl+c stayed bound to the copy across the jump")

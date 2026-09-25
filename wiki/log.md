@@ -1959,3 +1959,14 @@ Chronological history of wiki changes, newest last.
   quirk hit along the way: `ShortHelpView` stops bounding its output once
   neither the next item nor its own ellipsis fits the remaining width.
 
+## 2026-09-25 — Cut the internal/ui test suite runtime (issue #228)
+
+- Added [reference/ui-test-suite-runtime](reference/ui-test-suite-runtime.md):
+  per-test timings and a block profile show `internal/ui`'s 341s were spent
+  waiting on `cursor.(*Model).Blink`'s 530ms timer, which the tests' `drain`
+  helper runs synchronously on every keystroke. The filter line and the query
+  editor — both of which draw their own caret — now call
+  `SetVirtualCursor(false)`, so no blink timer is armed for them (in
+  production too); the suite drops to 48s with coverage unchanged. The concept
+  also records the timers that remain (modal inputs' visible blink, the input
+  coalescer's 16ms flush) and why they stay.

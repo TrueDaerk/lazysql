@@ -17,6 +17,9 @@ type queryModel struct {
 	// focus change — and run is the script currently executing, if any.
 	editor queryEditor
 	run    queryRun
+	// tx is the editor's explicit transaction, nil when none is open.
+	// Every run started while it is set executes inside it. See tx.go.
+	tx *editorTx
 
 	// history is the persistent query history behind panel [3], newest
 	// first.

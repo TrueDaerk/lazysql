@@ -70,6 +70,11 @@ disturb what is staged, because nothing staged refers to a screen position.
   sequence you created them.
 - **A failed commit rolls back and keeps the changeset**, so you can fix the
   cause and commit again rather than reconstruct what you had.
+- **The changeset never mixes with an editor transaction.** While a
+  [transaction](../guides/query-editor.md#transactions) is open in the query
+  editor, `c` is refused with an explanation: the changeset commits on another
+  connection and could block on rows the transaction holds. Commit or roll
+  back the transaction first.
 
 ## Multi-row edits
 

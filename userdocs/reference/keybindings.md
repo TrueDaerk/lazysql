@@ -180,6 +180,12 @@ The panel's own actions, live in vim **normal** mode.
 | `D` | Clear the buffer | `clear-query` |
 | `H` · `backspace` | History &amp; snippets | `history` |
 | `ctrl+s` | Save snippet | `save-snippet` |
+| `B` | Begin a transaction — editor statements run inside it until it ends | `begin-tx` |
+| `C` | Commit the open transaction, after a confirm | `commit-tx` |
+| `U` | Roll back the open transaction (confirms when it holds statements) | `rollback-tx` |
+
+The options bar shows `B` while no transaction is open and `C`/`U` while one
+is; `?` always lists all three. A read-only connection refuses `B`.
 
 !!! note "`a` is not the actions menu here"
     In the query editor `a` is vim's *append*, which the editor claims before

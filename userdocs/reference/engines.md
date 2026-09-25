@@ -140,6 +140,23 @@ reported as a failure rather than a silent no-op.
 So on MySQL, cancelling gets your UI back immediately but does not stop the
 query on the server. The other three genuinely stop it.
 
+## Editor transactions
+
+A [transaction opened in the query editor](../guides/query-editor.md#transactions)
+reacts to a failing statement the way its engine does:
+
+| Engine | `BEGIN` | A failed statement | Savepoints |
+|---|---|---|---|
+| PostgreSQL | `BEGIN` | Aborts the transaction; only `ROLLBACK` or `ROLLBACK TO SAVEPOINT` is accepted | Yes |
+| DuckDB | `BEGIN TRANSACTION` | An execution error (a constraint) aborts it — and a later `COMMIT` would *report success while rolling back*, which is why lazysql refuses it; a bind error (unknown table) does not | No |
+| MySQL / MariaDB | `START TRANSACTION` | Undoes the statement only; a deadlock ends the whole transaction | Yes |
+| SQLite | `BEGIN` | Undoes the statement only; an interrupted write (`ctrl+c`) rolls the whole transaction back | Yes |
+
+Cancelling a statement with `ctrl+c` drops the connection on PostgreSQL and
+MySQL (see above), which ends the transaction with it. On MySQL and MariaDB,
+DDL commits the open transaction implicitly, so lazysql refuses DDL while one
+is open.
+
 ## Read-only sessions
 
 A [read-only connection](../guides/configuration.md#read-only-connections) is

@@ -2146,3 +2146,14 @@ Chronological history of wiki changes, newest last.
   with each engine's analyzing spelling and output shape, MariaDB's
   `ANALYZE FORMAT=JSON`, SQLite's lack of one, and go-duckdb's refusal of
   read-only transactions.
+
+## 2026-09-25 — Explicit transactions in the query editor (issue #226)
+
+- Added [design/editor-transactions](design/editor-transactions.md): the
+  `db.Tx` handle from the new `Driver.Begin`, why it owns a dedicated
+  connection and issues BEGIN/COMMIT/ROLLBACK as SQL instead of using
+  `*sql.Tx`, the per-dialect `txMonitor` (and DuckDB answering COMMIT
+  of an aborted transaction with success), the statements refused inside
+  a transaction, the `⛁ TX` badge and `[tx]` command-log tag, the
+  quit/disconnect/connect prompts, and the refusal to commit the staged
+  changeset or import CSV while a transaction is open.

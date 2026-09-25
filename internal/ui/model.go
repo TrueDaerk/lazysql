@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"image/color"
@@ -116,6 +117,11 @@ func (m Model) commandLogEntries() []logLine {
 // error if it failed.
 func sqlEntryText(e db.LogEntry) string {
 	text := e.SQL
+	// A statement of the editor's open transaction says so: it is not
+	// committed, and nothing else the log shows can see it yet.
+	if e.InTx {
+		text = "[tx] " + text
+	}
 	if !strings.HasSuffix(text, ";") {
 		text += ";"
 	}
@@ -465,6 +471,9 @@ func (m *Model) resetBrowse() {
 	// Staged changes reference the connection's tables; they cannot
 	// survive it. They are discarded, not committed.
 	m.grid.changes.Clear()
+	// So does the editor's transaction: the driver's Close rolls it back.
+	// Callers that can say so in the log call dropTx first.
+	m.query.tx = nil
 	// An export reads through the driver that is about to be closed, and
 	// so does a whole-database DDL export. A dump of a file engine runs
 	// its SQL through the same driver, and a tunnelled dump runs through
@@ -693,6 +702,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.finishQuery(msg)
 		return m, cmd
 
+	case txBegunMsg:
+		// Bind the command first: the reducers mutate m, and Go may
+		// otherwise copy the pre-call model into the return value.
+		cmd := m.applyTxBegun(msg)
+		return m, cmd
+
+	case txCommittedMsg:
+		cmd := m.applyTxCommitted(msg)
+		return m, cmd
+
+	case txRolledBackMsg:
+		cmd := m.applyTxRolledBack(msg)
+		return m, cmd
+
 	case spinner.TickMsg:
 		// A tick that outlives its run is dropped rather than chained:
 		// that is what stops the spinner without a separate "stop" message.
@@ -829,6 +852,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.active != "" && m.active != msg.name {
 			m.setConnStatus(m.active, statusIdle, "")
 		}
+		// A new session replaces the old one, and closing the old one
+		// rolls back its transaction — whichever way the dial started.
+		txCmd := m.dropTx("the connection was replaced")
 		m.driver = msg.driver
 		m.tunnel = msg.tunnel
 		m.active = msg.name
@@ -837,6 +863,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		dbs := namespaceList(msg.driver.Engine(), m.scopeDatabases(msg.name, msg.databases))
 		m.rebuildTree(dbs)
 		cmds := []tea.Cmd{
+			txCmd,
 			closeSessionCmd(prevDriver, prevTunnel),
 			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
 		}
@@ -1330,10 +1357,10 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, cmd
 
 	case key.Matches(msg, k.Quit):
-		if n := m.grid.changes.Len(); n > 0 {
+		if body := m.quitLosses(); body != "" {
 			m.modal = &confirmModal{
 				title:  "Quit",
-				body:   fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n)),
+				body:   body,
 				danger: true,
 				onConfirm: func(mm *Model) tea.Cmd {
 					mm.quit()
@@ -1556,18 +1583,8 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		if c.Name != m.active {
 			return m, logCmd("-- disconnect: %s is not the active connection", c.Name)
 		}
-		driver, tunnel := m.driver, m.tunnel
-		name := m.active
-		m.driver, m.tunnel, m.active = nil, nil, ""
-		m.resetBrowse()
-		m.setConnStatus(name, statusIdle, "")
-		if m.isEphemeral(name) {
-			// An ephemeral connection has nothing to go back to being:
-			// disconnecting it drops the row and leaves the panel showing
-			// the saved profiles alone.
-			m.dropEphemeral()
-		}
-		return m, tea.Batch(closeSessionCmd(driver, tunnel), logCmd("-- disconnect %s", name))
+		cmd := m.guardTx("Disconnect", "Disconnect "+m.taggedConnName(m.active), (*Model).disconnectActive)
+		return m, cmd
 
 	case actTestConnection:
 		return m.dialSelected(true)
@@ -1609,7 +1626,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 			m.modal = &confirmModal{
 				title: "Remove connection",
 				body: fmt.Sprintf(
-					"Remove %q from config.toml and delete its keyring entry?", name),
+					"Remove %q from config.toml and delete its keyring entry?", name) + m.txDropNote(name),
 				danger: true,
 				onConfirm: func(m *Model) tea.Cmd {
 					if !m.cfg.Remove(name) {
@@ -1617,7 +1634,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 					}
 					var closeCmd tea.Cmd
 					if m.active == name {
-						closeCmd = closeSessionCmd(m.driver, m.tunnel)
+						closeCmd = tea.Batch(m.dropTx("connection removed"), closeSessionCmd(m.driver, m.tunnel))
 						m.driver, m.tunnel, m.active = nil, nil, ""
 						m.resetBrowse()
 					}
@@ -1761,8 +1778,38 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	case actClearQuery:
 		cmd := m.clearQuery()
 		return m, cmd
+
+	case actBeginTx:
+		cmd := m.beginTx()
+		return m, cmd
+
+	case actCommitTx:
+		cmd := m.confirmCommitTx()
+		return m, cmd
+
+	case actRollbackTx:
+		cmd := m.confirmRollbackTx()
+		return m, cmd
 	}
 	return m, nil
+}
+
+// disconnectActive closes the active connection. Its driver's Close rolls
+// back an open editor transaction first.
+func (m *Model) disconnectActive() tea.Cmd {
+	driver, tunnel := m.driver, m.tunnel
+	name := m.active
+	txCmd := m.dropTx("disconnect")
+	m.driver, m.tunnel, m.active = nil, nil, ""
+	m.resetBrowse()
+	m.setConnStatus(name, statusIdle, "")
+	if m.isEphemeral(name) {
+		// An ephemeral connection has nothing to go back to being:
+		// disconnecting it drops the row and leaves the panel showing
+		// the saved profiles alone.
+		m.dropEphemeral()
+	}
+	return tea.Batch(txCmd, closeSessionCmd(driver, tunnel), logCmd("-- disconnect %s", name))
 }
 
 // dialSelected connects to (or, when test is set, only probes) the profile
@@ -1775,18 +1822,56 @@ func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 		return m, nil
 	}
 	req := m.dialRequestFor(c, test)
-	if c.NeedsPassword() && c.AskPassword {
-		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
-			next := req
-			next.password, next.hasPassword = pw, true
-			return redialCmd(next)
-		})
-		return m, nil
+	dial := func(mm *Model) tea.Cmd {
+		if c.NeedsPassword() && c.AskPassword {
+			mm.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
+				next := req
+				next.password, next.hasPassword = pw, true
+				return redialCmd(next)
+			})
+			return nil
+		}
+		if !test {
+			mm.setConnStatus(c.Name, statusPending, "")
+		}
+		return redialCmd(req)
 	}
-	if !test {
-		m.setConnStatus(c.Name, statusPending, "")
+	// A test dials a connection of its own; a connect replaces the
+	// session, and with it the open transaction.
+	if test {
+		cmd := dial(&m)
+		return m, cmd
 	}
-	return m, redialCmd(req)
+	cmd := m.guardTx("Connect", "Connect to "+m.taggedConnName(c.Name), dial)
+	return m, cmd
+}
+
+// txDropNote is the line a confirmation that closes the connection adds
+// when that would roll back the open transaction.
+func (m Model) txDropNote(name string) string {
+	if tx := m.query.tx; tx != nil && tx.conn == name {
+		return fmt.Sprintf("\n\nThe open transaction on it (%s) is rolled back.", countStatements(tx.stmts))
+	}
+	return ""
+}
+
+// quitLosses is the quit confirmation's question — what quitting would
+// throw away — or "" when it throws away nothing: staged changes are not
+// saved on exit, and an open transaction is rolled back.
+func (m Model) quitLosses() string {
+	n := m.grid.changes.Len()
+	tx := m.query.tx
+	switch {
+	case tx != nil && n > 0:
+		return fmt.Sprintf("Quit, roll back the open transaction on %s (%s) and discard %s? Neither is saved on exit.",
+			m.taggedConnName(tx.conn), countStatements(tx.stmts), countChanges(n))
+	case tx != nil:
+		return fmt.Sprintf("Quit and roll back the open transaction on %s (%s)? It is not committed on exit.",
+			m.taggedConnName(tx.conn), countStatements(tx.stmts))
+	case n > 0:
+		return fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n))
+	}
+	return ""
 }
 
 // quit saves session/screen state and tears down the connection. Called
@@ -1804,6 +1889,15 @@ func (m *Model) quit() {
 // closeSession tears down the active driver and its tunnel synchronously.
 // Used on quit, where a tea.Cmd is not guaranteed to run.
 func (m *Model) closeSession() {
+	// The open transaction is rolled back explicitly, and first: Close
+	// would do it too, but a handle whose BEGIN raced the quit is only
+	// reachable from here.
+	if tx := m.query.tx; tx != nil && tx.handle != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = tx.handle.Rollback(ctx)
+		cancel()
+	}
+	m.query.tx = nil
 	if m.driver != nil {
 		m.driver.Close()
 		m.driver = nil

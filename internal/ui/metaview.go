@@ -94,6 +94,11 @@ func (m Model) mainTabSuffix(w int) string {
 	if m.readOnly() {
 		line += " " + m.style.pending.Render(lockMark+" read-only")
 	}
+	// The grid reads through the pool, never the editor's transaction, so
+	// while one is open the rows here are the committed ones.
+	if note := m.txNote(); note != "" {
+		line += " " + note
+	}
 	if m.tab == mainTabData && m.grid.data.loading || m.tab.metadata() && m.meta.loading {
 		line += " " + m.style.pending.Render("loading…")
 	}

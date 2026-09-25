@@ -25,6 +25,10 @@ type LogEntry struct {
 	Duration      time.Duration
 	Err           error
 	Introspection bool
+	// InTx marks a statement run inside the session's interactive
+	// transaction (tx.go), BEGIN/COMMIT/ROLLBACK included, so the log can
+	// say which statements the open transaction holds.
+	InTx bool
 }
 
 // Logger is a fixed-capacity ring buffer of every statement a conn runs.
@@ -59,6 +63,12 @@ func (l *Logger) record(sql string, args []any, start time.Time, err error) {
 // own behalf; see LogEntry.Introspection.
 func (l *Logger) recordIntrospection(sql string, args []any, start time.Time, err error) {
 	l.add(LogEntry{SQL: sql, Args: args, At: start, Duration: time.Since(start), Err: err, Introspection: true})
+}
+
+// recordTx is record for a statement of the interactive transaction; see
+// LogEntry.InTx.
+func (l *Logger) recordTx(sql string, args []any, start time.Time, err error) {
+	l.add(LogEntry{SQL: sql, Args: args, At: start, Duration: time.Since(start), Err: err, InTx: true})
 }
 
 func (l *Logger) add(e LogEntry) {

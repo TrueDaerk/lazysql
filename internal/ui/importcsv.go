@@ -88,6 +88,9 @@ func (m *Model) startImport() tea.Cmd {
 	if m.exports.csv.running {
 		return logCmd("-- import skipped: %s is still importing (X cancels it)", m.exports.csv.table)
 	}
+	if cmd := m.refuseWithTx("import CSV"); cmd != nil {
+		return cmd
+	}
 	n := m.selectedNode()
 	if n == nil || n.kind != nodeObject || !n.cat.relational() {
 		return logCmd("-- import skipped: select a table in [2] Objects")

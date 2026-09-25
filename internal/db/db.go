@@ -268,6 +268,13 @@ type Driver interface {
 	// ExecTx runs the statements in one transaction: the first error
 	// rolls everything back, so either all of them applied or none did.
 	ExecTx(ctx context.Context, stmts []Statement) ([]ExecResult, error)
+	// Begin opens an interactive transaction on a connection of its own
+	// and hands back the handle that runs statements in it, commits it and
+	// rolls it back — see tx.go. A session has at most one (ErrTxOpen); a
+	// read-only session refuses it with ErrReadOnly. Every other Driver
+	// method keeps using the pool, so nothing but the handle ever runs
+	// inside the transaction, and Close rolls back one left open.
+	Begin(ctx context.Context) (Tx, error)
 	// Query runs an arbitrary SQL query with parameters.
 	Query(ctx context.Context, query string, args ...any) (*ResultSet, error)
 	// Explain returns the engine's query plan for one statement. It never
@@ -375,6 +382,12 @@ type Dialect interface {
 	schemaSupport(op SchemaOp) error
 	// schemaSQL spells a validated, supported schema change.
 	schemaSQL(c SchemaChange) ([]Statement, error)
+
+	// beginSQL is the statement that opens an interactive transaction.
+	beginSQL() string
+	// txMonitor attaches the engine's way of telling where a transaction
+	// on sc stands after each statement. See tx_dialects.go.
+	txMonitor(sc *sql.Conn, logger *Logger) txMonitor
 }
 
 // querier is the subset of *sql.DB the dialects need.

@@ -145,6 +145,17 @@ type keyMap struct {
 	History        key.Binding
 	SaveSnippet    key.Binding
 
+	// BeginTx, CommitTx and RollbackTx are the editor's explicit
+	// transaction (see tx.go). They are normal-mode keys of panel [3]:
+	// uppercase, like the other deliberate, whole-session verbs, and
+	// mirroring the grid's own pair — `c`/`U` commit and discard the staged
+	// changeset there, `C`/`U` commit and roll back the transaction here.
+	// All three stay enabled, so `?` always documents them; the options bar
+	// shows only the ones the transaction's state allows.
+	BeginTx    key.Binding
+	CommitTx   key.Binding
+	RollbackTx key.Binding
+
 	// The history/snippets pane. The pane is a modal, so these only act
 	// while it is open — but they are keyMap bindings, not literals in its
 	// update function, so `?` documents them, `[keys]` can rebind them and
@@ -472,6 +483,11 @@ func newKeyMap() keyMap {
 			key.WithKeys("H", "backspace"), key.WithHelp("H", "history & snippets")),
 		SaveSnippet: key.NewBinding(
 			key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "save snippet")),
+		BeginTx: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "begin transaction")),
+		CommitTx: key.NewBinding(
+			key.WithKeys("C"), key.WithHelp("C", "commit transaction")),
+		RollbackTx: key.NewBinding(
+			key.WithKeys("U"), key.WithHelp("U", "roll back transaction")),
 
 		HistLoad: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "load into editor")),
 		HistRun:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "run now")),
@@ -928,6 +944,9 @@ const (
 	actClearQuery
 	actHistory
 	actSaveSnippet
+	actBeginTx
+	actCommitTx
+	actRollbackTx
 	actColLeft
 	actColRight
 	actNextPage
@@ -1070,6 +1089,9 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actClearQuery, k.ClearQuery},
 			{actHistory, k.History},
 			{actSaveSnippet, k.SaveSnippet},
+			{actBeginTx, k.BeginTx},
+			{actCommitTx, k.CommitTx},
+			{actRollbackTx, k.RollbackTx},
 		}
 	case panelMain:
 		return []action{
@@ -1148,7 +1170,7 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 // answer with "connection is read-only" — while `?` keeps listing them,
 // so every binding is still documented in exactly one place.
 func (k keyMap) writeBindings() []key.Binding {
-	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu, k.ImportCSV}
+	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu, k.ImportCSV, k.BeginTx}
 }
 
 // withoutBindings drops every binding of hide from all, matching on the
@@ -1266,6 +1288,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"explain-query", &k.ExplainQuery}, {"explain-analyze", &k.ExplainAnalyze},
 		{"clear-query", &k.ClearQuery},
 		{"history", &k.History}, {"save-snippet", &k.SaveSnippet},
+		{"begin-tx", &k.BeginTx}, {"commit-tx", &k.CommitTx}, {"rollback-tx", &k.RollbackTx},
 		{"hist-load", &k.HistLoad}, {"hist-run", &k.HistRun},
 		{"hist-snippet", &k.HistSnippet}, {"hist-delete", &k.HistDelete},
 		{"hist-section", &k.HistSection},

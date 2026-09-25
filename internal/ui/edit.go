@@ -425,6 +425,11 @@ func (m *Model) openCommitModal() tea.Cmd {
 	if n == 0 {
 		return logCmd("-- no staged changes to commit")
 	}
+	// The changeset commits in a transaction of its own; it is never
+	// interleaved with — or silently nested in — the editor's.
+	if cmd := m.refuseWithTx("commit staged changes"); cmd != nil {
+		return cmd
+	}
 	stmts, err := m.grid.changes.Statements(m.driver.Dialect())
 	if err != nil {
 		// A staged change this engine cannot run — only possible when the

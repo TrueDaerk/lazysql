@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,12 @@ type conn struct {
 	// Options.Setup. They bypass the read-only guard, which is why they
 	// are only ever set by this program's own code.
 	setup []string
+
+	// tx is the session's open interactive transaction, nil when none.
+	// txMu guards it: Begin and a finishing handle race over it from
+	// different tea.Cmd goroutines.
+	txMu sync.Mutex
+	tx   *interactiveTx
 }
 
 func (c *conn) Logger() *Logger { return c.logger }
@@ -80,6 +87,10 @@ func (c *conn) Close() error {
 	if c.db == nil {
 		return nil
 	}
+	// An interactive transaction holds a connection of its own; it is
+	// rolled back first, so disconnecting or quitting never leaves the
+	// server to decide what a dropped connection's transaction meant.
+	c.rollbackOpenTx()
 	err := c.db.Close()
 	c.db = nil
 	// The driver-side registration outlives the handle, so it is dropped

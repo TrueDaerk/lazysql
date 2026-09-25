@@ -638,12 +638,18 @@ func (m Model) commandLogTitle() string {
 
 // optionsBarBindings is what the bottom bar offers for the focused panel.
 // A read-only connection drops the keys that could only ever answer
-// "connection is read-only"; `?` still lists them, so no binding goes
-// undocumented.
+// "connection is read-only", and the transaction keys follow its state —
+// begin while none is open, commit and roll back while one is; `?` still
+// lists them all, so no binding goes undocumented.
 func (m Model) optionsBarBindings() []key.Binding {
 	out := m.keys.optionsBarBindings(m.focus)
 	if m.readOnly() {
 		out = withoutBindings(out, m.keys.writeBindings())
+	}
+	if m.txOpen() {
+		out = withoutBindings(out, []key.Binding{m.keys.BeginTx})
+	} else {
+		out = withoutBindings(out, []key.Binding{m.keys.CommitTx, m.keys.RollbackTx})
 	}
 	return out
 }
@@ -696,8 +702,19 @@ func renderShortHelpPinned(h help.Model, bindings []key.Binding, pinned key.Bind
 
 // renderOptionsBar shows the focused panel's bindings — same slices as `?`.
 func (m Model) renderOptionsBar() string {
+	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
+	if m.query.run.running {
+		right = m.runningIndicator() + " · " + right
+	}
+	// The open transaction rides on the one line every screen shares, so
+	// it stays in sight while a grid in another tab has the focus. The
+	// bindings make room for it, not the other way round.
+	badge := m.txBadge()
+	if badge != "" {
+		right = badge + " · " + right
+	}
 	h := m.help
-	h.SetWidth(maxInt(m.width-len(appName)-len(screenModeNames[m.screen])-len(version.Version)-9, 10))
+	h.SetWidth(maxInt(m.width-lipgloss.Width(right)-3, 10))
 	bindings := m.optionsBarBindings()
 	// Insert mode leaves almost nothing bound, so the bar shows the keys
 	// that still act instead of a list the buffer would swallow — and an
@@ -768,13 +785,16 @@ func (m Model) renderOptionsBar() string {
 			m.keys.Jump, m.keys.NextPanel, m.keys.OpenEditor, m.keys.Help, m.keys.Quit)
 	}
 	left := renderShortHelpPinned(h, bindings, m.keys.Help)
-	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
-	if m.query.run.running {
-		right = m.runningIndicator() + " · " + right
-	}
 
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
+		// Too narrow for both sides: the version line goes, the
+		// transaction badge stays.
+		if badge != "" {
+			room := maxInt(m.width-lipgloss.Width(badge)-1, 0)
+			return m.style.optionsBar.Width(m.width).Render(
+				truncate(truncate(left, room)+" "+badge, m.width))
+		}
 		return m.style.optionsBar.Width(m.width).Render(truncate(left, m.width))
 	}
 	return m.style.optionsBar.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)

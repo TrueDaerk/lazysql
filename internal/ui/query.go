@@ -73,6 +73,9 @@ type queryRun struct {
 	// line and the command log can never disagree, and survives running
 	// = false so the summary stays readable next to its result.
 	outcome string
+	// inTx records that the run executes inside the editor's transaction,
+	// so its outcome says the result is not committed yet.
+	inTx bool
 }
 
 // ---------- messages ----------
@@ -99,6 +102,12 @@ type queryStmtMsg struct {
 	// form for display and history; the two only differ for a bound,
 	// single-statement placeholder run (see the override below).
 	exec string
+	// tx is the transaction the statement ran in, nil outside one, with
+	// the handle's state and statement count read right after it — the
+	// UI mirrors those rather than reading the handle while it renders.
+	tx      db.Tx
+	txState db.TxState
+	txStmts int
 }
 
 // queryDoneMsg closes a run, successfully or not.
@@ -124,6 +133,9 @@ type queryJob struct {
 	// placeholders and all, for the history and the Data tab.
 	args    []any
 	display string
+	// tx, when set, is the editor's open transaction: every statement runs
+	// inside it, on its connection, instead of on the pool.
+	tx db.Tx
 }
 
 // startQueryCmd launches the worker and blocks until its first message.
@@ -167,14 +179,24 @@ func (j queryJob) run() {
 			out.sql = j.display
 		}
 		start := time.Now()
-		if out.read {
+		switch {
+		case j.tx != nil && out.read:
+			out.rs, out.truncated, out.err = j.tx.QueryLimit(j.ctx, sql, maxQueryRows, j.args...)
+		case j.tx != nil:
+			var res db.ExecResult
+			res, out.err = j.tx.Exec(j.ctx, sql, j.args...)
+			out.affected = res.RowsAffected
+		case out.read:
 			out.rs, out.truncated, out.err = j.drv.QueryLimit(j.ctx, sql, maxQueryRows, j.args...)
-		} else {
+		default:
 			var res db.ExecResult
 			res, out.err = j.drv.Exec(j.ctx, sql, j.args...)
 			out.affected = res.RowsAffected
 		}
 		out.took = time.Since(start)
+		if j.tx != nil {
+			out.tx, out.txState, out.txStmts = j.tx, j.tx.State(), j.tx.Statements()
+		}
 		ran++
 		// A plain send, not a select on ctx.Done(): the root drains this
 		// channel until queryDoneMsg arrives, so there is always a
@@ -608,6 +630,20 @@ func (m *Model) submitQuery(script string) tea.Cmd {
 	if cmd := m.rejectReadOnlyRun(stmts); cmd != nil {
 		return cmd
 	}
+	// With a transaction open, a run goes into it — so it has to exist,
+	// and not be in the middle of committing or rolling back. An aborted
+	// one is left to the handle, which refuses everything but ROLLBACK TO
+	// SAVEPOINT and says so in the Data tab.
+	if tx := m.query.tx; tx != nil {
+		switch {
+		case tx.busy != "":
+			return logCmd("-- run query skipped: %s of the open transaction is still in flight", tx.busy)
+		case tx.state == db.TxLost:
+			m.showQueryError(stmts[0], fmt.Errorf("%w (%s closes it)", db.ErrTxLost, m.keys.RollbackTx.Help().Key))
+			return logCmd("-- run query refused: the server ended the transaction — %s closes it",
+				m.keys.RollbackTx.Help().Key)
+		}
+	}
 
 	// A single statement with placeholders — a positional `?` or a named
 	// `:name`, detected by the tokenizer so a `?` inside a string or a
@@ -673,7 +709,7 @@ func (m *Model) vetQuery(stmts []string, args []any, display string) tea.Cmd {
 	}
 	m.modal = &confirmModal{
 		title:     unguardedWriteTitle(unguarded),
-		body:      unguardedWriteBody(unguarded, m.taggedConnName(m.active)),
+		body:      unguardedWriteBody(unguarded, m.taggedConnName(m.active)) + m.inTxNote(),
 		danger:    true,
 		onConfirm: func(mm *Model) tea.Cmd { return mm.startQuery(stmts, args, display) },
 	}
@@ -712,6 +748,15 @@ func unguardedWriteBody(ws []db.UnguardedWrite, active string) string {
 	return strings.Join(lines, "\n\n") + "\n\nThis runs immediately against " + active + "."
 }
 
+// inTxNote is what the unguarded-write confirm adds while a transaction
+// is open: the statement is not final until it commits.
+func (m Model) inTxNote() string {
+	if m.query.tx == nil {
+		return ""
+	}
+	return "\n\nIt runs inside the open transaction: nothing is final until it commits."
+}
+
 // startQuery launches the worker for an already-vetted statement list.
 // args, when non-nil, are the bound parameters of a single-statement run;
 // display is the statement as typed, for the history and the Data tab.
@@ -740,8 +785,14 @@ func (m *Model) startQuery(stmts []string, args []any, display string) tea.Cmd {
 		id: m.query.run.id, ctx: ctx, drv: m.driver, stmts: stmts, ch: m.query.run.ch,
 		args: args, display: display,
 	}
+	where := ""
+	if tx := m.query.tx; tx != nil && tx.handle != nil {
+		job.tx = tx.handle
+		where = " in the open transaction"
+	}
+	m.query.run.inTx = job.tx != nil
 	return tea.Batch(
-		logCmd("-- run %s on %s…", countStatements(len(stmts)), m.active),
+		logCmd("-- run %s on %s%s…", countStatements(len(stmts)), m.active, where),
 		startQueryCmd(job),
 		m.spin.Tick,
 	)
@@ -798,6 +849,7 @@ func (m *Model) cancelQuery() tea.Cmd {
 func (m *Model) applyQueryStmt(msg queryStmtMsg) tea.Cmd {
 	cmds := []tea.Cmd{
 		m.recordHistory(msg.sql),
+		m.noteTxStatement(msg),
 	}
 	where := ""
 	if msg.total > 1 {
@@ -862,8 +914,14 @@ func (m *Model) finishQuery(msg queryDoneMsg) tea.Cmd {
 		return logCmd("-- query stopped at statement %d of %d", msg.ran, m.query.run.total)
 	case m.query.run.total > 1:
 		m.query.run.outcome = fmt.Sprintf("%s ok, %s", countStatements(msg.ran), countAffected(m.query.run.affected))
+		if m.query.run.inTx {
+			m.query.run.outcome += " (in transaction)"
+		}
 		return logCmd("-- %s ok, %s total", countStatements(msg.ran), countAffected(m.query.run.affected))
 	default:
+		if m.query.run.inTx {
+			m.query.run.outcome += " (in transaction)"
+		}
 		return nil
 	}
 }
@@ -1059,6 +1117,9 @@ func (m Model) queryPanelTitle() string {
 		titleStyle = s.titleFocused
 	}
 	line := titleStyle.Render(fmt.Sprintf("[%d] %s", int(panelQuery)+1, panelTitles[panelQuery]))
+	if badge := m.txBadge(); badge != "" {
+		line += " " + badge
+	}
 	switch {
 	case m.query.run.running:
 		line += " " + s.pending.Render("running "+m.runningIndicator())
@@ -1103,6 +1164,9 @@ func (m Model) queryTitle() string {
 	if m.active != "" {
 		title += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
 	}
+	if badge := m.txBadge(); badge != "" {
+		title += " " + badge
+	}
 	return title
 }
 
@@ -1140,6 +1204,9 @@ func (m Model) queryStatusLine(w int) string {
 		badge = s.modeInsert.Render(" INSERT ")
 	}
 	line := badge
+	if tx := m.txBadge(); tx != "" {
+		line += " " + tx + " "
+	}
 	switch {
 	case m.query.run.running:
 		line += " " + s.pending.Render(m.runningIndicator()+" running — "+

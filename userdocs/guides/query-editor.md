@@ -107,6 +107,56 @@ normal mode, so iterating on a statement never costs the editor its focus.
     statement copies, an SQL export — are only offered when the statement
     selects from exactly one table.
 
+## Transactions
+
+Normally each statement the editor runs commits on its own. To try out a
+risky change first, open a transaction:
+
+| Key (normal mode) | Does |
+|---|---|
+| `B` | Begin a transaction |
+| `C` | Commit it — after a confirm naming how many statements it holds |
+| `U` | Roll it back — after a confirm, unless it is empty |
+
+While a transaction is open, every statement you run from the editor — ++enter++,
+++ctrl+r++, a re-run, `r` in the history pane — runs **inside it**, so you
+can inspect the effect with a `SELECT` before you decide. The state is always
+on screen: `⛁ TX open · 3 statements · 42s` sits in the options bar whatever
+panel has the focus, and in the editor's titles and status line. The command
+log prefixes every statement that ran inside the transaction with `[tx]`,
+`BEGIN`, `COMMIT` and `ROLLBACK` included.
+
+The transaction has a connection of its own. Everything else — browsing a
+table, the row counts, autocomplete, `ctrl+e` plans — keeps using the normal
+connections, so it **sees committed data only**; the grid's tab bar says so
+while a transaction is open.
+
+When a statement fails inside the transaction, what happens depends on the
+engine, and lazysql shows it instead of guessing:
+
+- **PostgreSQL** and **DuckDB** abort the whole transaction. The badge turns
+  red — `TX ABORTED` — commit is refused, and `U` rolls it back. On
+  PostgreSQL a `ROLLBACK TO SAVEPOINT` run from the editor revives it.
+- **MySQL/MariaDB** end it on a deadlock, **SQLite** when a write is
+  interrupted, and every engine when the connection drops: `TX ENDED BY
+  SERVER`, nothing was committed, and `U` closes it.
+- Any other failed statement leaves the transaction open: only that
+  statement is undone.
+
+Some things are refused while a transaction is open, each with an
+explanation:
+
+- `BEGIN`, `COMMIT`, `ROLLBACK` typed as SQL — use the keys. `SAVEPOINT`,
+  `RELEASE` and `ROLLBACK TO` work as usual.
+- On MySQL/MariaDB, DDL and the other statements that would commit the
+  transaction implicitly.
+- Committing the [staged changeset](../concepts/staged-mutations.md) and
+  importing a CSV file: both run on another connection and could wait forever
+  on rows the transaction has locked. Finish the transaction first.
+
+Quitting, disconnecting, or connecting elsewhere with a transaction open asks
+first, and rolls it back on confirm. A read-only connection refuses `B`.
+
 ## Query plans
 
 ++ctrl+e++ asks the server how it would run the statement the caret is in. The

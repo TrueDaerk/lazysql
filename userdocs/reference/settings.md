@@ -124,7 +124,7 @@ What each one does, and its default keys, is in
 `discard-changes` · `down` · `drop-connection` · `duplicate-connection` ·
 `duplicate-row` ·
 `edit-cell` · `edit-connection` · `edit-query` · `enter` · `expand-node` ·
-`explain-query` · `export-database-ddl` · `export-table` · `filter` ·
+`explain-analyze` · `explain-query` · `export-database-ddl` · `export-table` · `filter` ·
 `filter-hist-next` · `filter-hist-prev` · `follow-fk` · `help` ·
 `hist-delete` · `hist-load` · `hist-run` · `hist-section` · `hist-snippet` ·
 `history` · `import-csv` · `incoming-refs` · `insert-row` · `jump` · `leave-insert` ·

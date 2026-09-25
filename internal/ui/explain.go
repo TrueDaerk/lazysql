@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,12 @@ import (
 //   - One statement at a time. A script has as many plans as statements
 //     and no engine explains a batch, so a multi-statement buffer
 //     explains the one the caret is in.
+//
+// `ctrl+a` is the opt-in exception to the first rule: EXPLAIN ANALYZE,
+// which does execute the statement. It is its own key, offered only
+// where the engine has an analyzing EXPLAIN, refused for anything
+// db.IsWrite calls a write, and always behind a confirm modal. The two
+// kinds of plan are labelled apart on screen — see planKind.
 
 // explainTimeout bounds one plan request. Planning is cheap — nothing is
 // executed — so a request that has not answered by then is a stuck
@@ -41,6 +48,10 @@ type planView struct {
 	// stmt is the statement being explained, as the user wrote it.
 	stmt   string
 	engine string
+	// analyzed marks an EXPLAIN ANALYZE request: the statement runs, and
+	// cancel aborts it while it does.
+	analyzed bool
+	cancel   context.CancelFunc
 
 	plan   *db.Plan
 	lines  []string
@@ -50,10 +61,11 @@ type planView struct {
 
 // explainDoneMsg carries one finished plan request.
 type explainDoneMsg struct {
-	id   int
-	stmt string
-	plan *db.Plan
-	err  error
+	id       int
+	stmt     string
+	analyzed bool
+	plan     *db.Plan
+	err      error
 }
 
 // ---------- the flow ----------
@@ -81,34 +93,125 @@ func (m *Model) explainQuery() tea.Cmd {
 			db.FirstKeyword(span.SQL))
 	}
 
+	return m.startExplain(span.SQL, false)
+}
+
+// explainAnalyzeQuery is `ctrl+a`: the analyzed plan of the statement the
+// caret is in. Every refusal is decided here, before the confirm modal —
+// the modal is only ever asked about a statement that may run.
+func (m *Model) explainAnalyzeQuery() tea.Cmd {
+	if m.driver == nil {
+		return logCmd("-- explain analyze skipped: not connected")
+	}
+	if m.plan != nil && m.plan.running {
+		return logCmd("-- explain analyze skipped: a plan is still being fetched")
+	}
+	if m.query.run.running {
+		return logCmd("-- explain analyze skipped: a query is running")
+	}
+	// An engine without an analyzing EXPLAIN says so instead of offering
+	// a modal that could only end in an error.
+	if err := m.driver.ExplainAnalyzeSupport(); err != nil {
+		m.modal = &confirmModal{title: "EXPLAIN ANALYZE unavailable", body: err.Error()}
+		return logCmd("-- explain analyze unavailable: %v", err)
+	}
+	engine := m.driver.Engine()
+	span, ok := db.StatementAt(engine, m.script(), m.editorOffset())
+	if !ok {
+		return logCmd("-- explain analyze skipped: nothing to explain")
+	}
+	if phs := db.ExtractPlaceholders(engine, span.SQL); len(phs) > 0 {
+		return logCmd(
+			"-- explain analyze skipped: %s has placeholders — ctrl+r prompts for their values",
+			db.FirstKeyword(span.SQL))
+	}
+	// The same classification the read-only guard refuses on: a write is
+	// never analyzed, on any connection. The driver refuses it too; this
+	// only says so before a modal offers it.
+	if db.IsWrite(engine, span.SQL) {
+		m.modal = &confirmModal{
+			title:  "EXPLAIN ANALYZE refused",
+			body:   db.FirstKeyword(span.SQL) + " is a write.\n\n" + db.ErrAnalyzeWrite.Error() + ".",
+			danger: true,
+		}
+		return logCmd("-- explain analyze refused: %s is a write", db.FirstKeyword(span.SQL))
+	}
+	sql := span.SQL
+	m.modal = &confirmModal{
+		title:  "EXPLAIN ANALYZE — executes the statement",
+		body:   analyzeConfirmBody(sql, m.taggedConnName(m.active)),
+		danger: true,
+		onConfirm: func(mm *Model) tea.Cmd {
+			return mm.startExplain(sql, true)
+		},
+	}
+	return nil
+}
+
+// analyzeConfirmBody says plainly what confirming does: the statement
+// runs, for as long as it takes, against the named connection.
+func analyzeConfirmBody(sql, conn string) string {
+	return "This EXECUTES the statement on " + conn + " to measure it:\n\n" +
+		sql + "\n\n" +
+		"It is classified as a read and runs in a transaction that is rolled back, " +
+		"but it takes as long as the query itself and reads every row it touches. " +
+		"ctrl+c cancels it."
+}
+
+// startExplain opens the plan view for one statement and fetches its
+// plan: the estimated one, or with analyzed the measured one.
+func (m *Model) startExplain(stmt string, analyzed bool) tea.Cmd {
+	if m.driver == nil {
+		return nil
+	}
 	id := 1
 	if m.plan != nil {
 		id = m.plan.id + 1
 	}
+	m.dropPlan()
 	m.plan = &planView{
 		id: id, running: true,
-		stmt:   span.SQL,
-		engine: m.driver.Dialect().DisplayName(),
+		stmt:     stmt,
+		engine:   m.driver.Dialect().DisplayName(),
+		analyzed: analyzed,
 	}
 	// The plan replaces the editor in the main view, so the buffer stops
 	// taking keys while it is up; the text itself is untouched.
 	m.setEditing(false)
 	m.setFocus(panelQuery)
+	verb := "explain"
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if analyzed {
+		// An analyzed run takes as long as the query does, so it gets no
+		// timeout — ctrl+c, as for any other query, is how it stops.
+		verb = "explain analyze"
+		ctx, cancel = context.WithCancel(context.Background())
+		m.plan.cancel = cancel
+		m.keys.CancelQuery.SetEnabled(true)
+	} else {
+		ctx, cancel = context.WithTimeout(context.Background(), explainTimeout)
+	}
 	return tea.Batch(
-		logCmd("-- explain %s on %s…", db.FirstKeyword(span.SQL), m.active),
-		explainCmd(id, m.driver, span.SQL),
+		logCmd("-- %s %s on %s…", verb, db.FirstKeyword(stmt), m.active),
+		explainCmd(ctx, cancel, id, m.driver, stmt, analyzed),
 	)
 }
 
 // explainCmd fetches one plan. The statement itself lands in the command
 // log through the Driver's Logger, like every other statement lazysql
 // runs — nothing here re-formats it.
-func explainCmd(id int, drv db.Driver, sql string) tea.Cmd {
+func explainCmd(ctx context.Context, cancel context.CancelFunc, id int, drv db.Driver, sql string, analyzed bool) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), explainTimeout)
 		defer cancel()
-		plan, err := drv.Explain(ctx, sql)
-		return explainDoneMsg{id: id, stmt: sql, plan: plan, err: err}
+		var plan *db.Plan
+		var err error
+		if analyzed {
+			plan, err = drv.ExplainAnalyze(ctx, sql)
+		} else {
+			plan, err = drv.Explain(ctx, sql)
+		}
+		return explainDoneMsg{id: id, stmt: sql, analyzed: analyzed, plan: plan, err: err}
 	}
 }
 
@@ -118,17 +221,57 @@ func (m *Model) finishExplain(msg explainDoneMsg) tea.Cmd {
 		return nil
 	}
 	m.plan.running = false
-	if msg.err != nil {
+	m.plan.cancel = nil
+	if msg.analyzed && !m.query.run.running {
+		m.keys.CancelQuery.SetEnabled(false)
+	}
+	verb := "explain"
+	if msg.analyzed {
+		verb = "explain analyze"
+	}
+	switch {
+	case errors.Is(msg.err, context.Canceled):
+		m.plan.err = "cancelled"
+		return logCmd("-- %s cancelled", verb)
+	case msg.err != nil:
 		m.plan.err = msg.err.Error()
-		return logCmd("-- explain FAILED: %v", msg.err)
+		return logCmd("-- %s FAILED: %v", verb, msg.err)
 	}
 	m.plan.plan = msg.plan
 	m.plan.lines = msg.plan.Lines()
-	return logCmd("-- plan for %s: %d lines", db.FirstKeyword(msg.stmt), len(m.plan.lines))
+	return logCmd("-- %s plan for %s: %d lines",
+		planKind(msg.plan.Analyzed), db.FirstKeyword(msg.stmt), len(m.plan.lines))
 }
 
 // closePlan is `esc` on an open plan: back to the editor, buffer intact.
-func (m *Model) closePlan() { m.plan = nil }
+func (m *Model) closePlan() { m.dropPlan() }
+
+// dropPlan clears the plan view, cancelling an analyzed run still in
+// flight: nothing would be left to show its result, and the statement
+// should not keep running unseen.
+func (m *Model) dropPlan() {
+	p := m.plan
+	if p == nil {
+		return
+	}
+	if p.running && p.cancel != nil {
+		p.cancel()
+		if !m.query.run.running {
+			m.keys.CancelQuery.SetEnabled(false)
+		}
+	}
+	m.plan = nil
+}
+
+// planKind names which of the two plans is on screen. An estimated plan
+// and an analyzed one look alike line for line, so every place that
+// shows one says which it is.
+func planKind(analyzed bool) string {
+	if analyzed {
+		return "analyzed"
+	}
+	return "estimated"
+}
 
 // editorOffset is the caret's rune offset into the buffer. The textarea
 // reports a row and a column; the statement splitter works in offsets,
@@ -161,6 +304,10 @@ func (m Model) updatePlanKeys(msg tea.KeyPressMsg) (Model, tea.Cmd, bool) {
 	k := m.keys
 	switch {
 	case key.Matches(msg, k.Back):
+		if p.running && p.analyzed {
+			return m, logCmd("-- explain analyze still running — %s cancels it",
+				k.CancelQuery.Help().Key), true
+		}
 		if p.running {
 			return m, logCmd("-- plan still loading…"), true
 		}
@@ -206,13 +353,21 @@ func (m Model) planContent(w, h int) string {
 		s.muted.Render(truncate(firstLine(p.stmt), w)),
 	}
 	switch {
+	case p.running && p.analyzed:
+		lines = append(lines, "", s.pending.Render(truncate(
+			"executing and measuring… "+m.keys.CancelQuery.Help().Key+" cancels", w)))
 	case p.running:
 		lines = append(lines, "", s.pending.Render("planning…"))
 	case p.err != "":
-		lines = append(lines, "", s.danger.Render(truncate("explain failed: "+p.err, w)))
+		what := "explain"
+		if p.analyzed {
+			what = "explain analyze"
+		}
+		lines = append(lines, "", s.danger.Render(truncate(what+" failed: "+p.err, w)))
 		lines = append(lines, "", s.keyHint.Render("esc back to the editor"))
 	default:
-		body := maxInt(h-2, 0) // statement, footer — the header is the border title
+		body := maxInt(h-3, 0) // statement, kind, footer — the header is the border title
+		lines = append(lines, m.planKindLine(w))
 		lines = append(lines, scrollLines(p.lines, p.offset, w, body)...)
 		hint := fmt.Sprintf("%d lines — j/k scroll · y copy · esc back to the editor", len(p.lines))
 		lines = append(lines, s.keyHint.Render(truncate(hint, w)))
@@ -220,10 +375,24 @@ func (m Model) planContent(w, h int) string {
 	return joinTruncated(lines, w, h)
 }
 
-// planTitle is the main view's border title while a plan is open.
+// planKindLine is the row under the statement that says which plan this
+// is and what its figures mean. The analyzed one is in the danger colour:
+// it is the plan whose statement actually ran.
+func (m Model) planKindLine(w int) string {
+	if m.plan.analyzed {
+		return m.style.danger.Render(truncate(
+			"ANALYZED — the statement was executed; figures are measured", w))
+	}
+	return m.style.muted.Render(truncate(
+		"ESTIMATED — not executed; figures are the planner's estimates", w))
+}
+
+// planTitle is the main view's border title while a plan is open. It
+// names the plan's kind, so the two are told apart even at a glance.
 func (m Model) planTitle() string {
 	s := m.style
-	title := s.titleFocused.Render("Query plan") + s.muted.Render(" — "+m.plan.engine)
+	title := s.titleFocused.Render("Query plan ("+planKind(m.plan.analyzed)+")") +
+		s.muted.Render(" — "+m.plan.engine)
 	if m.active != "" {
 		title += s.muted.Render(" · " + m.active + " / " + displayDatabase(m.database))
 	}

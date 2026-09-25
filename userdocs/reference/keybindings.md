@@ -176,6 +176,7 @@ The panel's own actions, live in vim **normal** mode.
 | `enter` | Run the statement at the cursor | `run-statement` |
 | `ctrl+r` · `ctrl+enter` | Run the whole script | `run-editor` |
 | `ctrl+e` | Explain | `explain-query` |
+| `ctrl+a` | Explain analyze — **executes** the statement, after a confirm | `explain-analyze` |
 | `D` | Clear the buffer | `clear-query` |
 | `H` · `backspace` | History &amp; snippets | `history` |
 | `ctrl+s` | Save snippet | `save-snippet` |

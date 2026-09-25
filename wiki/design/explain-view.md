@@ -1,14 +1,19 @@
 ---
 type: Design Decision
 title: EXPLAIN view for the editor's statement
-description: Why the query plan is a Driver method returning one dialect-agnostic Plan (tree, grid or preformatted text) instead of dialect-aware UI code, why it takes over the main view instead of opening a modal, how the statement under the caret is picked in a multi-statement buffer, and why ANALYZE is never sent.
+description: Why the query plan is a Driver method returning one dialect-agnostic Plan (tree, grid or preformatted text) instead of dialect-aware UI code, why it takes over the main view instead of opening a modal, how the statement under the caret is picked in a multi-statement buffer, why ctrl+e never sends ANALYZE, and how the opt-in EXPLAIN ANALYZE on ctrl+a is guarded (reads only via IsWrite, confirm modal, rolled-back transaction, cancellable, labelled apart on screen).
 tags: [tui, query-editor, explain, query-plan, db, keybindings]
 generated:
   by: claude-code/opus-5
   at: 2026-08-09T23:30:00Z
+updated:
+  by: claude-code/opus-5.5
+  at: 2026-09-25T12:00:00Z
 sources:
   - resource: https://github.com/TrueDaerk/lazysql/issues/46
     title: "Issue #46 — EXPLAIN view for the current query (dialect-aware)"
+  - resource: https://github.com/TrueDaerk/lazysql/issues/227
+    title: "Issue #227 — Add an opt-in EXPLAIN ANALYZE guarded against writes"
 ---
 
 # EXPLAIN view for the editor's statement
@@ -46,11 +51,64 @@ branch.
 ## Why ANALYZE is never sent
 
 `EXPLAIN ANALYZE` executes the statement. A plan is something the user
-asked to *look at*; a look that deletes rows is not a look. Only the
-planning form is ever sent, which is what makes explaining a `DELETE` as
+asked to *look at*; a look that deletes rows is not a look. `ctrl+e` only
+ever sends the planning form, which is what makes explaining a `DELETE` as
 safe as explaining a `SELECT` — and why `ctrl+e`, unlike `ctrl+r`, needs
-no unguarded-write confirm modal. An opt-in `EXPLAIN ANALYZE` would need
-its own key *and* its own confirmation; it is deliberately not here.
+no unguarded-write confirm modal.
+
+## The opt-in analyzed plan (`ctrl+a`, issue #227)
+
+The estimated plan cannot answer "where did the time actually go?", so an
+analyzed plan exists — as a **separate** Driver method and a **separate**
+key, never as a flag on `Explain` or a modifier on `ctrl+e`:
+
+```go
+ExplainAnalyzeSupport() error
+ExplainAnalyze(ctx context.Context, sql string) (*Plan, error)
+```
+
+Guards, in the order they apply:
+
+1. **Its own key, normal mode only.** `ctrl+a` is not one modifier away
+   from `ctrl+e` and is not bound in insert mode (where the textarea owns
+   it). It is configurable as `explain-analyze`.
+2. **Engine support first.** `ExplainAnalyzeSupport` answers
+   `ErrUnsupported` with a reason on SQLite; the key then opens an
+   explanation modal with no confirm action rather than offering a run that
+   can only fail.
+3. **Reads only, by the existing classifier.** The UI refuses anything
+   `db.IsWrite` calls a write, with an explanation modal, before a confirm
+   is ever shown. `conn.ExplainAnalyze` repeats the check authoritatively
+   with `ContainsWrite` (so a trailing `; DELETE …` is caught too) and
+   returns `ErrAnalyzeWrite`. No new SQL parsing was added: this is the
+   same rule the read-only guard enforces, which is exactly why a
+   read-only connection may analyze a read — it may run it anyway — and
+   still refuses a write.
+4. **A confirm modal that says "EXECUTES".** It names the connection and
+   shows the statement; nothing reaches the server until it is accepted.
+5. **A rolled-back transaction.** The run happens inside `BeginTx` and is
+   always rolled back; the transaction is `ReadOnly` on PostgreSQL and
+   MySQL/MariaDB, so the *server* refuses a write the classifier cannot see
+   (a `SELECT` calling a function that modifies data). go-duckdb refuses
+   read-only transactions outright, so DuckDB gets a plain one.
+
+The analyzed run has **no timeout** — it takes as long as the query — and
+is cancelled with `ctrl+c` like a script run: `planView.cancel` holds the
+context's cancel func, `CancelQuery` is enabled while it runs (otherwise
+`ctrl+c` in normal mode would be *quit*), and `cancelQuery` checks the plan
+first. Anything that drops the plan — `i`, a new run, a disconnect — goes
+through `dropPlan`, which cancels a running analyzed request rather than
+leaving it running unseen. `esc` while it runs says `ctrl+c` cancels.
+
+### Telling the two plans apart
+
+An estimated and an analyzed plan look alike line for line, so the view
+always says which it is: the border title reads `Query plan (estimated)` or
+`Query plan (analyzed)`, and the first content row is either a muted
+`ESTIMATED — not executed …` or a danger-coloured `ANALYZED — the statement
+was executed …`. The kind comes from `planView.analyzed` (what was asked)
+and `db.Plan.Analyzed` (set only by `ExplainAnalyze`), and the command log
+line says `estimated plan` / `analyzed plan` too.
 
 ## Why the main view, not a modal
 

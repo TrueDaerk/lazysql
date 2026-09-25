@@ -163,7 +163,9 @@ type historyEntryMsg struct{ statement string }
 
 // Model is the single root model: it owns terminal size, focus, one child
 // model per side panel, main view state, the open modal (nil = none) and the
-// command log.
+// command log. The larger feature states hang off it as sub-models — grid,
+// query, exports — that are plain structs the root routes to, not
+// tea.Models; see wiki/design/tui-shell-architecture.md.
 type Model struct {
 	width, height int
 
@@ -230,21 +232,10 @@ type Model struct {
 	// See grid.go.
 	grid gridModel
 
-	// export is the file export in flight, if any. At most one runs at
-	// a time; `X` cancels it.
-	export exportState
-
-	// backup is the dump or restore in flight, if any — an external tool
-	// (pg_dump, mysqldump) or the file engines' own SQL. Like the export
-	// only one runs at a time and `X` cancels it.
-	backup backupState
-
-	// dbDDLExport guards a whole-database DDL export the same way: only
-	// one runs at a time. It has no cancel key of its own — one round
-	// trip per relation finishes long before a data export would — but
-	// resetBrowse still cancels it when the connection it reads through
-	// is closing.
-	dbDDLExport dbDDLExportState
+	// exports are the file transfers in flight — table export, dump or
+	// restore, whole-database DDL export — one of each at most. See
+	// exportsmodel.go.
+	exports exportsModel
 
 	// diff is the schema diff on screen (running or finished), nil when
 	// none. It dials its own connections, so it survives disconnects.
@@ -474,19 +465,11 @@ func (m *Model) resetBrowse() {
 	// Staged changes reference the connection's tables; they cannot
 	// survive it. They are discarded, not committed.
 	m.grid.changes.Clear()
-	// An export reads through the driver that is about to be closed.
-	if m.export.running && m.export.cancel != nil {
-		m.export.cancel()
-	}
-	// So does a whole-database DDL export.
-	if m.dbDDLExport.running && m.dbDDLExport.cancel != nil {
-		m.dbDDLExport.cancel()
-	}
-	// A dump of a file engine runs its SQL through the same driver, and
-	// a tunnelled dump runs through the tunnel that is about to close.
-	if m.backup.running && m.backup.cancel != nil {
-		m.backup.cancel()
-	}
+	// An export reads through the driver that is about to be closed, and
+	// so does a whole-database DDL export. A dump of a file engine runs
+	// its SQL through the same driver, and a tunnelled dump runs through
+	// the tunnel that is about to close.
+	m.exports.cancelAll()
 	// So does a running script.
 	if m.query.run.running && m.query.run.cancel != nil {
 		m.query.run.cancel()
@@ -1148,16 +1131,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, logCmd("%s", msg.line)
 
 	case exportProgressMsg:
-		if msg.id != m.export.id || !m.export.running {
+		if msg.id != m.exports.file.id || !m.exports.file.running {
 			return m, nil
 		}
 		return m, tea.Batch(
-			logCmd("-- export %s: %d rows…", m.export.table, msg.rows),
-			waitExportCmd(m.export.ch),
+			logCmd("-- export %s: %d rows…", m.exports.file.table, msg.rows),
+			waitExportCmd(m.exports.file.ch),
 		)
 
 	case exportDoneMsg:
-		if msg.id != m.export.id {
+		if msg.id != m.exports.file.id {
 			return m, nil
 		}
 		// Bind the command first: finishExport clears the in-flight
@@ -1173,16 +1156,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case backupLineMsg:
-		if msg.id != m.backup.id || !m.backup.running {
+		if msg.id != m.exports.backup.id || !m.exports.backup.running {
 			return m, nil
 		}
 		return m, tea.Batch(
-			logCmd("-- %s: %s", m.backup.action, msg.line),
-			waitBackupCmd(m.backup.ch),
+			logCmd("-- %s: %s", m.exports.backup.action, msg.line),
+			waitBackupCmd(m.exports.backup.ch),
 		)
 
 	case backupDoneMsg:
-		if msg.id != m.backup.id {
+		if msg.id != m.exports.backup.id {
 			return m, nil
 		}
 		// Bind the command first: finishBackup clears the in-flight state
@@ -1192,7 +1175,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case databaseDDLExportedMsg:
-		if msg.id != m.dbDDLExport.id {
+		if msg.id != m.exports.ddl.id {
 			return m, nil
 		}
 		cmd := m.finishDatabaseDDLExport(msg)

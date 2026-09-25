@@ -90,8 +90,8 @@ func (m *Model) startExport() tea.Cmd {
 	if m.tab == mainTabDDL {
 		return m.startDDLExport()
 	}
-	if m.export.running {
-		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.export.table)
+	if m.exports.file.running {
+		return logCmd("-- export skipped: %s is still exporting (X cancels it)", m.exports.file.table)
 	}
 	subject := m.dataSubject()
 	m.modal = newPromptModal(
@@ -163,9 +163,9 @@ func (m *Model) runTableExport(full string, format export.Format) tea.Cmd {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.export = exportState{
+	m.exports.file = exportState{
 		running: true,
-		id:      m.export.id + 1,
+		id:      m.exports.file.id + 1,
 		table:   m.grid.data.table,
 		cancel:  cancel,
 		ch:      make(chan tea.Msg),
@@ -173,14 +173,14 @@ func (m *Model) runTableExport(full string, format export.Format) tea.Cmd {
 	m.keys.CancelExport.SetEnabled(true)
 
 	job := exportJob{
-		id:      m.export.id,
+		id:      m.exports.file.id,
 		ctx:     ctx,
 		file:    f,
 		path:    full,
 		format:  format,
 		options: m.exportOptions(""),
 		source:  tableSource(pagerFor(m.driver, m.grid.data)),
-		ch:      m.export.ch,
+		ch:      m.exports.file.ch,
 	}
 	return tea.Batch(
 		logCmd("-- export %s to %s as %s (streaming %d rows per page)…",
@@ -211,9 +211,9 @@ func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.export = exportState{
+	m.exports.file = exportState{
 		running: true,
-		id:      m.export.id + 1,
+		id:      m.exports.file.id + 1,
 		table:   "query result",
 		cancel:  cancel,
 		ch:      make(chan tea.Msg),
@@ -221,14 +221,14 @@ func (m *Model) runQueryExport(full string, format export.Format) tea.Cmd {
 	m.keys.CancelExport.SetEnabled(true)
 
 	job := exportJob{
-		id:      m.export.id,
+		id:      m.exports.file.id,
 		ctx:     ctx,
 		file:    f,
 		path:    full,
 		format:  format,
 		options: export.Options{Database: m.grid.data.database, Table: table, Dialect: m.driver.Dialect()},
 		source:  querySource(queryRunnerFor(m.driver, m.grid.data)),
-		ch:      m.export.ch,
+		ch:      m.exports.file.ch,
 	}
 	return tea.Batch(
 		logCmd("-- export query result to %s as %s (streaming)…", full, strings.ToUpper(string(format))),
@@ -364,18 +364,18 @@ func (c *countingWriter) Write(p []byte) (int, error) {
 // cancelExport is `X`. The worker notices the cancelled context between
 // pages and between rows and removes the partial file.
 func (m *Model) cancelExport() tea.Cmd {
-	if !m.export.running {
+	if !m.exports.file.running {
 		return nil
 	}
-	m.export.cancel()
-	return logCmd("-- cancelling export of %s…", m.export.table)
+	m.exports.file.cancel()
+	return logCmd("-- cancelling export of %s…", m.exports.file.table)
 }
 
 // finishExport clears the in-flight state and renders the outcome.
 func (m *Model) finishExport(msg exportDoneMsg) tea.Cmd {
-	m.export.running = false
-	m.export.cancel = nil
-	m.export.ch = nil
+	m.exports.file.running = false
+	m.exports.file.cancel = nil
+	m.exports.file.ch = nil
 	m.keys.CancelExport.SetEnabled(false)
 	switch {
 	case errors.Is(msg.err, context.Canceled):

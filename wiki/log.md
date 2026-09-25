@@ -2064,3 +2064,8 @@ Chronological history of wiki changes, newest last.
   moved off the root `Model` into a `queryModel` sub-model
   (`querymodel.go`); the history dedupe/cap and snippet put/remove
   bookkeeping live on it.
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md)
+  (issue #229, step 3): the export, dump/restore and database DDL export
+  jobs moved off the root `Model` into an `exportsModel` sub-model
+  (`exportsmodel.go`) with the cancel-on-disconnect rule as its one
+  method. The three sub-models are now listed in one table.

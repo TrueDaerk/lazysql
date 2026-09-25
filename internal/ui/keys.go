@@ -55,8 +55,13 @@ type keyMap struct {
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
 	CommandLog  key.Binding
-	Help        key.Binding
-	Quit        key.Binding
+	// LogIntrospection reveals (and hides again) the catalog queries
+	// lazysql runs on its own behalf, which the command log leaves out by
+	// default. It is global, so it works on the slim strip under the main
+	// view, and the expanded log modal matches it too.
+	LogIntrospection key.Binding
+	Help             key.Binding
+	Quit             key.Binding
 
 	// Context actions, keyed by panel.
 	NewConnection key.Binding
@@ -346,8 +351,12 @@ func newKeyMap() keyMap {
 		// layout-neutral alias. It is free in every panel and in the
 		// editor's vim mode, and global keys are matched before either.
 		CommandLog: key.NewBinding(key.WithKeys("@", "L"), key.WithHelp("@/L", "expand command log")),
-		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		// ctrl+l for "log": every plain letter is some panel's action,
+		// and a global key is matched before the panel sees it.
+		LogIntrospection: key.NewBinding(
+			key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "show/hide introspection in log")),
+		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		// `o` for open, free on panel [1]: n saves a profile, o just
@@ -803,7 +812,7 @@ func (k keyMap) filterInput() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.CommandLog, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.LogIntrospection, k.Help, k.Quit,
 	}
 }
 
@@ -1126,6 +1135,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
+		{"log-introspection", &k.LogIntrospection},
 		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"open-file", &k.OpenFile},

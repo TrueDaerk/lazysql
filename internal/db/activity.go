@@ -26,7 +26,8 @@ import (
 //     calling it.
 //   - Both run through the same querier/Logger as every other statement,
 //     so the process list and the KILL land in the command log without
-//     anything re-formatting them by hand.
+//     anything re-formatting them by hand. The listing is polled, so it
+//     is logged as introspection (hidden by default); the KILL is not.
 
 // Process is one session (MySQL/MariaDB) or backend (PostgreSQL) the
 // server currently has. Every string field is empty rather than a

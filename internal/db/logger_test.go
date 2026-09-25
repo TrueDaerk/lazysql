@@ -117,3 +117,55 @@ func TestConnLogsExactlyOnce(t *testing.T) {
 		t.Fatal("the failing statement's entry has no Err")
 	}
 }
+
+// Catalog introspection is tagged where it is logged — by the querier the
+// List*/Table* methods run through — and what the user asked for is not,
+// whatever the SQL text looks like. Covered on both in-process engines.
+func TestLoggerTagsIntrospection(t *testing.T) {
+	for _, engine := range []Engine{EngineSQLite, EngineDuckDB} {
+		t.Run(string(engine), func(t *testing.T) {
+			drv := openTest(t, engine, "")
+			seed(t, drv)
+			ctx := context.Background()
+
+			before := len(drv.Logger().Entries())
+			if _, err := drv.ListRelations(ctx, ""); err != nil {
+				t.Fatalf("ListRelations: %v", err)
+			}
+			if _, err := drv.TableColumns(ctx, "", "users"); err != nil {
+				t.Fatalf("TableColumns: %v", err)
+			}
+			intro := drv.Logger().Entries()[before:]
+			if len(intro) == 0 {
+				t.Fatal("introspection logged nothing")
+			}
+			for _, e := range intro {
+				if !e.Introspection {
+					t.Fatalf("introspection entry %q is not tagged", e.SQL)
+				}
+			}
+
+			before = len(drv.Logger().Entries())
+			if _, err := drv.QueryPage(ctx, "", "users", nil, nil, 10, 0); err != nil {
+				t.Fatalf("QueryPage: %v", err)
+			}
+			if _, err := drv.CountRows(ctx, "", "users", nil); err != nil {
+				t.Fatalf("CountRows: %v", err)
+			}
+			if _, err := drv.Query(ctx, "SELECT name FROM users"); err != nil {
+				t.Fatalf("Query: %v", err)
+			}
+			if _, err := drv.Explain(ctx, "SELECT name FROM users"); err != nil {
+				t.Fatalf("Explain: %v", err)
+			}
+			if _, err := drv.Exec(ctx, "UPDATE users SET name = 'x' WHERE id = 1"); err != nil {
+				t.Fatalf("Exec: %v", err)
+			}
+			for _, e := range drv.Logger().Entries()[before:] {
+				if e.Introspection {
+					t.Fatalf("user statement %q is tagged as introspection", e.SQL)
+				}
+			}
+		})
+	}
+}

@@ -29,6 +29,20 @@ var mainTabNames = [mainTabCount]string{"Data", "Structure", "Indexes", "DDL", "
 // rather than by the paged data query.
 func (t mainTab) metadata() bool { return t != mainTabData }
 
+// visibleMainTabs is the set of tabs the strip currently offers. A query
+// result has no relation behind it, so Structure/Indexes/DDL/Relations
+// have nothing to show and are dropped rather than left dead.
+func (m Model) visibleMainTabs() []mainTab {
+	if m.data.isQuery() {
+		return []mainTab{mainTabData}
+	}
+	tabs := make([]mainTab, mainTabCount)
+	for t := mainTab(0); t < mainTabCount; t++ {
+		tabs[t] = t
+	}
+	return tabs
+}
+
 // metaView is the state behind the Structure, Indexes and DDL tabs.
 // All three come from one round trip: a table's columns, indexes,
 // foreign keys and DDL are read together the first time any of those

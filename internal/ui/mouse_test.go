@@ -121,21 +121,41 @@ func TestClickOnAnotherRowOnlySelects(t *testing.T) {
 }
 
 func TestMainTabHitOffsets(t *testing.T) {
+	tabs := make([]mainTab, mainTabCount)
+	for t := mainTab(0); t < mainTabCount; t++ {
+		tabs[t] = t
+	}
 	at := 1 // the `‹`
 	for want := mainTab(0); want < mainTabCount; want++ {
 		if want > 0 {
 			at++ // the `|`
 		}
 		for i := 0; i < len(mainTabNames[want]); i++ {
-			got, ok := mainTabHit(at + i)
+			got, ok := mainTabHit(at+i, tabs)
 			if !ok || got != want {
 				t.Fatalf("mainTabHit(%d) = %v,%v, want %v", at+i, got, ok, want)
 			}
 		}
 		at += len(mainTabNames[want])
 	}
-	if _, ok := mainTabHit(0); ok {
+	if _, ok := mainTabHit(0, tabs); ok {
 		t.Fatal("mainTabHit(0) hit a tab, want the `‹` to miss")
+	}
+}
+
+// On a query result the strip carries only Data, so a click past its
+// label must miss instead of landing on a tab the strip never drew.
+func TestMainTabHitOnQueryResultOnlyHitsData(t *testing.T) {
+	tabs := []mainTab{mainTabData}
+	at := 1 // the `‹`
+	for i := 0; i < len(mainTabNames[mainTabData]); i++ {
+		got, ok := mainTabHit(at+i, tabs)
+		if !ok || got != mainTabData {
+			t.Fatalf("mainTabHit(%d) = %v,%v, want Data", at+i, got, ok)
+		}
+	}
+	if _, ok := mainTabHit(at+len(mainTabNames[mainTabData]), tabs); ok {
+		t.Fatal("mainTabHit hit a tab past Data, want a miss on a query result")
 	}
 }
 

@@ -520,7 +520,7 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		// The Data/Structure/Indexes/DDL/Relations bar rides the title
 		// whenever a relation or a result is open — see mainTitle.
 		if m.focus != panelConnections && m.data.open() {
-			if t, ok := mainTabHit(h.col); ok {
+			if t, ok := mainTabHit(h.col, m.visibleMainTabs()); ok {
 				m.setFocus(panelMain)
 				cmd := m.setMainTab(t)
 				return m, cmd
@@ -593,14 +593,16 @@ func gridColumnAt(cols []gridColumn, x int) (int, bool) {
 // ---------- tab hit-testing ----------
 
 // mainTabHit maps a cell offset inside the main view's title onto a tab.
-// mainTabBar opens with `‹` and separates the labels with `|`.
-func mainTabHit(col int) (mainTab, bool) {
+// mainTabBar opens with `‹` and separates the labels with `|`; tabs must
+// be the same set mainTabBar rendered, or the hit test would let a click
+// select a tab the strip never showed.
+func mainTabHit(col int, tabs []mainTab) (mainTab, bool) {
 	if col < 0 {
 		return 0, false
 	}
 	at := lipgloss.Width("‹")
-	for t := mainTab(0); t < mainTabCount; t++ {
-		if t > 0 {
+	for i, t := range tabs {
+		if i > 0 {
 			at += lipgloss.Width("|")
 		}
 		w := lipgloss.Width(mainTabNames[t])

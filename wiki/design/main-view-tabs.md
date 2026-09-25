@@ -68,6 +68,24 @@ highlighted, in the
 same idiom the `[3]` panel's Tables/Views sub-tabs used before the
 object tree replaced them ([design/object-tree-panel](object-tree-panel.md)).
 
+## A query result only ever offers `Data`
+
+`Structure`, `Indexes`, `DDL` and `Relations` all describe a relation;
+an ad-hoc query result is not one, so those four tabs are dropped from
+the strip rather than left dead. `Model.visibleMainTabs` (in
+`internal/ui/meta.go`) is the single predicate both renderers walk:
+`mainTabBar` builds the strip from it, and `mainTabHit` in
+`internal/ui/mouse.go` is passed the same slice so a mouse click cannot
+land on a tab the strip never drew. `setMainTab` already forced the tab
+back to `Data` on a query result before this predicate existed, so `<` /
+`>` (and their `[`/`]`, `,`/`.` aliases) were already no-ops there — this
+only fixes the strip that was still advertising four dead tabs to the
+side of them.
+
+Opening a relation from `[2] Objects` clears `dataView.query`, which is
+`isQuery`'s test, so the full five-tab strip reappears the moment a
+result stops being a result.
+
 ## What resets when the relation changes
 
 Selecting another table keeps the **selected tab** and drops

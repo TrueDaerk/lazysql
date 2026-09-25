@@ -1970,3 +1970,12 @@ Chronological history of wiki changes, newest last.
   production too); the suite drops to 48s with coverage unchanged. The concept
   also records the timers that remain (modal inputs' visible blink, the input
   coalescer's 16ms flush) and why they stay.
+
+## 2026-09-25 — Query results show only the Data tab (issue #216)
+
+- Updated [design/main-view-tabs](design/main-view-tabs.md): a query result
+  has no relation behind it, so `Structure`/`Indexes`/`DDL`/`Relations` no
+  longer appear in the strip while one is open — only `Data` does.
+  `Model.visibleMainTabs` is the one predicate `mainTabBar` and
+  `mainTabHit` (`internal/ui/mouse.go`) both walk, so a mouse click can't
+  select a tab the strip never drew.

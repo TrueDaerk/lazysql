@@ -15,8 +15,9 @@ const metaColGap = 2
 // mainTabBar is the first line of the main view: the four tabs with the
 // selected one highlighted, then the relation the tabs describe.
 func (m Model) mainTabBar(w int) string {
-	parts := make([]string, 0, mainTabCount)
-	for t := mainTab(0); t < mainTabCount; t++ {
+	tabs := m.visibleMainTabs()
+	parts := make([]string, 0, len(tabs))
+	for _, t := range tabs {
 		style := m.style.muted
 		switch {
 		case t != m.tab:

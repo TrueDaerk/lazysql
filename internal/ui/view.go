@@ -624,7 +624,16 @@ func (m Model) renderCommandLog(w, h int) string {
 		lines = lines[start:]
 	}
 	return renderTitledBox(m.style.blurredBorder,
-		m.style.title.Render("Command log"), strings.Join(lines, "\n"), w, h)
+		m.style.title.Render(m.commandLogTitle()), strings.Join(lines, "\n"), w, h)
+}
+
+// commandLogTitle names the log, and says so while it also lists the
+// catalog introspection it hides by default.
+func (m Model) commandLogTitle() string {
+	if m.showIntrospection {
+		return "Command log · with introspection"
+	}
+	return "Command log"
 }
 
 // optionsBarBindings is what the bottom bar offers for the focused panel.

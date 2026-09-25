@@ -77,8 +77,10 @@ type logLine struct {
 	err  bool
 }
 
+// render expands tabs: truncate measures a tab as one cell, the terminal
+// draws up to eight, and the overshoot wraps inside the log's box.
 func (l logLine) render() string {
-	return l.at.Format("15:04:05") + "  " + l.text
+	return l.at.Format("15:04:05") + "  " + strings.ReplaceAll(l.text, "\t", "    ")
 }
 
 // commandLogEntries merges the UI's own notes with the connected
@@ -87,10 +89,17 @@ func (l logLine) render() string {
 // expanded view. The Logger, not this slice, is what guarantees a
 // statement from browsing, editing or the query editor shows up exactly
 // once: nothing here re-formats SQL by hand.
+//
+// Catalog introspection the Driver ran on its own behalf is left out
+// unless showIntrospection is on — except when it failed: an error the
+// user cannot see is worse than noise.
 func (m Model) commandLogEntries() []logLine {
 	out := append([]logLine(nil), m.commandLog...)
 	if m.driver != nil {
 		for _, e := range m.driver.Logger().Entries() {
+			if e.Introspection && !m.showIntrospection && (e.Err == nil || cancelled(e.Err)) {
+				continue
+			}
 			// A superseded page or count query is not a failed one: it is
 			// logged, but neither spelled nor coloured as a failure.
 			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil && !cancelled(e.Err)})
@@ -172,6 +181,9 @@ type Model struct {
 	logCollapsed bool
 
 	commandLog []logLine
+	// showIntrospection reveals the Driver's own catalog queries in the
+	// command log; they are hidden by default. See commandLogEntries.
+	showIntrospection bool
 
 	// Connection manager state. cfg is the on-disk connection list; connState
 	// is the transient per-connection status the panel colors itself by.
@@ -1349,7 +1361,11 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, cmd
 
 	case key.Matches(msg, k.CommandLog):
-		m.modal = newCommandLogModal(m.commandLogEntries())
+		m.modal = newCommandLogModal(m)
+		return true, m, nil
+
+	case key.Matches(msg, k.LogIntrospection):
+		m.showIntrospection = !m.showIntrospection
 		return true, m, nil
 
 	case key.Matches(msg, k.ToggleCommandLog):

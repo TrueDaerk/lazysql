@@ -1,9 +1,10 @@
 # The command log
 
 Every SQL statement lazysql executes is written to the log panel under the
-main view — the page queries behind the grid, the introspection behind the
-Structure tab, the `EXPLAIN` behind `ctrl+e`, the statements a commit runs, and
-everything you type into the query editor.
+main view — the page queries behind the grid, the `EXPLAIN` behind `ctrl+e`,
+the statements a commit runs, everything you type into the query editor, and
+(on request, see below) the introspection behind the object tree and the
+Structure tab.
 
 ```text
 ├─Command log───────────────────────────────────────┤
@@ -15,6 +16,22 @@ everything you type into the query editor.
 
 `@` — or `L`, for terminals where `@` is an AltGr chord — expands it into a
 full-height scrollable view. ++esc++ closes it again.
+
+## Introspection is hidden by default
+
+To list databases, tables, columns, indexes, foreign keys and table sizes,
+lazysql queries the engine's catalog on its own behalf — `information_schema`
+on MySQL/MariaDB, `pg_catalog` on PostgreSQL, `PRAGMA`/`sqlite_master`/`dbstat`
+on SQLite, the `duckdb_*()` functions on DuckDB — and polls the process list in
+the server activity view. Those statements are still recorded, but the log
+leaves them out so your own statements stay in view.
+
+++ctrl+l++ shows them (the log's title then reads
+`Command log · with introspection`) and hides them again. It works on the strip
+under the main view and inside the expanded `@` view alike.
+
+A catalog query that **fails** is always shown, whichever way the toggle is
+set.
 
 ## Why it exists
 

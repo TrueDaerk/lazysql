@@ -55,6 +55,11 @@ type keyMap struct {
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
 	CommandLog  key.Binding
+	// LogIntrospection reveals (and hides again) the catalog queries
+	// lazysql runs on its own behalf, which the command log leaves out by
+	// default. It is global, so it works on the slim strip under the main
+	// view, and the expanded log modal matches it too.
+	LogIntrospection key.Binding
 	// ToggleCommandLog collapses the log strip under the main view (issue
 	// #218): collapsed, the main view box takes the full main-column
 	// height instead. `@`/`L` (CommandLog above) still opens the full log
@@ -351,6 +356,10 @@ func newKeyMap() keyMap {
 		// layout-neutral alias. It is free in every panel and in the
 		// editor's vim mode, and global keys are matched before either.
 		CommandLog: key.NewBinding(key.WithKeys("@", "L"), key.WithHelp("@/L", "expand command log")),
+		// ctrl+l for "log": every plain letter is some panel's action,
+		// and a global key is matched before the panel sees it.
+		LogIntrospection: key.NewBinding(
+			key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "show/hide introspection in log")),
 		// `T` ("toggle"): a plain letter, free in every context (see
 		// wiki/reference/keyboard-layout-portability.md), so it needs no
 		// layout-neutral alias.
@@ -813,7 +822,8 @@ func (k keyMap) filterInput() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.CommandLog, k.ToggleCommandLog, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.ToggleCommandLog, k.LogIntrospection,
+		k.Help, k.Quit,
 	}
 }
 
@@ -1136,6 +1146,7 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
+		{"log-introspection", &k.LogIntrospection},
 		{"toggle-command-log", &k.ToggleCommandLog},
 		{"help", &k.Help}, {"quit", &k.Quit},
 

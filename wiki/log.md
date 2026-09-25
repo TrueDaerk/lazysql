@@ -2001,6 +2001,15 @@ Chronological history of wiki changes, newest last.
   right-truncation eat the name first. `mainTabHit` re-derives the same
   level from the same width so mouse clicks agree with what was drawn.
 
+## 2026-09-25 — Hide lazysql's own introspection SQL from the command log (issue #219)
+
+- Updated [design/command-log-panel](design/command-log-panel.md) with a new
+  section: `db.LogEntry.Introspection` is set by the introspection querier
+  (`conn.q()`), never guessed from SQL text; `Explain` moved to an untagged
+  `conn.userQ()`. The UI hides tagged entries unless `ctrl+l`
+  (`log-introspection`) is toggled on, and always shows a failed one. Also
+  records the tab-expansion fix in `logLine.render` the change surfaced.
+
 ## 2026-09-25 — Collapse the command log strip with a key (issue #218)
 
 - Added [design/collapsible-command-log](design/collapsible-command-log.md):

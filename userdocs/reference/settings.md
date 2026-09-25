@@ -128,6 +128,7 @@ What each one does, and its default keys, is in
 `filter-hist-next` · `filter-hist-prev` · `follow-fk` · `help` ·
 `hist-delete` · `hist-load` · `hist-run` · `hist-section` · `hist-snippet` ·
 `history` · `incoming-refs` · `insert-row` · `jump` · `leave-insert` ·
+`log-introspection` ·
 `move-conn-down` · `move-conn-up` ·
 `new-connection` · `next-main-tab` · `next-page` · `next-panel` ·
 `open-editor` · `open-picker` · `pick-down` · `pick-month-next` ·
@@ -137,6 +138,7 @@ What each one does, and its default keys, is in
 `save-snippet` · `schema-diff` · `screen-next` · `screen-prev` ·
 `select-columns` · `select-rows` · `shift-down` · `shift-left` ·
 `shift-right` · `shift-up` · `sort-column` · `test-connection` ·
+`toggle-command-log` ·
 `unstage-cell` · `up` · `view-cell` · `vim-append` · `vim-append-eol` ·
 `vim-bottom` · `vim-delete-char` · `vim-delete-line` · `vim-insert-start` ·
 `vim-left` · `vim-line-end` · `vim-line-start` · `vim-open-above` ·

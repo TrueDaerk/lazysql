@@ -535,7 +535,7 @@ func (m Model) dataBody(w, h int) string {
 	// WHERE line takes its place while it is open. The two never need to
 	// be read at once: the status describes the page underneath, which is
 	// exactly the page the clause being typed is about to replace.
-	last := truncate(m.dataStatus(), w)
+	last := truncate(m.dataStatusFit(w), w)
 	if m.filterInputOpen() {
 		last = m.grid.filterInput.view(w)
 	}
@@ -735,7 +735,13 @@ func (m Model) cellStyle(idle, onRow, selected, onCol, isNull, isStaged bool, ki
 
 // dataStatus is the bottom line: which rows of how many are on screen,
 // which page they are, and the filter and sort that produced them.
-func (m Model) dataStatus() string {
+func (m Model) dataStatus() string { return m.dataStatusFit(0) }
+
+// dataStatusFit is dataStatus for a box w cells wide (0: unbounded). Only
+// the selection aggregate adapts: it takes the fullest form that still
+// leaves the sort and filter markers on the line, and drops out entirely
+// before it would push them off it.
+func (m Model) dataStatusFit(w int) string {
 	d := m.grid.data
 	var parts []string
 
@@ -789,15 +795,21 @@ func (m Model) dataStatus() string {
 	}
 	// Selection mode is a mode: the status line says so, the way the
 	// filter and the sort do, so it is never on without being visible.
+	var aggs []string
 	if n := len(d.selectedRows()); n > 0 {
 		sel := fmt.Sprintf("  %d rows selected", n)
 		// A block says both of its dimensions: "3 rows selected" would
 		// otherwise claim columns the copy scopes have left out.
 		if d.narrowedToCols() {
 			sel = fmt.Sprintf("  %d rows × %d columns selected", n, len(d.selectedCols()))
+			// Only a block is aggregated: whole rows sum the id next to
+			// the amount, which is a number but not an answer.
+			aggs = m.selectionAggregate().variants()
 		}
 		line += m.style.keyHint.Render(sel)
 	}
+	head := line
+	line = ""
 	if d.sort != nil {
 		dir := "asc"
 		if d.sort.Desc {
@@ -816,7 +828,13 @@ func (m Model) dataStatus() string {
 		}
 		line += style.Render("  " + mark + d.filter.Raw)
 	}
-	return line
+	for _, a := range aggs {
+		agg := m.style.keyHint.Render(a)
+		if w <= 0 || lipgloss.Width(head+agg+line) <= w || a == "" {
+			return head + agg + line
+		}
+	}
+	return head + line
 }
 
 // pad right-pads s to w display cells.

@@ -194,7 +194,9 @@ What reads the span:
 - **The tint.** `cellSelected(r, c)` replaces the row-wise `inSelection`
   in `gridRow`, so a column the block left out is not painted.
 - **The status line.** `N rows selected` becomes
-  `N rows × M columns selected` once the span leaves a column out.
+  `N rows × M columns selected` once the span leaves a column out, plus
+  the block's count/sum/avg/min/max — see
+  [design/grid-selection-aggregate](grid-selection-aggregate.md).
 - **The copy scopes.** `copySelectionRows` cuts both the columns and
   each row down to the span before handing them to `export.Rows`, so a
   CSV copy carries only the selected header, a JSON copy only those

@@ -162,6 +162,83 @@ func TestRunKeepsTheEditorOpenWithItsContent(t *testing.T) {
 	}
 }
 
+// esc out of a query result steps back one focus level at a time — the
+// editor first, then whatever the main view showed before `:` was
+// pressed — and the result stays in memory the whole way, so re-focusing
+// the editor shows it again instead of forcing a re-run. See issue #220.
+func TestEscOutOfQueryResultStepsBackOneLevelAndKeepsTheResult(t *testing.T) {
+	start := queryable(t)
+	before := start.focus
+	if before != panelObjects {
+		t.Fatalf("focus before `:` = %v, want panel [2] Objects (the fixture's starting point)", before)
+	}
+	m := runQuery(t, start, "SELECT id FROM q ORDER BY id")
+	runID := m.query.run.id
+	if m.focus != panelQuery || !m.grid.data.isQuery() {
+		t.Fatalf("run did not land a result in the editor's own panel: focus=%v isQuery=%v",
+			m.focus, m.grid.data.isQuery())
+	}
+
+	// First esc: one level back, to whatever the main view showed before
+	// `:` was pressed — it must not skip straight past it.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.focus != before {
+		t.Fatalf("first esc landed on %v, want the panel focused before `:` (%v)", m.focus, before)
+	}
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("the result did not survive the first esc: %#v", m.grid.data)
+	}
+
+	// Second esc: one level further back, to the Connections panel — the
+	// only step left on the stack.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.focus != panelConnections {
+		t.Fatalf("second esc landed on %v, want panel [1] Connections", m.focus)
+	}
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("the result did not survive the second esc: %#v", m.grid.data)
+	}
+
+	// A third esc has nowhere left to go: the stack is empty, so focus
+	// must not move to a panel the user never visited.
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.focus != panelConnections {
+		t.Fatalf("esc with an empty focus stack moved to %v", m.focus)
+	}
+
+	// Re-focusing the editor shows the same result rather than re-running
+	// the query.
+	m = send(t, m, press(':'))
+	if m.focus != panelQuery {
+		t.Fatalf("`:` did not refocus the editor: focus=%v", m.focus)
+	}
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("the result is gone after refocusing the editor: %#v", m.grid.data)
+	}
+	if m.query.run.id != runID {
+		t.Fatalf("run id changed from %d to %d — refocusing the editor re-ran the query", runID, m.query.run.id)
+	}
+}
+
+// esc from a query result shown in the main view — reached without the
+// editor itself being focused, e.g. a re-run triggered from the grid —
+// goes to the editor first, exactly like it does from any other origin.
+func TestEscFromQueryResultInMainViewReturnsToTheEditor(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id FROM q ORDER BY id")
+	m.setFocus(panelMain)
+	if m.focus != panelMain || !m.grid.data.isQuery() {
+		t.Fatalf("setup: focus=%v isQuery=%v", m.focus, m.grid.data.isQuery())
+	}
+
+	m = send(t, m, special(tea.KeyEscape, 0))
+	if m.focus != panelQuery {
+		t.Fatalf("esc from the result = %v, want it to return to the query editor", m.focus)
+	}
+	if !m.grid.data.isQuery() || len(m.grid.data.rows) != 3 {
+		t.Fatalf("the result did not survive esc: %#v", m.grid.data)
+	}
+}
+
 // Running from the history pane must not overwrite what is being
 // written in the editor.
 func TestRunningFromHistoryLeavesTheBufferAlone(t *testing.T) {

@@ -633,26 +633,26 @@ func (m *Model) turnPage(delta int) tea.Cmd {
 // the selection (through reloadPage, when a load is actually issued) and
 // supersedes whatever page query is in flight.
 func (m *Model) jumpToFirstRow() tea.Cmd {
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		return nil
 	}
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		// A query result is fully in memory, so this is a slice, not a
 		// round trip — setPage(0) already resets the row and the selection.
-		m.data.setPage(0)
+		m.grid.data.setPage(0)
 		m.clampCursor()
 		return nil
 	}
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return nil
 	}
-	if m.data.page == 0 {
-		m.data.row = 0
+	if m.grid.data.page == 0 {
+		m.grid.data.row = 0
 		m.clampCursor()
 		return nil
 	}
-	m.data.page = 0
-	m.data.row = 0
+	m.grid.data.page = 0
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 
@@ -664,26 +664,26 @@ func (m *Model) jumpToFirstRow() tea.Cmd {
 // can already be off by that much. Nothing here treats the estimate as
 // exact beyond that.
 func (m *Model) jumpToLastRow() tea.Cmd {
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		return nil
 	}
-	if m.data.isQuery() {
+	if m.grid.data.isQuery() {
 		last := 0
-		if n := m.data.pageCount(); n > 0 {
+		if n := m.grid.data.pageCount(); n > 0 {
 			last = n - 1
 		}
-		m.data.setPage(last)
-		m.data.row = maxInt(len(m.data.rows)-1, 0)
+		m.grid.data.setPage(last)
+		m.grid.data.row = maxInt(len(m.grid.data.rows)-1, 0)
 		m.clampCursor()
 		return nil
 	}
-	if !m.data.browsing() {
+	if !m.grid.data.browsing() {
 		return nil
 	}
-	if !m.data.hasTotal {
+	if !m.grid.data.hasTotal {
 		return logCmd("-- last row unknown yet: row count still loading")
 	}
-	last := m.data.pageCount() - 1
+	last := m.grid.data.pageCount() - 1
 	if last < 0 {
 		last = 0
 	}
@@ -691,20 +691,20 @@ func (m *Model) jumpToLastRow() tea.Cmd {
 	// page count came from, so the two agree even while it is an
 	// estimate; clampCursor settles the cursor once the real page lands,
 	// in case the count was off.
-	onLastPage := int(m.data.total) - last*m.data.limit()
-	if onLastPage > m.data.limit() {
-		onLastPage = m.data.limit()
+	onLastPage := int(m.grid.data.total) - last*m.grid.data.limit()
+	if onLastPage > m.grid.data.limit() {
+		onLastPage = m.grid.data.limit()
 	}
 	if onLastPage < 0 {
 		onLastPage = 0
 	}
-	if m.data.page == last {
-		m.data.row = maxInt(onLastPage-1, 0)
+	if m.grid.data.page == last {
+		m.grid.data.row = maxInt(onLastPage-1, 0)
 		m.clampCursor()
 		return nil
 	}
-	m.data.page = last
-	m.data.row = maxInt(onLastPage-1, 0)
+	m.grid.data.page = last
+	m.grid.data.row = maxInt(onLastPage-1, 0)
 	return m.reloadPage()
 }
 
@@ -713,14 +713,14 @@ func (m *Model) jumpToLastRow() tea.Cmd {
 // internal/ui/modal.go's promptModal). The target page is a page of
 // whatever query is running — the active filter and sort are untouched.
 func (m *Model) openGoToPage() tea.Cmd {
-	if !m.data.open() {
+	if !m.grid.data.open() {
 		return logCmd("-- go to page skipped: no data on screen")
 	}
-	if !m.data.isQuery() && !m.data.browsing() {
+	if !m.grid.data.isQuery() && !m.grid.data.browsing() {
 		return logCmd("-- go to page skipped: no data on screen")
 	}
 	placeholder := "page number"
-	if n := m.data.pageCount(); n > 0 {
+	if n := m.grid.data.pageCount(); n > 0 {
 		placeholder = fmt.Sprintf("1-%d", n)
 	}
 	m.modal = newPromptModal("Go to page", placeholder, "",
@@ -733,7 +733,7 @@ func (m *Model) openGoToPage() tea.Cmd {
 // silently clamped to an end — a mistyped page number should say so, not
 // pretend to have been understood.
 func (m *Model) submitGoToPage(value string) tea.Cmd {
-	if !m.data.open() || (!m.data.isQuery() && !m.data.browsing()) {
+	if !m.grid.data.open() || (!m.grid.data.isQuery() && !m.grid.data.browsing()) {
 		return logCmd("-- go to page skipped: no data on screen")
 	}
 	value = strings.TrimSpace(value)
@@ -746,10 +746,10 @@ func (m *Model) submitGoToPage(value string) tea.Cmd {
 	}
 	// A query result knows its exact page count; a browsed table's total
 	// (and so its page count) may still be in flight.
-	if !m.data.isQuery() && !m.data.hasTotal {
+	if !m.grid.data.isQuery() && !m.grid.data.hasTotal {
 		return logCmd("-- go to page skipped: row count still loading")
 	}
-	count := m.data.pageCount()
+	count := m.grid.data.pageCount()
 	if count <= 0 {
 		count = 1
 	}
@@ -757,19 +757,19 @@ func (m *Model) submitGoToPage(value string) tea.Cmd {
 		return logCmd("-- go to page %d FAILED: out of range (1-%d)", n, count)
 	}
 	target := n - 1
-	if m.data.isQuery() {
-		if target == m.data.page {
+	if m.grid.data.isQuery() {
+		if target == m.grid.data.page {
 			return logCmd("-- already on page %d", n)
 		}
-		m.data.setPage(target)
+		m.grid.data.setPage(target)
 		m.clampCursor()
 		return nil
 	}
-	if target == m.data.page {
+	if target == m.grid.data.page {
 		return logCmd("-- already on page %d", n)
 	}
-	m.data.page = target
-	m.data.row = 0
+	m.grid.data.page = target
+	m.grid.data.row = 0
 	return m.reloadPage()
 }
 

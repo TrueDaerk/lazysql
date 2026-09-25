@@ -2098,3 +2098,19 @@ Chronological history of wiki changes, newest last.
   jobs moved off the root `Model` into an `exportsModel` sub-model
   (`exportsmodel.go`) with the cancel-on-disconnect rule as its one
   method. The three sub-models are now listed in one table.
+- Fixed a build break in `internal/ui/data.go` and `internal/ui/data_test.go`
+  left by the #229 grid-state extraction landing alongside #239's jump/
+  go-to-page work: several `Model` methods (`jumpToFirstRow`,
+  `jumpToLastRow`, `openGoToPage`, `submitGoToPage`) and their tests still
+  read `m.data`/`m.stopPageQueries` from before the grid state moved to
+  `m.grid`, so neither `go build` nor `go vet` passed on `main`. Fixed to
+  `m.grid.data`/`m.grid.stopPageQueries` (issue #220).
+- Added regression tests for the `esc` chain out of a query result
+  (`TestEscOutOfQueryResultStepsBackOneLevelAndKeepsTheResult`,
+  `TestEscFromQueryResultInMainViewReturnsToTheEditor` in
+  `internal/ui/query_test.go`, issue #220): the existing focus-stack
+  (`Model.prev`) and `focusResult`/`focusBack` logic already steps back one
+  panel per `esc` and never clears `dataView.all`, so a query result
+  survives every `esc` and re-focusing the editor with `:` shows it again
+  without re-running — no behavior change was needed, only the coverage
+  the issue asked for.

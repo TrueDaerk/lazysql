@@ -55,8 +55,18 @@ type keyMap struct {
 	// only then, so `ctrl+c` keeps meaning quit the rest of the time.
 	CancelQuery key.Binding
 	CommandLog  key.Binding
-	Help        key.Binding
-	Quit        key.Binding
+	// LogIntrospection reveals (and hides again) the catalog queries
+	// lazysql runs on its own behalf, which the command log leaves out by
+	// default. It is global, so it works on the slim strip under the main
+	// view, and the expanded log modal matches it too.
+	LogIntrospection key.Binding
+	// ToggleCommandLog collapses the log strip under the main view (issue
+	// #218): collapsed, the main view box takes the full main-column
+	// height instead. `@`/`L` (CommandLog above) still opens the full log
+	// modal either way.
+	ToggleCommandLog key.Binding
+	Help             key.Binding
+	Quit             key.Binding
 
 	// Context actions, keyed by panel.
 	NewConnection key.Binding
@@ -197,11 +207,24 @@ type keyMap struct {
 	// cell detail popup and the date picker look, and carry no AltGr risk
 	// (see wiki/reference/keyboard-layout-portability.md — only punctuation
 	// bindings need a layout-neutral alias, and a named key is not one).
-	// GoToPage opens a prompt for a page number, on the same layout-neutral
-	// footing: `p` is free in every one of those contexts too.
+	// GoToPage opens a prompt for a page number: `p` (issue #221's original
+	// pick) collided with PinColumn once issue #222 landed, so it is
+	// `shift+p` instead — still a plain letter, still free everywhere the
+	// grid, the filter input, the cell detail popup and the date picker
+	// look, no AltGr risk either.
 	FirstRow key.Binding
 	LastRow  key.Binding
 	GoToPage key.Binding
+
+	// Column layout of the grid (issue #222). PinColumn pins the cursor
+	// column to the left edge (and unpins it), HideColumn takes it out of
+	// the grid and of every copy/export scope, HiddenColumns lists the
+	// hidden ones in a menu that shows them again. All three are plain
+	// letters, so no layout needs AltGr for them — see
+	// wiki/reference/keyboard-layout-portability.md.
+	PinColumn     key.Binding
+	HideColumn    key.Binding
+	HiddenColumns key.Binding
 
 	// The inline WHERE line `/` opens on the grid. Like the editor's
 	// LeaveInsert these are bindings of their own rather than second
@@ -259,6 +282,11 @@ type keyMap struct {
 	CommitChanges  key.Binding
 	UnstageCell    key.Binding
 	DiscardChanges key.Binding
+
+	// SchemaMenu opens the staged-DDL menu: relation-level operations in
+	// [2] Objects, column- and index-level ones in the main view. Like the
+	// row operations it only stages; `c` commits.
+	SchemaMenu key.Binding
 
 	// The date picker, opened for columns db.ClassifyType calls temporal.
 	// PickPrev/PickNext move sideways (a day in the calendar, a spinner in
@@ -362,8 +390,17 @@ func newKeyMap() keyMap {
 		// layout-neutral alias. It is free in every panel and in the
 		// editor's vim mode, and global keys are matched before either.
 		CommandLog: key.NewBinding(key.WithKeys("@", "L"), key.WithHelp("@/L", "expand command log")),
-		Help:       key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		Quit:       key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
+		// ctrl+l for "log": every plain letter is some panel's action,
+		// and a global key is matched before the panel sees it.
+		LogIntrospection: key.NewBinding(
+			key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "show/hide introspection in log")),
+		// `T` ("toggle"): a plain letter, free in every context (see
+		// wiki/reference/keyboard-layout-portability.md), so it needs no
+		// layout-neutral alias.
+		ToggleCommandLog: key.NewBinding(
+			key.WithKeys("T"), key.WithHelp("T", "toggle command log strip")),
+		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
 		NewConnection: key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new connection")),
 		// `o` for open, free on panel [1]: n saves a profile, o just
@@ -510,7 +547,12 @@ func newKeyMap() keyMap {
 
 		FirstRow: key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "first row")),
 		LastRow:  key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "last row")),
-		GoToPage: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "go to page…")),
+		GoToPage: key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "go to page…")),
+
+		PinColumn:  key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pin/unpin column")),
+		HideColumn: key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "hide column")),
+		HiddenColumns: key.NewBinding(
+			key.WithKeys("Z"), key.WithHelp("Z", "show hidden columns…")),
 
 		// ctrl+enter/cmd+enter alias enter here through acceptKeys, like
 		// everywhere else a line is submitted.
@@ -574,6 +616,9 @@ func newKeyMap() keyMap {
 			key.WithHelp("c", "commit staged changes")),
 		UnstageCell:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "unstage")),
 		DiscardChanges: key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "discard staged changes")),
+		// `S` for schema: free in [2] and in the main view, and uppercase
+		// like the other deliberate, changeset-wide keys (`U`, `D`).
+		SchemaMenu: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "schema changes (DDL)…")),
 
 		PickPrev: key.NewBinding(
 			key.WithKeys("h", "left"), key.WithHelp("h/←", "prev day / time field")),
@@ -823,7 +868,8 @@ func (k keyMap) filterInput() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.CommandLog, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.ToggleCommandLog, k.LogIntrospection,
+		k.Help, k.Quit,
 	}
 }
 
@@ -880,6 +926,9 @@ const (
 	actClearFilter
 	actViewCell
 	actRowDetail
+	actPinColumn
+	actHideColumn
+	actHiddenColumns
 	actFollowFK
 	actIncomingRefs
 	actBrowseBack
@@ -890,6 +939,12 @@ const (
 	actCommitChanges
 	actUnstageCell
 	actDiscardChanges
+	// actSchemaMenu is `S` in [2] Objects, actTableSchemaMenu the same key
+	// in the main view: one binding, two menus, and two ids so a menu
+	// parked until the metadata lands reopens as the one that was asked
+	// for.
+	actSchemaMenu
+	actTableSchemaMenu
 	actPrevMainTab
 	actNextMainTab
 	actCopyDDL
@@ -969,8 +1024,11 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actCollapseNode, k.CollapseNode},
 			{actRefresh, k.Refresh},
 			{actFilter, k.Filter},
+			{actSchemaMenu, k.SchemaMenu},
+			{actCommitChanges, k.CommitChanges},
 			{actPageDown, k.PageDown},
 			{actPageUp, k.PageUp},
+			{actDiscardChanges, k.DiscardChanges},
 			{actCopyMenu, k.CopyMenu},
 			{actExportDatabaseDDL, k.ExportDatabaseDDL},
 			{actBackup, k.Backup},
@@ -988,6 +1046,15 @@ func (k keyMap) panelActions(id panelID) []action {
 		}
 	case panelMain:
 		return []action{
+			// The keys that actually do something outrank tab/column
+			// navigation — see issue #215: the options bar truncates
+			// before it reaches the bindings a first-time user needs most.
+			{actEditCell, k.EditCell},
+			{actDeleteRow, k.DeleteRow},
+			{actInsertRow, k.InsertRow},
+			{actCommitChanges, k.CommitChanges},
+			{actCopyMenu, k.CopyMenu},
+			{actWhereFilter, k.WhereFilter},
 			{actPrevMainTab, k.PrevMainTab},
 			{actNextMainTab, k.NextMainTab},
 			{actColLeft, k.ColLeft},
@@ -1005,24 +1072,24 @@ func (k keyMap) panelActions(id panelID) []action {
 			{actExtendSelectionLeft, k.ShiftLeft},
 			{actExtendSelectionRight, k.ShiftRight},
 			{actCopySelectionMenu, k.CopySelection},
-			{actWhereFilter, k.WhereFilter},
 			{actClearFilter, k.ClearFilter},
 			{actViewCell, k.ViewCell},
 			{actRowDetail, k.RowDetail},
 			{actFollowFK, k.FollowFK},
 			{actIncomingRefs, k.IncomingRefs},
 			{actBrowseBack, k.BrowseBack},
-			{actEditCell, k.EditCell},
-			{actDeleteRow, k.DeleteRow},
-			{actInsertRow, k.InsertRow},
 			{actDuplicateRow, k.DuplicateRow},
-			{actCommitChanges, k.CommitChanges},
 			{actUnstageCell, k.UnstageCell},
 			{actDiscardChanges, k.DiscardChanges},
-			{actCopyMenu, k.CopyMenu},
+			{actTableSchemaMenu, k.SchemaMenu},
 			{actExportTable, k.ExportTable},
 			{actCancelExport, k.CancelExport},
 			{actRefresh, k.Refresh},
+			// Column layout (issue #222) comes last: it shapes the view
+			// rather than acting on the data.
+			{actPinColumn, k.PinColumn},
+			{actHideColumn, k.HideColumn},
+			{actHiddenColumns, k.HiddenColumns},
 		}
 	}
 	return nil
@@ -1054,7 +1121,7 @@ func (k keyMap) optionsBarBindings(id panelID) []key.Binding {
 // answer with "connection is read-only" — while `?` keeps listing them,
 // so every binding is still documented in exactly one place.
 func (k keyMap) writeBindings() []key.Binding {
-	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges}
+	return []key.Binding{k.EditCell, k.DeleteRow, k.InsertRow, k.DuplicateRow, k.CommitChanges, k.SchemaMenu}
 }
 
 // withoutBindings drops every binding of hide from all, matching on the
@@ -1149,6 +1216,8 @@ func (k *keyMap) slots() []bindingSlot {
 
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
+		{"log-introspection", &k.LogIntrospection},
+		{"toggle-command-log", &k.ToggleCommandLog},
 		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"open-file", &k.OpenFile},
@@ -1194,6 +1263,8 @@ func (k *keyMap) slots() []bindingSlot {
 		{"clear-filter", &k.ClearFilter}, {"view-cell", &k.ViewCell},
 		{"row-detail", &k.RowDetail},
 		{"first-row", &k.FirstRow}, {"last-row", &k.LastRow}, {"go-to-page", &k.GoToPage},
+		{"pin-column", &k.PinColumn}, {"hide-column", &k.HideColumn},
+		{"hidden-columns", &k.HiddenColumns},
 		{"apply-filter", &k.ApplyFilter}, {"cancel-filter", &k.CancelFilter},
 		{"filter-hist-prev", &k.FilterHistPrev}, {"filter-hist-next", &k.FilterHistNext},
 		{"select-rows", &k.SelectRows}, {"select-columns", &k.SelectColumns}, {"copy-selection", &k.CopySelection},
@@ -1205,6 +1276,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"edit-cell", &k.EditCell}, {"delete-row", &k.DeleteRow}, {"insert-row", &k.InsertRow},
 		{"duplicate-row", &k.DuplicateRow}, {"commit-changes", &k.CommitChanges},
 		{"unstage-cell", &k.UnstageCell}, {"discard-changes", &k.DiscardChanges},
+		{"schema-menu", &k.SchemaMenu},
 
 		{"pick-prev", &k.PickPrev}, {"pick-next", &k.PickNext},
 		{"pick-up", &k.PickUp}, {"pick-down", &k.PickDown},

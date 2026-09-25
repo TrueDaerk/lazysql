@@ -139,6 +139,15 @@ everything; `resetBrowse` (connection switch/removal) also discards,
 because staged changes reference tables of the connection that owned
 them.
 
+### Schema changes are the same changeset too
+
+Issue #224 added DDL — create/rename/truncate/drop relations, add/alter/drop
+columns, create/drop indexes — as `db.SchemaChange` implementations of the
+same `Change` interface. To make room for them `Change.Statement(d)` became
+`statements(d) ([]Statement, error)` (a schema change may render to several
+statements, or to `ErrUnsupported`), and `Changeset.Statements` returns an
+error. See [staged-ddl](staged-ddl.md).
+
 ## Consequences
 
 - Typed input is converted back toward the cell's previous type

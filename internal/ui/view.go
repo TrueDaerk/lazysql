@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -200,7 +201,7 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 
 // renderMainColumn stacks the main view and the command log beneath it.
 func (m Model) renderMainColumn(w, h int) string {
-	logH := commandLogHeight(h)
+	logH := m.commandLogHeight(h)
 	mainH := h - logH
 
 	border := m.style.blurredBorder
@@ -223,8 +224,14 @@ func (m Model) renderMainColumn(w, h int) string {
 }
 
 // commandLogHeight is how many of the main column's rows the log strip
-// under the main view takes, borders included.
-func commandLogHeight(h int) int {
+// under the main view takes, borders included. Collapsed (see
+// wiki/design/collapsible-command-log.md), it takes none: the main view
+// box gets the full main-column height instead of leaving an empty strip
+// or a stray border behind.
+func (m Model) commandLogHeight(h int) int {
+	if m.logCollapsed {
+		return 0
+	}
 	logH := h / 4
 	if logH < 5 {
 		logH = 5
@@ -302,7 +309,7 @@ func (m Model) editorAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
 	if m.focus != panelQuery || !m.editor.editing {
 		return 0, 0, false
 	}
-	cw, rows := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
+	cw, rows := maxInt(mw-2, 1), maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	caretRow, caretCol, ok := m.editorCaret(cw, m.editorHeight(cw, rows))
 	if !ok {
 		return 0, 0, false
@@ -322,7 +329,7 @@ func (m Model) filterAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
 		return 0, 0, false
 	}
 	cw := maxInt(mw-2, 1)
-	rows := maxInt(mh-commandLogHeight(mh)-2, 1)
+	rows := maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	return mx + 1 + min(m.filterInput.caret, cw-1), my + rows, true
 }
 
@@ -617,7 +624,16 @@ func (m Model) renderCommandLog(w, h int) string {
 		lines = lines[start:]
 	}
 	return renderTitledBox(m.style.blurredBorder,
-		m.style.title.Render("Command log"), strings.Join(lines, "\n"), w, h)
+		m.style.title.Render(m.commandLogTitle()), strings.Join(lines, "\n"), w, h)
+}
+
+// commandLogTitle names the log, and says so while it also lists the
+// catalog introspection it hides by default.
+func (m Model) commandLogTitle() string {
+	if m.showIntrospection {
+		return "Command log · with introspection"
+	}
+	return "Command log"
 }
 
 // optionsBarBindings is what the bottom bar offers for the focused panel.
@@ -630,6 +646,52 @@ func (m Model) optionsBarBindings() []key.Binding {
 		out = withoutBindings(out, m.keys.writeBindings())
 	}
 	return out
+}
+
+// renderShortHelpPinned renders bindings the way help.Model.ShortHelpView
+// does, except pinned always survives truncation. help.Model truncates from
+// the end of the list, so a wide keymap silently drops whichever binding
+// sorts last — for most panels that is `? help`, the app's only visible
+// route to the full keymap (issue #215). If pinned is not present in
+// bindings, this is exactly ShortHelpView: some contexts (an open modal, the
+// editor's insert mode) deliberately omit Help because `?` is not bound
+// there either.
+func renderShortHelpPinned(h help.Model, bindings []key.Binding, pinned key.Binding) string {
+	hasPinned := false
+	rest := make([]key.Binding, 0, len(bindings))
+	for _, b := range bindings {
+		if b.Help() == pinned.Help() {
+			hasPinned = true
+			continue
+		}
+		rest = append(rest, b)
+	}
+	if !hasPinned {
+		return h.ShortHelpView(bindings)
+	}
+
+	pinnedStr := h.Styles.ShortKey.Inline(true).Render(pinned.Help().Key) + " " +
+		h.Styles.ShortDesc.Inline(true).Render(pinned.Help().Desc)
+	sep := h.Styles.ShortSeparator.Inline(true).Render(h.ShortSeparator)
+
+	reserved := lipgloss.Width(pinnedStr)
+	if len(rest) > 0 {
+		reserved += lipgloss.Width(sep)
+	}
+	restBudget := maxInt(h.Width()-reserved, 0)
+
+	// help.Model.ShortHelpView only self-limits down to the width it is
+	// given when there is room left for its own ellipsis; below that it
+	// gives up and renders every remaining binding uncapped. restBudget is
+	// deliberately tight (the reserved pin eats into it), so render rest
+	// unrestricted and truncate it ourselves with the same ansi-safe
+	// truncate() the final fallback below uses.
+	h.SetWidth(0)
+	restStr := truncate(h.ShortHelpView(rest), restBudget)
+	if restStr == "" {
+		return pinnedStr
+	}
+	return restStr + sep + pinnedStr
 }
 
 // renderOptionsBar shows the focused panel's bindings — same slices as `?`.
@@ -705,7 +767,7 @@ func (m Model) renderOptionsBar() string {
 		bindings = append([]key.Binding{m.keys.Up, m.keys.Down, m.keys.Back},
 			m.keys.Jump, m.keys.NextPanel, m.keys.OpenEditor, m.keys.Help, m.keys.Quit)
 	}
-	left := h.ShortHelpView(bindings)
+	left := renderShortHelpPinned(h, bindings, m.keys.Help)
 	right := fmt.Sprintf("%s · %s · %s", screenModeNames[m.screen], appName, version.Version)
 	if m.run.running {
 		right = m.runningIndicator() + " · " + right

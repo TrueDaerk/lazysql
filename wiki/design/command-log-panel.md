@@ -1,11 +1,11 @@
 ---
 type: Design Decision
 title: Command log panel sourced from a single Driver.Logger choke point
-description: Why every executed SQL statement is captured once in internal/db instead of hand-formatted at each UI call site, how the slim panel and the `@` expanded view merge that Logger with the UI's own status notes into one chronological feed, and why the expanded view is a static snapshot like every other modal.
-tags: [tui, db, logging, command-log, keybindings]
+description: Why every executed SQL statement is captured once in internal/db instead of hand-formatted at each UI call site, how the slim panel and the `@` expanded view merge that Logger with the UI's own status notes into one chronological feed, why lazysql's own catalog introspection is tagged at the source and hidden by default (ctrl+l reveals it), and why the expanded view is a static snapshot like every other modal.
+tags: [tui, db, logging, command-log, keybindings, introspection]
 generated:
-  by: claude-code/sonnet-5
-  at: 2026-08-09T00:00:00Z
+  by: claude-code/opus-5.5
+  at: 2026-09-25T00:00:00Z
 ---
 
 # Command log panel
@@ -57,6 +57,45 @@ is not reflected until it is closed and reopened. Changing that would
 mean changing the `modal` interface for every existing modal to thread
 the `Model` through `view`, which is a much bigger change than one
 feature needs; `esc` then `@` again is a one-keystroke refresh.
+
+## Introspection is hidden by default (issue #219)
+
+Capturing introspection made the log honest and useless at once: after
+connecting to a SQLite file, `PRAGMA database_list`, the `sqlite_master`
+listing, the `dbstat` size query and one `PRAGMA foreign_key_list` per
+table — several wrapping to three or four lines — filled the few rows the
+strip has, and the user's own `SELECT` scrolled out immediately.
+
+Decision: those statements are still captured, but hidden unless the user
+asks for them. `ctrl+l` (`log-introspection`, global, so it works on the
+strip; the `@` modal matches it too and re-reads its snapshot) toggles
+`Model.showIntrospection`. The strip's title reads
+`Command log · with introspection` while they are shown.
+
+- **Classified at the source, not by SQL text.** `db.LogEntry` carries an
+  `Introspection` flag, set by `querierAdapter` — the querier every
+  dialect's `List*`/`Table*`/`TriggerDDL`/`ListProcesses` method runs
+  through (`conn.q()`). That covers all engines at once
+  (`information_schema`, `pg_catalog`, `PRAGMA`/`sqlite_master`/`dbstat`,
+  `duckdb_*()`) with no per-dialect pattern list to rot. `Explain` also
+  uses the querier but is something the user asked for, so it goes through
+  `conn.userQ()`, which logs untagged. `QueryPage`, `CountRows`, `Query`,
+  `Exec`, `ExecTx`, `KillProcess` and session setup never touch the
+  introspection querier.
+- **The process list counts as introspection.** The activity view polls
+  it on a timer; left visible it would flood the strip like the catalog
+  queries do.
+- **Failures are always shown.** `commandLogEntries` only drops an
+  introspection entry that succeeded (or was cancelled — superseded is not
+  failed): an error the user cannot see is worse than noise.
+- **Hidden, not dimmed.** Dimmed lines would still spend the strip's rows,
+  which was the whole problem.
+
+A side effect surfaced in the same change: `logLine.render` now expands
+tabs. `truncate` measures a tab as one cell, the terminal draws up to
+eight, and the overshoot wrapped inside the strip's box and pushed the
+frame one line past the screen — previously masked because introspection
+had pushed the tab-indented statements out of view.
 
 ## Ring buffer, not unbounded
 

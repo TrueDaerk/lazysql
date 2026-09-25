@@ -1,7 +1,7 @@
 ---
 type: Design Decision
 title: Jump to the first/last row and to a given page
-description: home/end jump the grid cursor to the first row of the first page and the last row of the last page, and `p` opens a page-number prompt; why home/end/p were picked over the vim gg/G spelling, why the last-row jump trusts the same (possibly estimated) total the status line already reads, and how both reuse reloadPage's cancellation and selection-clearing rather than adding a second path.
+description: home/end jump the grid cursor to the first row of the first page and the last row of the last page, and `P` opens a page-number prompt; why home/end/P were picked over the vim gg/G spelling (and why P rather than p), why the last-row jump trusts the same (possibly estimated) total the status line already reads, and how both reuse reloadPage's cancellation and selection-clearing rather than adding a second path.
 tags: [ui, main-view, data-grid, paging, keybindings, cancellation]
 generated:
   by: claude-code/sonnet-5
@@ -27,7 +27,7 @@ Three new grid bindings (`internal/ui/keys.go`, `internal/ui/data.go`):
 
 - `FirstRow` (`home`) jumps to row one of the first page.
 - `LastRow` (`end`) jumps to the last row of the last page.
-- `GoToPage` (`p`) opens a prompt for a page number.
+- `GoToPage` (`P`) opens a prompt for a page number.
 
 All three respect whatever filter and sort are running — they reload the
 *same query*, just at a different offset — and all three go through
@@ -52,13 +52,17 @@ context-dependent collision
 [design/keybindings-single-source](keybindings-single-source.md) exists
 to keep out.
 
-### Why `home`/`end`/`p`
+### Why `home`/`end`/`P`
 
 `home` and `end` are unbound anywhere `?` documents today — not the grid,
 not the filter input, not the cell detail popup, not the date picker —
 and they are exactly the reading every spreadsheet and file manager
 already gives those keys: jump to the start, jump to the end. `p` (page)
-is free in the same four contexts. None of the three needs the alias
+was the original pick, free in the same four contexts at the time — but
+issue #222 landed a `PinColumn` binding on plain `p` for the grid before
+this change merged, so `GoToPage` moved to `shift+p` (`P`) instead, still
+free everywhere the grid, the filter input, the cell detail popup and the
+date picker look. None of the three needs the alias
 [wiki/reference/keyboard-layout-portability](../reference/keyboard-layout-portability.md)
 requires of a *punctuation* binding: `TestNoActionNeedsAltGr` only flags
 an action whose every key is drawn from `[ ] { } \ @ | ~ €`, and a named

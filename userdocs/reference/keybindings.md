@@ -33,6 +33,8 @@ Handled by the root model, so they act from any panel.
 | `:` | Focus the query editor | `open-editor` |
 | `ctrl+c` | Cancel the running query (only while one runs) | `cancel-query` |
 | `@` · `L` | Expand the command log | `command-log` |
+| `ctrl+l` | Show or hide lazysql's own introspection queries in the command log (hidden by default) | `log-introspection` |
+| `T` | Toggle the command log strip (collapse/show) | `toggle-command-log` |
 | `?` | Help | `help` |
 | `q` · `ctrl+c` | Quit | `quit` |
 
@@ -153,6 +155,9 @@ On the `File` field of a SQLite or DuckDB profile.
 | `/` | Fuzzy filter | `filter` |
 | `pgdown` · `ctrl+f` | Page down (over the filtered rows, while filtering) | `page-down` |
 | `pgup` · `ctrl+b` | Page up (over the filtered rows, while filtering) | `page-up` |
+| `S` | Schema changes — create table (`n`), rename (`r`), truncate (`t`) or drop (`d`) the selected relation; staged, never run directly | `schema-menu` |
+| `c` · `ctrl+enter` | Commit the staged changes | `commit-changes` |
+| `U` | Discard the staged changes | `discard-changes` |
 | `y` | Copy menu — DDL of the selected table/view (`d`) or of the whole database (`D`) | `copy-menu` |
 | `E` | Export the database's DDL — to a file (`f`) or the clipboard (`c`) | `export-database-ddl` |
 | `B` | Dump / restore… | `backup` |
@@ -262,8 +267,11 @@ Live while the main view has the focus.
 | `ctrl+b` · `pgup` | Previous page | `prev-page` |
 | `home` | First row (loads the first page) | `first-row` |
 | `end` | Last row (loads the last page) | `last-row` |
-| `p` | Go to page… | `go-to-page` |
+| `P` | Go to page… | `go-to-page` |
 | `s` | Sort the cursor column | `sort-column` |
+| `p` | Pin / unpin the cursor column at the left edge | `pin-column` |
+| `z` | Hide the cursor column | `hide-column` |
+| `Z` | Show hidden columns… | `hidden-columns` |
 | `ctrl+v` · `V` | Select rows | `select-rows` |
 | `C` | Select columns (`h`/`l` extend) | `select-columns` |
 | `shift+↑` · `K` | Extend the selection up | `shift-up` |
@@ -285,6 +293,7 @@ Live while the main view has the focus.
 | `c` · `ctrl+enter` | Commit the staged changes | `commit-changes` |
 | `u` | Unstage | `unstage-cell` |
 | `U` | Discard the staged changes | `discard-changes` |
+| `S` | Schema changes — add (`a`), alter (`e`) or drop (`d`) the column under the cursor, create (`i`) or drop (`x`) an index; staged, never run directly | `schema-menu` |
 | `y` | Copy… | `copy-menu` |
 | `E` | Export to a file | `export-table` |
 | `X` | Cancel the export (only while one runs) | `cancel-export` |

@@ -70,6 +70,29 @@ SQLite's stored DDL is the statement you originally wrote — including
 `AUTOINCREMENT`, which it does not re-derive, and without a name for an
 unnamed foreign key.
 
+## Schema changes
+
+What `S` can stage, per engine. Everything not listed is supported everywhere.
+
+| Operation | PostgreSQL | MySQL / MariaDB | SQLite | DuckDB |
+|---|---|---|---|---|
+| Alter a column's type, NULL-ness or default | yes | yes (see below) | **no** — rename only | yes |
+| Rename a view | yes | yes | **no** | yes |
+| Truncate a table | yes | yes | **no** | yes |
+| DDL inside the commit's transaction | yes | **no** — each statement commits | yes | yes |
+
+- **MySQL / MariaDB** have no way to change only a column's type or NULL-ness:
+  lazysql uses `CHANGE COLUMN`, which restates the whole column. It carries the
+  current default, `AUTO_INCREMENT` and `ON UPDATE` over, but not the column's
+  comment, character set or collation. A default-only change or a rename uses
+  `ALTER COLUMN … SET DEFAULT` / `RENAME COLUMN`, which touch nothing else.
+  `RENAME COLUMN` needs MySQL 8.0 or MariaDB 10.5.
+- **DuckDB** refuses to alter a table that has an index on it; drop the index,
+  commit, alter, and recreate it.
+- **SQLite** `DROP COLUMN` needs SQLite 3.35 (lazysql bundles a newer one);
+  the engine still refuses to drop a column that is part of a key, an index or
+  a constraint.
+
 ## `EXPLAIN`
 
 `ctrl+e` in the query editor. Each engine's own form is used, and `ANALYZE` is

@@ -77,8 +77,10 @@ type logLine struct {
 	err  bool
 }
 
+// render expands tabs: truncate measures a tab as one cell, the terminal
+// draws up to eight, and the overshoot wraps inside the log's box.
 func (l logLine) render() string {
-	return l.at.Format("15:04:05") + "  " + l.text
+	return l.at.Format("15:04:05") + "  " + strings.ReplaceAll(l.text, "\t", "    ")
 }
 
 // commandLogEntries merges the UI's own notes with the connected
@@ -87,10 +89,17 @@ func (l logLine) render() string {
 // expanded view. The Logger, not this slice, is what guarantees a
 // statement from browsing, editing or the query editor shows up exactly
 // once: nothing here re-formats SQL by hand.
+//
+// Catalog introspection the Driver ran on its own behalf is left out
+// unless showIntrospection is on — except when it failed: an error the
+// user cannot see is worse than noise.
 func (m Model) commandLogEntries() []logLine {
 	out := append([]logLine(nil), m.commandLog...)
 	if m.driver != nil {
 		for _, e := range m.driver.Logger().Entries() {
+			if e.Introspection && !m.showIntrospection && (e.Err == nil || cancelled(e.Err)) {
+				continue
+			}
 			// A superseded page or count query is not a failed one: it is
 			// logged, but neither spelled nor coloured as a failure.
 			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil && !cancelled(e.Err)})
@@ -165,8 +174,16 @@ type Model struct {
 
 	modal  modal
 	screen screenMode
+	// logCollapsed hides the command log strip under the main view,
+	// handing its rows to the main view box instead. `@`/`L` still opens
+	// the full log modal while it is collapsed. Persisted alongside
+	// screen the same way — see wiki/design/collapsible-command-log.md.
+	logCollapsed bool
 
 	commandLog []logLine
+	// showIntrospection reveals the Driver's own catalog queries in the
+	// command log; they are hidden by default. See commandLogEntries.
+	showIntrospection bool
 
 	// Connection manager state. cfg is the on-disk connection list; connState
 	// is the transient per-connection status the panel colors itself by.
@@ -390,6 +407,7 @@ func New(noRestore bool) (Model, error) {
 
 	if st, err := config.LoadState(); err == nil && st != nil {
 		m.screen = screenModeFromName(st.ScreenMode)
+		m.logCollapsed = st.LogCollapsed
 	}
 
 	selectName := ""
@@ -1156,7 +1174,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case changesCommittedMsg:
 		if msg.err != nil {
 			// The transaction rolled back: nothing was applied, and the
-			// changeset survives so the user can fix and retry.
+			// changeset survives so the user can fix and retry. An engine
+			// that commits DDL on its own (MySQL, MariaDB) may have applied
+			// some of it anyway, so the schema is re-read all the same.
+			if len(msg.schema) > 0 && m.driver != nil && !db.TransactionalDDL(m.driver.Engine()) {
+				return m, tea.Batch(
+					logCmd("-- COMMIT FAILED — changeset kept; %s may have applied the DDL before the failure: %v",
+						m.driver.Dialect().DisplayName(), msg.err),
+					m.afterSchemaCommit(msg.schema))
+			}
 			return m, logCmd("-- COMMIT FAILED — nothing applied, changeset kept: %v", msg.err)
 		}
 		// The transaction itself — BEGIN, each statement, COMMIT — is
@@ -1171,10 +1197,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the fresh page is still a round trip away: the cursor cannot be
 		// left standing on one of them in the meantime.
 		m.clampCursor()
-		cmds = append(cmds,
-			logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))),
-			m.reloadPage(),
-		)
+		cmds = append(cmds, logCmd("-- commit ok: %s applied", countChanges(len(msg.stmts))))
+		if len(msg.schema) > 0 {
+			// The schema moved: the tree, the metadata and the page are
+			// re-read, and a relation the commit dropped is closed.
+			cmds = append(cmds, m.afterSchemaCommit(msg.schema))
+		} else {
+			cmds = append(cmds, m.reloadPage())
+		}
 		return m, tea.Batch(cmds...)
 
 	case copiedMsg:
@@ -1343,7 +1373,15 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		return true, m, cmd
 
 	case key.Matches(msg, k.CommandLog):
-		m.modal = newCommandLogModal(m.commandLogEntries())
+		m.modal = newCommandLogModal(m)
+		return true, m, nil
+
+	case key.Matches(msg, k.LogIntrospection):
+		m.showIntrospection = !m.showIntrospection
+		return true, m, nil
+
+	case key.Matches(msg, k.ToggleCommandLog):
+		m.logCollapsed = !m.logCollapsed
 		return true, m, nil
 
 	// With rows marked in the data grid, ctrl+c copies the selection
@@ -1560,6 +1598,14 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	}
 	if mm, cmd, handled := m.copyActions(id); handled {
 		return mm, cmd
+	}
+	switch id {
+	case actSchemaMenu:
+		cmd := m.openObjectSchemaMenu()
+		return m, cmd
+	case actTableSchemaMenu:
+		cmd := m.openTableSchemaMenu()
+		return m, cmd
 	}
 	if mm, cmd, handled := m.dataActions(id); handled {
 		return mm, cmd
@@ -1805,7 +1851,7 @@ func (m *Model) quit() {
 	if m.cfg.RestoreSessionEnabled() {
 		m.saveSession()
 	}
-	_ = (&config.State{ScreenMode: screenModeNames[m.screen]}).Save()
+	_ = (&config.State{ScreenMode: screenModeNames[m.screen], LogCollapsed: m.logCollapsed}).Save()
 	m.closeSession()
 }
 

@@ -143,7 +143,9 @@ func (mm *menuModal) view(s styles, maxW, maxH int) string {
 
 	width := lipgloss.Width(mm.title)
 	for _, e := range mm.entries {
-		if w := lipgloss.Width(e.key) + 2 + lipgloss.Width(e.label); w > width {
+		// The key column is padded to four cells plus a space (see the
+		// "%-4s " below), so that is what a label is measured against.
+		if w := max(lipgloss.Width(e.key), 4) + 1 + lipgloss.Width(e.label); w > width {
 			width = w
 		}
 	}
@@ -272,7 +274,7 @@ func newCellModal(subject, column string, colType string, value any) *cellModal 
 		}
 	}
 
-	raw := db.FormatValue(value, nullText)
+	raw := db.FormatTemporalValue(value, db.ClassifyType(colType), nullText)
 	var text, kindLabel string
 	var tree *jsonNode
 	switch classifyCell(raw) {
@@ -645,10 +647,18 @@ func (hm *helpModal) view(s styles, maxW, maxH int) string {
 type commandLogModal struct {
 	lines  []logLine
 	offset int
+	title  string
+	// toggleHelp is the introspection key's footer hint, captured at
+	// open time since view has no Model to read the keymap from.
+	toggleHelp string
 }
 
-func newCommandLogModal(lines []logLine) *commandLogModal {
-	return &commandLogModal{lines: lines, offset: max(len(lines)-1, 0)}
+func newCommandLogModal(m Model) *commandLogModal {
+	lines := m.commandLogEntries()
+	return &commandLogModal{
+		lines: lines, offset: max(len(lines)-1, 0), title: m.commandLogTitle(),
+		toggleHelp: m.keys.LogIntrospection.Help().Key + " introspection",
+	}
 }
 
 func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
@@ -657,6 +667,15 @@ func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) 
 	// (and any `[keys]` override) toggles the modal too.
 	if key.Matches(msg, m.keys.CommandLog) {
 		return true, nil
+	}
+	// Toggling introspection re-reads the feed, so the snapshot this
+	// modal holds changes under it; the view jumps to the newest line.
+	if key.Matches(msg, m.keys.LogIntrospection) {
+		m.showIntrospection = !m.showIntrospection
+		c.lines = m.commandLogEntries()
+		c.title = m.commandLogTitle()
+		c.offset = len(c.lines)
+		return false, nil
 	}
 	switch msg.String() {
 	case "esc", "q":
@@ -700,7 +719,7 @@ func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(s.modalTitle.Render("Command log") + "\n\n")
+	b.WriteString(s.modalTitle.Render(c.title) + "\n\n")
 	for _, line := range c.lines[c.offset : c.offset+rows] {
 		text := truncate(line.render(), width)
 		if line.err {
@@ -709,10 +728,10 @@ func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 			b.WriteString(text + "\n")
 		}
 	}
-	footer := "esc close"
+	footer := c.toggleHelp + " · esc close"
 	if len(c.lines) > rows {
-		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · esc close",
-			c.offset+1, c.offset+rows, len(c.lines))
+		footer = fmt.Sprintf("lines %d–%d of %d · ↑/↓ scroll · %s · esc close",
+			c.offset+1, c.offset+rows, len(c.lines), c.toggleHelp)
 	}
 	b.WriteString("\n" + s.muted.Render(footer))
 	return s.modal.Render(b.String())

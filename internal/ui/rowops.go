@@ -74,7 +74,8 @@ func (m *Model) settleGridWindow() {
 		return
 	}
 	g := m.gridLayout(w, h)
-	m.data.rowOff, m.data.colOff = g.rs, g.cs
+	// colOff counts the scrolling columns only, right of the pinned ones.
+	m.data.rowOff, m.data.colOff = g.rs, g.cs-g.pinned
 }
 
 // ---------- delete ----------

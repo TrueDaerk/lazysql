@@ -97,25 +97,43 @@ func (c *conn) ReadOnly() bool   { return c.readOnly }
 
 // querierAdapter narrows *sql.DB to the querier interface the dialects use.
 // It logs through the same Logger as every other call the conn makes, so
-// introspection (columns, indexes, foreign keys, DDL) shows up in the
-// command log exactly like a browsed page or an edited row does.
+// introspection (columns, indexes, foreign keys, DDL) lands in the command
+// log exactly like a browsed page or an edited row does. introspection
+// tags those entries (LogEntry.Introspection) so the UI can hide them by
+// default; the dialects never see the difference.
 type querierAdapter struct {
-	db     *sql.DB
-	logger *Logger
+	db            *sql.DB
+	logger        *Logger
+	introspection bool
 }
 
 func (q querierAdapter) QueryContext(ctx context.Context, query string, args ...any) (rowsScanner, error) {
 	start := time.Now()
 	rows, err := q.db.QueryContext(ctx, query, args...)
-	q.logger.record(query, args, start, err)
+	if q.introspection {
+		q.logger.recordIntrospection(query, args, start, err)
+	} else {
+		q.logger.record(query, args, start, err)
+	}
 	return rows, err
 }
 
+// q is the querier for catalog introspection: every statement it runs is
+// logged as LogEntry.Introspection. Whatever the user asked for directly
+// (EXPLAIN) goes through userQ instead.
 func (c *conn) q() (querier, error) {
 	if c.db == nil {
 		return nil, errNotConnected
 	}
-	return querierAdapter{c.db, c.logger}, nil
+	return querierAdapter{c.db, c.logger, true}, nil
+}
+
+// userQ is q for a statement the user asked for, logged untagged.
+func (c *conn) userQ() (querier, error) {
+	if c.db == nil {
+		return nil, errNotConnected
+	}
+	return querierAdapter{c.db, c.logger, false}, nil
 }
 
 func (c *conn) ListDatabases(ctx context.Context) ([]string, error) {
@@ -266,8 +284,42 @@ func (c *conn) KillProcess(ctx context.Context, id string) error {
 	return nil
 }
 
+func (c *conn) SchemaSupport(op SchemaOp) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	return c.dialect.schemaSupport(op)
+}
+
+func (c *conn) SchemaSQL(ch SchemaChange) ([]Statement, error) {
+	if ch == nil {
+		return nil, ErrNoSchemaChange
+	}
+	stmts, err := ch.statements(c.dialect)
+	// The guard runs after rendering so the rejected line in the command
+	// log names the statement that was refused, the way Exec's does; an
+	// unrenderable change has nothing to name and is refused all the same.
+	if c.readOnly {
+		sql := ch.Describe()
+		if err == nil {
+			sql = joinStatementSQL(stmts)
+		}
+		return nil, c.rejectWrite(sql, nil)
+	}
+	return stmts, err
+}
+
+// joinStatementSQL spells several statements as one script line.
+func joinStatementSQL(stmts []Statement) string {
+	sql := make([]string, 0, len(stmts))
+	for _, s := range stmts {
+		sql = append(sql, s.SQL)
+	}
+	return strings.Join(sql, "; ")
+}
+
 func (c *conn) Explain(ctx context.Context, sql string) (*Plan, error) {
-	q, err := c.q()
+	q, err := c.userQ()
 	if err != nil {
 		return nil, err
 	}

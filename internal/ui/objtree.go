@@ -105,6 +105,10 @@ type treeNode struct {
 	// object kind at all. It is kept apart from err so the row is not
 	// painted red for something that is working as intended.
 	hint string
+	// staged is what the changeset will do to the node on commit — a
+	// relation's drop or rename, the tables a Tables category gains. It is
+	// recomputed on every re-flatten (markStagedSchema).
+	staged string
 
 	children []*treeNode
 }
@@ -311,6 +315,8 @@ func (r treeRow) note() (string, noteStyle) {
 		return "loading…", notePending
 	case n.err != "":
 		return n.err, noteDanger
+	case n.staged != "":
+		return n.staged, notePending
 	case n.hint != "":
 		return n.hint, noteMuted
 	case n.kind == nodeCategory && n.loaded && len(n.children) == 0:
@@ -538,6 +544,7 @@ func (m Model) selectedNode() *treeNode {
 // refreshTree re-flattens the tree into panel [2], keeping the cursor
 // where it was. Every expand, collapse and load reply ends here.
 func (m *Model) refreshTree() {
+	m.markStagedSchema()
 	p := m.panels[panelObjects]
 	m.panels[panelObjects].setTreeRows(m.tree.flatten(), p.nodeAt(p.cursor))
 }

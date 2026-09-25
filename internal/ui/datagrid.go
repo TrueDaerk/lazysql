@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -28,6 +29,15 @@ const (
 	colSepChar   = "│"
 	ruleChar     = "─"
 	ruleJunction = "┼"
+)
+
+// The separator after the last pinned column is heavier, so the edge the
+// scrolling columns slide under reads as one. It is the same one cell
+// wide as colSepChar: the hit test and the width math do not care which
+// glyph a gap is drawn with.
+const (
+	pinSepChar      = "┃"
+	pinRuleJunction = "╂"
 )
 
 // nullText is how SQL NULL reads in the grid. It is styled dim so it
@@ -91,7 +101,17 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 
 	fkCols := m.fkColumnSet()
 	cols := make([]gridColumn, len(d.cols))
+	visible := make([]bool, len(d.cols))
+	for _, i := range d.visibleOrder() {
+		visible[i] = true
+	}
 	for i, c := range d.cols {
+		// A hidden column is never drawn, so it is never formatted: the
+		// 64 KB TEXT column a user hides to get it out of the way stops
+		// costing the frame anything at all.
+		if !visible[i] {
+			continue
+		}
 		header := c.Name
 		// A column that takes part in a foreign key is marked, so `g`
 		// is discoverable without opening the Indexes tab first.
@@ -105,6 +125,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				header += " ▲"
 			}
 		}
+		kind := db.ClassifyType(c.DataType)
 		g := gridColumn{
 			header: header,
 			typ:    strings.ToLower(c.DataType),
@@ -127,7 +148,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				}
 			}
 			g.nulls[r] = v == nil
-			g.cells[r] = gridCellText(v, nullText)
+			g.cells[r] = gridCellText(v, kind, nullText)
 		}
 		for j, ins := range inserts {
 			r := len(d.rows) + j
@@ -139,7 +160,7 @@ func (m Model) buildGrid() ([]gridColumn, []rowKind) {
 				g.nulls[r] = true
 				g.cells[r] = nullText
 			default:
-				g.cells[r] = gridCellText(v, nullText)
+				g.cells[r] = gridCellText(v, kind, nullText)
 			}
 		}
 		for _, cell := range g.cells {
@@ -198,8 +219,13 @@ const cellScanBytes = 4 * (maxColWidth + 1)
 // Only the first cellScanBytes of the value are looked at. The binary
 // check is the same one classifyCell makes — the JSON arm it has is for
 // the popup, which pretty-prints; the grid flattens either way.
-func gridCellText(v any, null string) string {
-	raw := db.FormatValue(v, null)
+//
+// kind is the column's declared temporal kind, so a DATE or TIME column
+// renders only the half of the value it actually carries (see
+// db.FormatTemporalValue) instead of the RFC3339 timestamp FormatValue
+// would otherwise invent a date or time-of-day for.
+func gridCellText(v any, kind db.TypeKind, null string) string {
+	raw := db.FormatTemporalValue(v, kind, null)
 	head := cellHead(raw)
 	if !utf8.ValidString(head) {
 		// The placeholder reports the size of the whole value, not of
@@ -315,11 +341,57 @@ func clampInt(v, lo, hi int) int {
 // offsets it settled on — one function, so what is highlighted, what a
 // click selects and what the cursor points at cannot drift apart.
 type gridLayout struct {
-	cols   []gridColumn
-	kinds  []rowKind
-	cs, ce int  // visible column window
+	cols  []gridColumn // every column of the page, in data order
+	kinds []rowKind
+	// order is the display order (dataView.visibleOrder) and pinned how
+	// many of its leading entries are pinned; cs:ce is the window of
+	// order the scrolling part shows, always at or right of pinned.
+	order  []int
+	pinned int
+	cs, ce int  // visible column window, as positions in order
 	rs, re int  // visible row window
-	hint   bool // the columns do not all fit, so the h/l hint takes a row
+	hint   bool // the columns do not all fit (or some are hidden), so the hint takes a row
+	hidden int  // how many columns are hidden
+}
+
+// shown is the data indices of the columns the frame draws, left to
+// right: the pinned ones, then the scrolled window.
+func (g gridLayout) shown() []int {
+	out := make([]int, 0, g.pinned+g.ce-g.cs)
+	out = append(out, g.order[:g.pinned]...)
+	return append(out, g.order[g.cs:g.ce]...)
+}
+
+// shownCols is shown as the formatted columns themselves.
+func (g gridLayout) shownCols() []gridColumn {
+	idx := g.shown()
+	out := make([]gridColumn, len(idx))
+	for i, c := range idx {
+		out[i] = g.cols[c]
+	}
+	return out
+}
+
+// columnsHint is the line under the grid that says which columns are on
+// screen. Positions count the display order, pinned columns included, so
+// "columns 5–8 of 20 · 2 pinned" means positions 1–2 and 5–8 of the 20
+// visible columns; hidden columns are not in the 20 and are named apart.
+func (g gridLayout) columnsHint() string {
+	first := g.cs + 1
+	if g.cs == g.pinned {
+		first = 1 // the pinned columns and the window are one run
+	}
+	s := fmt.Sprintf("columns %d–%d of %d", first, g.ce, len(g.order))
+	if g.pinned > 0 {
+		s += fmt.Sprintf(" · %d pinned", g.pinned)
+	}
+	if g.hidden > 0 {
+		s += fmt.Sprintf(" · %d hidden (Z shows)", g.hidden)
+	}
+	if g.cs > g.pinned || g.ce < len(g.order) {
+		s += " — h/l scrolls"
+	}
+	return s
 }
 
 // gridViewport is the content box the grid is rendered into by the
@@ -334,7 +406,7 @@ func (m Model) gridViewport() (w, h int, ok bool) {
 		return 0, 0, false
 	}
 	w = maxInt(mw-2, 1)
-	h = mh - commandLogHeight(mh) - 2
+	h = mh - m.commandLogHeight(mh) - 2
 	if m.focus == panelQuery {
 		// queryContent stacks the editor, its status line and the Data
 		// tab's own tab bar above the grid.
@@ -350,8 +422,47 @@ func (m Model) gridViewport() (w, h int, ok bool) {
 func (m Model) gridLayout(w, h int) gridLayout {
 	g := gridLayout{}
 	g.cols, g.kinds = m.buildGrid()
-	g.cs, g.ce = columnWindow(g.cols, m.data.col, w, m.data.colOff)
-	g.hint = g.cs > 0 || g.ce < len(g.cols)
+	g.order = m.data.visibleOrder()
+	g.pinned = m.data.pinnedCount()
+	g.hidden = len(g.cols) - len(g.order)
+
+	// The pinned columns take their width off the top; the rest of the
+	// box is what the scrolling columns are windowed into. colOff counts
+	// the scrolling part only, so pinning a column does not shift it.
+	pos := slices.Index(g.order, m.data.col)
+	pinW := 0
+	for _, c := range g.order[:g.pinned] {
+		pinW += g.cols[c].width + colGap
+	}
+	// Pinned columns that leave no room for the cursor column — a narrow
+	// terminal, or a lot pinned — stop being pinned for this frame and
+	// scroll with the rest: the cursor cell must always be drawn, and a
+	// pinned edge that hides it would break that.
+	need := 0
+	if pos >= g.pinned {
+		need = g.cols[g.order[pos]].width
+	}
+	if g.pinned > 0 && pinW+need > w {
+		g.pinned, pinW = 0, 0
+	}
+	scroll := make([]gridColumn, 0, len(g.order)-g.pinned)
+	for _, c := range g.order[g.pinned:] {
+		scroll = append(scroll, g.cols[c])
+	}
+	sw := maxInt(w-pinW, 1)
+	var cs, ce int
+	switch {
+	case len(scroll) == 0:
+	case pos >= g.pinned:
+		cs, ce = columnWindow(scroll, pos-g.pinned, sw, m.data.colOff)
+	default:
+		// The cursor is on a pinned column, which is always on screen;
+		// the scrolling part just stays where it was.
+		off := clampInt(m.data.colOff, 0, len(scroll)-1)
+		cs, ce = columnWindow(scroll, off, sw, off)
+	}
+	g.cs, g.ce = g.pinned+cs, g.pinned+ce
+	g.hint = g.cs > g.pinned || g.ce < len(g.order) || g.hidden > 0
 	g.rs, g.re = rowWindow(len(g.kinds), m.data.row, gridBodyRows(h, g.hint), m.data.rowOff)
 	return g
 }
@@ -403,9 +514,10 @@ func (m Model) dataBody(w, h int) string {
 		g := m.gridLayout(w, h)
 
 		cur := m.dataCursor()
-		lines = append(lines, m.gridHeader(g.cols[g.cs:g.ce], g.cs, cur, w))
+		span := gridSpan{cols: g.shownCols(), idx: g.shown(), pinned: g.pinned}
+		lines = append(lines, m.gridHeader(span, cur, w))
 		for r := g.rs; r < g.re; r++ {
-			lines = append(lines, m.gridRow(g.cols[g.cs:g.ce], g.cs, r, cur, g.kinds[r], w))
+			lines = append(lines, m.gridRow(span, r, cur, g.kinds[r], w))
 		}
 		if len(g.kinds) == 0 {
 			msg := "table is empty"
@@ -415,8 +527,7 @@ func (m Model) dataBody(w, h int) string {
 			lines = append(lines, m.style.muted.Render(msg))
 		}
 		if g.hint {
-			lines = append(lines, m.style.muted.Render(fmt.Sprintf(
-				"columns %d–%d of %d — h/l scrolls", g.cs+1, g.ce, len(g.cols))))
+			lines = append(lines, m.style.muted.Render(g.columnsHint()))
 		}
 	}
 
@@ -466,9 +577,32 @@ func (m Model) dataCursor() gridCursor {
 		row: m.data.row, col: m.data.col,
 		focused:  m.focus == panelMain,
 		idle:     m.filterInputOpen(),
-		selected: m.data.cellSelected,
+		selected: m.data.cellSelector(),
 	}
 }
+
+// gridSpan is the columns one frame draws, left to right, with the
+// column index each of them stands for — which is what the cursor and the
+// selection are compared against — and how many of them lead as pinned
+// columns. The read-only grids have no pinning and pass a contiguous run.
+type gridSpan struct {
+	cols   []gridColumn
+	idx    []int
+	pinned int
+}
+
+// contiguousSpan is the span of cols[start:end] drawn in order.
+func contiguousSpan(cols []gridColumn, start, end int) gridSpan {
+	idx := make([]int, 0, end-start)
+	for i := start; i < end; i++ {
+		idx = append(idx, i)
+	}
+	return gridSpan{cols: cols[start:end], idx: idx}
+}
+
+// pinEdge reports whether the separator before drawn column i is the one
+// between the pinned columns and the scrolling ones.
+func (s gridSpan) pinEdge(i int) bool { return s.pinned > 0 && i == s.pinned }
 
 // gridHeaderRows is how many lines gridHeader draws for a set of columns:
 // the names, the types when the columns declare any, and the rule under
@@ -495,17 +629,22 @@ func gridHasTypes(cols []gridColumn) bool {
 // line up with the `│` separators above and below it. A grid whose
 // columns declare no types gets no type line — there would be nothing in
 // it, and a read-only report should not spend a row on a blank.
-func (m Model) gridHeader(cols []gridColumn, first int, cur gridCursor, w int) string {
+func (m Model) gridHeader(span gridSpan, cur gridCursor, w int) string {
+	cols := span.cols
 	var names, types, rule strings.Builder
 	for i, c := range cols {
 		if i > 0 {
-			sep := m.style.gridSeparator.Render(colSepChar)
+			sepChar, junction := colSepChar, ruleJunction
+			if span.pinEdge(i) {
+				sepChar, junction = pinSepChar, pinRuleJunction
+			}
+			sep := m.style.gridSeparator.Render(sepChar)
 			names.WriteString(sep)
 			types.WriteString(sep)
-			rule.WriteString(ruleJunction)
+			rule.WriteString(junction)
 		}
 		style := m.style.gridHeader
-		if first+i == cur.col && cur.focused && !cur.idle {
+		if span.idx[i] == cur.col && cur.focused && !cur.idle {
 			style = m.style.gridHeaderCursor
 		}
 		names.WriteString(style.Render(pad(truncate(c.header, c.width), c.width)))
@@ -521,14 +660,18 @@ func (m Model) gridHeader(cols []gridColumn, first int, cur gridCursor, w int) s
 
 // gridRow renders one row of the page, tinting the cursor row and, more
 // strongly, the cursor cell.
-func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind rowKind, w int) string {
+func (m Model) gridRow(span gridSpan, r int, cur gridCursor, kind rowKind, w int) string {
 	var b strings.Builder
 	onRow := r == cur.row && cur.focused
-	for i, c := range cols {
+	for i, c := range span.cols {
 		if i > 0 {
-			sep := m.style.gridSeparator.Render(colSepChar)
+			sepChar := colSepChar
+			if span.pinEdge(i) {
+				sepChar = pinSepChar
+			}
+			sep := m.style.gridSeparator.Render(sepChar)
 			if onRow && !cur.idle {
-				sep = m.style.rowCursor.Render(colSepChar)
+				sep = m.style.rowCursor.Render(sepChar)
 			}
 			b.WriteString(sep)
 		}
@@ -539,7 +682,8 @@ func (m Model) gridRow(cols []gridColumn, first, r int, cur gridCursor, kind row
 		}
 		// The tint is per cell, not per row: a selection narrowed to a
 		// block of columns has to show which columns it kept.
-		b.WriteString(m.cellStyle(cur.idle, onRow, cur.cellSelected(r, first+i), first+i == cur.col && cur.focused,
+		col := span.idx[i]
+		b.WriteString(m.cellStyle(cur.idle, onRow, cur.cellSelected(r, col), col == cur.col && cur.focused,
 			isNull, isStaged, kind).
 			Render(pad(truncate(text, c.width), c.width)))
 	}

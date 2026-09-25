@@ -74,6 +74,7 @@ type hit struct {
 	title bool
 	row   int
 	col   int
+	boxW  int // the box's outer width, for title hit-tests that depend on it
 }
 
 // hitTest maps an absolute cell onto the layout. It walks exactly the
@@ -122,7 +123,7 @@ func (m Model) hitTest(x, y int) hit {
 // hitMainColumn splits the main column the way renderMainColumn does:
 // the main view box, and the command log strip under it.
 func (m Model) hitMainColumn(r rect, x, y int) hit {
-	logH := commandLogHeight(r.h)
+	logH := m.commandLogHeight(r.h)
 	mainH := r.h - logH
 	if y < r.y+mainH {
 		return boxHit(hit{zone: zoneMain}, rect{r.x, r.y, r.w, mainH}, x, y)
@@ -134,6 +135,7 @@ func (m Model) hitMainColumn(r rect, x, y int) hit {
 // the title, everything one cell in is content, and the rest is border.
 func boxHit(h hit, box rect, x, y int) hit {
 	h.row, h.col = -1, -1
+	h.boxW = box.w
 	if y == box.y {
 		// The title starts after the corner rune and titleBorderPad
 		// fill runes — see renderTitledBox.
@@ -372,7 +374,7 @@ func (m Model) editorBlockRows() int {
 		return 0
 	}
 	cw := maxInt(mw-2, 1)
-	rows := maxInt(mh-commandLogHeight(mh)-2, 1)
+	rows := maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	return m.editorHeight(cw, rows) + 1 // + the hint line under the buffer
 }
 
@@ -520,7 +522,10 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		// The Data/Structure/Indexes/DDL/Relations bar rides the title
 		// whenever a relation or a result is open — see mainTitle.
 		if m.focus != panelConnections && m.data.open() {
-			if t, ok := mainTabHit(h.col); ok {
+			// mainTitle hands mainTabBar the box width minus the border,
+			// so the hit-test must shrink h.boxW the same way to agree on
+			// which strip level was actually drawn.
+			if t, ok := m.mainTabHit(h.col, h.boxW-2); ok {
 				m.setFocus(panelMain)
 				cmd := m.setMainTab(t)
 				return m, cmd
@@ -564,8 +569,10 @@ func (m *Model) clickGrid(row, col int) {
 		return
 	}
 	m.data.row = r
-	if c, ok := gridColumnAt(g.cols[g.cs:g.ce], col); ok {
-		m.data.col = g.cs + c
+	// The pinned columns are drawn first, so a click is mapped through
+	// the same left-to-right run the frame drew.
+	if c, ok := gridColumnAt(g.shownCols(), col); ok {
+		m.data.col = g.shown()[c]
 	}
 	m.clampCursor()
 }
@@ -592,22 +599,35 @@ func gridColumnAt(cols []gridColumn, x int) (int, bool) {
 
 // ---------- tab hit-testing ----------
 
-// mainTabHit maps a cell offset inside the main view's title onto a tab.
-// mainTabBar opens with `‹` and separates the labels with `|`.
-func mainTabHit(col int) (mainTab, bool) {
+// mainTabHit maps a cell offset inside the main view's title onto a tab. w
+// is the same width mainTabBar was rendered with, so the two agree on how
+// far the strip was shortened — see mainTabStripLevel. Once the strip is
+// down to a single label, any click on it re-selects the tab that is
+// already focused; there is nothing else visible to switch to. At the full
+// level the strip only ever holds visibleMainTabs, so a click past them
+// (a query result offering just Data) misses instead of picking a tab the
+// strip never drew.
+func (m Model) mainTabHit(col, w int) (mainTab, bool) {
 	if col < 0 {
 		return 0, false
 	}
+	level := m.mainTabLevel(maxInt(w-2, 0), m.mainTabSuffix(w))
+	if level != tabStripFull {
+		if col < lipgloss.Width(m.mainTabStrip(level)) {
+			return m.tab, true
+		}
+		return 0, false
+	}
 	at := lipgloss.Width("‹")
-	for t := mainTab(0); t < mainTabCount; t++ {
-		if t > 0 {
+	for i, t := range m.visibleMainTabs() {
+		if i > 0 {
 			at += lipgloss.Width("|")
 		}
-		w := lipgloss.Width(mainTabNames[t])
-		if col >= at && col < at+w {
+		tw := lipgloss.Width(mainTabNames[t])
+		if col >= at && col < at+tw {
 			return t, true
 		}
-		at += w
+		at += tw
 	}
 	return 0, false
 }

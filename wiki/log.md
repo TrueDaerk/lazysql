@@ -1953,18 +1953,19 @@ Chronological history of wiki changes, newest last.
 
 - Added [design/first-last-row-and-goto-page](design/first-last-row-and-goto-page.md):
   `home`/`end` jump the grid cursor straight to the first row of the first
-  page and the last row of the last page, and `p` opens a page-number prompt
-  built on the existing `promptModal`. All three reuse `Model.reloadPage()`
-  rather than a parallel load path — `turnPage`, `toggleSort` and
-  `setDataFilter` already go through it — so a jump gets the same
-  in-flight-query cancellation
+  page and the last row of the last page, and `P` opens a page-number prompt
+  built on the existing `promptModal` (`p` was the original pick, but issue
+  #222 landed first and took it for `PinColumn`). All three reuse
+  `Model.reloadPage()` rather than a parallel load path — `turnPage`,
+  `toggleSort` and `setDataFilter` already go through it — so a jump gets the
+  same in-flight-query cancellation
   ([design/page-query-cancellation](design/page-query-cancellation.md)) and
   selection drop as `ctrl+f`/`ctrl+b` for free, and respects whatever filter
   and sort are running since it is the same query at a different offset.
   `gg`/`G` were considered and rejected: both are already taken, by
   `g`/`G` (follow/incoming foreign keys,
   [design/foreign-key-navigation](design/foreign-key-navigation.md)) and by
-  the query editor's own vim layer. `home`, `end` and `p` are unbound in the
+  the query editor's own vim layer. `home`, `end` and `P` are unbound in the
   grid, the filter input, the cell detail popup and the date picker, and
   need no AltGr alias — the portability rule
   ([reference/keyboard-layout-portability](reference/keyboard-layout-portability.md))
@@ -1976,3 +1977,104 @@ Chronological history of wiki changes, newest last.
   arrived yet refuses the jump instead of guessing at page one being last. A
   page number outside `1..pageCount` is refused with the valid range in the
   command log, never silently clamped.
+
+## 2026-09-25
+
+- Added [design/pinned-help-in-options-bar](design/pinned-help-in-options-bar.md)
+  (issue #215): the Data panel's action keys (`e`, `d`, `n`, `c`, `y`, `/`)
+  now list before tab/column navigation in `panelActions(panelMain)`, and
+  `? help` is pinned outside `bubbles/help.Model`'s own truncation so it
+  survives at every width down to `minWidth`. Documents a `help.Model`
+  quirk hit along the way: `ShortHelpView` stops bounding its output once
+  neither the next item nor its own ellipsis fits the remaining width.
+
+## 2026-09-25 — Cut the internal/ui test suite runtime (issue #228)
+
+- Added [reference/ui-test-suite-runtime](reference/ui-test-suite-runtime.md):
+  per-test timings and a block profile show `internal/ui`'s 341s were spent
+  waiting on `cursor.(*Model).Blink`'s 530ms timer, which the tests' `drain`
+  helper runs synchronously on every keystroke. The filter line and the query
+  editor — both of which draw their own caret — now call
+  `SetVirtualCursor(false)`, so no blink timer is armed for them (in
+  production too); the suite drops to 48s with coverage unchanged. The concept
+  also records the timers that remain (modal inputs' visible blink, the input
+  coalescer's 16ms flush) and why they stay.
+
+## 2026-09-25 — Render DATE and TIME columns without an invented time or date part (issue #214)
+
+- Added [design/temporal-cell-formatting](design/temporal-cell-formatting.md):
+  `db.FormatTemporalValue` reads a column's already-classified `TypeKind` and
+  drops the half of a temporal value `FormatValue` would otherwise invent for
+  a `KindDate`/`KindTime` column (the P3 finding of
+  [reference/ux-audit-2026-08](reference/ux-audit-2026-08.md)), applied to
+  the grid (`gridCellText`), the cell-detail popup (`v`) and the row detail
+  (`x`). Copy/export and the `e` date picker were already correct through
+  separate paths (`QuoteLiteral`'s own `time.Time` switch, `kind.Layout()`)
+  and needed no change.
+
+## 2026-09-25 — Query results show only the Data tab (issue #216)
+
+- Updated [design/main-view-tabs](design/main-view-tabs.md): a query result
+  has no relation behind it, so `Structure`/`Indexes`/`DDL`/`Relations` no
+  longer appear in the strip while one is open — only `Data` does.
+  `Model.visibleMainTabs` is the one predicate `mainTabBar` and
+  `mainTabHit` (`internal/ui/mouse.go`) both walk, so a mouse click can't
+  select a tab the strip never drew.
+
+## 2026-09-25 — Truncate the main view's tab strip before the relation name (issue #217)
+
+- Updated [design/main-view-tabs](design/main-view-tabs.md) with a new
+  section: `mainTabBar` now shortens the `‹Data|Structure|…›` strip through
+  three levels (full, focused-name-only, focused-letter-only) before
+  appending the relation name, instead of letting `renderTitledBox`'s blind
+  right-truncation eat the name first. `mainTabHit` re-derives the same
+  level from the same width so mouse clicks agree with what was drawn.
+
+## 2026-09-25 — Hide lazysql's own introspection SQL from the command log (issue #219)
+
+- Updated [design/command-log-panel](design/command-log-panel.md) with a new
+  section: `db.LogEntry.Introspection` is set by the introspection querier
+  (`conn.q()`), never guessed from SQL text; `Explain` moved to an untagged
+  `conn.userQ()`. The UI hides tagged entries unless `ctrl+l`
+  (`log-introspection`) is toggled on, and always shows a failed one. Also
+  records the tab-expansion fix in `logLine.render` the change surfaced.
+
+## 2026-09-25 — Collapse the command log strip with a key (issue #218)
+
+- Added [design/collapsible-command-log](design/collapsible-command-log.md):
+  `T` toggles `Model.logCollapsed`, `commandLogHeight` became a `Model`
+  method that returns 0 while it is set (every other reader — the
+  completion popup's anchors, `gridViewport`, mouse hit-testing,
+  `editorBlockRows` — already called through it, so the main view reclaims
+  the strip's rows everywhere at once), `@`/`L` still opens the expanded
+  modal, and the choice persists in `config.State.LogCollapsed` next to
+  `ScreenMode`.
+
+## 2026-09-25 — Pin and hide columns in the data grid (issue #222)
+
+- Added [design/grid-pinned-hidden-columns](design/grid-pinned-hidden-columns.md):
+  `p`/`z`/`Z` over `dataView.pinned`/`hidden` (column names), a display
+  order separate from the data-index cursor, `gridSpan` replacing the
+  contiguous `cols[cs:ce]` the renderers took, the `┃` pin edge, the
+  `columns X–Y of N · k pinned · k hidden` hint, selection spans in display
+  positions, and `export.Projection` for the streamed copy/export scopes.
+
+## 2026-09-25 — Stage DDL operations for tables and indexes (issue #224)
+
+- Added [design/staged-ddl](design/staged-ddl.md): nine `db.SchemaChange`
+  kinds staged into the one changeset, `Change.statements` returning several
+  statements or an error, `Dialect.schemaSupport`/`schemaSQL` and
+  `Driver.SchemaSupport`/`SchemaSQL`, the "not supported by …" menu entries,
+  the type/expression grammar, the driver-level read-only refusal, the second
+  confirm for destructive operations, the staged markers in `[2]` and the
+  Structure/Indexes tabs, the create-table draft, and the post-commit refresh.
+- Added [reference/ddl-per-dialect](reference/ddl-per-dialect.md): per-engine
+  spellings and gaps found while implementing it — SQLite qualifies the index
+  rather than the table in `CREATE INDEX`, MySQL `CHANGE COLUMN` restates the
+  whole column and MySQL/MariaDB disagree on quoting `COLUMN_DEFAULT`, DuckDB
+  refuses to `ALTER` a table with an index on it, and MySQL/MariaDB commit DDL
+  implicitly.
+- Updated [design/staged-changeset](design/staged-changeset.md) (schema changes
+  share the `Change` interface, whose render now returns an error) and
+  [design/read-only-connections](design/read-only-connections.md) (the
+  stage-time `ErrReadOnly` from `Driver.SchemaSQL`).

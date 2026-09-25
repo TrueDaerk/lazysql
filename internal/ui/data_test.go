@@ -271,10 +271,10 @@ func TestLastRowJumpWaitsForTheCount(t *testing.T) {
 	}
 }
 
-// `p` opens a prompt; a page inside 1..pageCount jumps straight there.
+// `P` opens a prompt; a page inside 1..pageCount jumps straight there.
 func TestGoToPageJumpsToTheGivenPage(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('p'))
+	m = send(t, m, press('P'))
 	p, ok := m.modal.(*promptModal)
 	if !ok {
 		t.Fatalf("p opened %T, want the page prompt", m.modal)
@@ -300,7 +300,7 @@ func TestGoToPageJumpsToTheGivenPage(t *testing.T) {
 // either end.
 func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
 	m := dataBrowsing(t) // 3 pages
-	m = send(t, m, press('p'))
+	m = send(t, m, press('P'))
 	m = typeKeys(t, m, "99")
 	m = send(t, m, special(tea.KeyEnter, 0))
 
@@ -315,7 +315,7 @@ func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
 	}
 
 	// Not a number at all: refused the same way, not silently ignored.
-	m = send(t, m, press('p'))
+	m = send(t, m, press('P'))
 	m = typeKeys(t, m, "abc")
 	m = send(t, m, special(tea.KeyEnter, 0))
 	if m.data.page != 0 {
@@ -329,7 +329,7 @@ func TestGoToPageOutOfRangeIsRefused(t *testing.T) {
 // esc cancels the prompt without touching the page.
 func TestGoToPageEscCancels(t *testing.T) {
 	m := dataBrowsing(t)
-	m = send(t, m, press('p'))
+	m = send(t, m, press('P'))
 	m = typeKeys(t, m, "2")
 	m = send(t, m, special(tea.KeyEscape, 0))
 
@@ -627,7 +627,7 @@ func TestViewCellShowsNull(t *testing.T) {
 func TestGridHeaderRuleAndSeparators(t *testing.T) {
 	m := dataBrowsing(t)
 	cols, _ := m.buildGrid()
-	header := m.gridHeader(cols, 0, m.dataCursor(), 200)
+	header := m.gridHeader(contiguousSpan(cols, 0, len(cols)), m.dataCursor(), 200)
 	lines := strings.Split(header, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("header = %d lines, want name/type/rule", len(lines))
@@ -651,7 +651,7 @@ func TestGridHeaderRuleAndSeparators(t *testing.T) {
 func TestGridRowHasColumnSeparators(t *testing.T) {
 	m := dataBrowsing(t)
 	cols, kinds := m.buildGrid()
-	row := m.gridRow(cols, 0, 0, m.dataCursor(), kinds[0], 200)
+	row := m.gridRow(contiguousSpan(cols, 0, len(cols)), 0, m.dataCursor(), kinds[0], 200)
 	if want := len(cols) - 1; strings.Count(row, colSepChar) != want {
 		t.Fatalf("row has %d separators, want %d", strings.Count(row, colSepChar), want)
 	}
@@ -1102,18 +1102,19 @@ func cursorCellText(m Model) (string, bool) {
 	if m.data.col < 0 || m.data.col >= len(m.data.cols) {
 		return "", false
 	}
+	kind := db.ClassifyType(m.data.cols[m.data.col].DataType)
 	if ins, ok := m.phantomAtCursor(); ok {
 		v, bound := insertValueFor(ins, m.data.cols[m.data.col].Name)
 		if !bound {
 			return defaultText, true
 		}
-		return gridCellText(v, nullText), true
+		return gridCellText(v, kind, nullText), true
 	}
 	v, ok := m.data.cell()
 	if !ok {
 		return "", false
 	}
-	return gridCellText(v, nullText), true
+	return gridCellText(v, kind, nullText), true
 }
 
 // assertCursorRendered checks the one invariant this whole area exists
@@ -1641,5 +1642,45 @@ func TestSelectionClearedOnQueryResultPaging(t *testing.T) {
 	d.setPage(1)
 	if d.selecting() || len(d.selectedRows()) != 0 {
 		t.Fatalf("selection = %+v, want it dropped with the page", d.sel)
+	}
+}
+
+// A DATE column renders just the calendar date, not the RFC3339
+// timestamp FormatValue would otherwise invent a midnight time-of-day
+// for — issue #214. TIME renders just the clock time the same way, and
+// DATETIME, whose value genuinely carries both, is unchanged.
+func TestGridRendersDateAndTimeColumnsWithoutAnInventedHalf(t *testing.T) {
+	m := browsing(t)
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS temporal`,
+		`CREATE TABLE temporal (id INTEGER PRIMARY KEY, birthday DATE, alarm TIME, created DATETIME)`,
+		`INSERT INTO temporal (id, birthday, alarm, created)
+		 VALUES (1, '2026-08-02', '14:32:07', '2026-08-02 14:32:07')`,
+	} {
+		if _, err := m.driver.Exec(ctx, stmt); err != nil {
+			t.Fatalf("fixture %q: %v", stmt, err)
+		}
+	}
+	m = send(t, m, press('2'), press('R'))
+	if !m.panels[panelObjects].selectByName("temporal") {
+		t.Fatalf("fixture table not listed: %v", m.panels[panelObjects].items)
+	}
+	m = send(t, m, special(tea.KeyEnter, 0))
+
+	cols, _ := m.buildGrid()
+	want := map[string]string{
+		"birthday": "2026-08-02",
+		"alarm":    "14:32:07",
+		"created":  "2026-08-02T14:32:07Z",
+	}
+	for i, c := range m.data.cols {
+		w, ok := want[c.Name]
+		if !ok {
+			continue
+		}
+		if got := cols[i].cells[0]; got != w {
+			t.Errorf("column %q (%s) cell = %q, want %q", c.Name, c.DataType, got, w)
+		}
 	}
 }

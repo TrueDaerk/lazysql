@@ -68,6 +68,24 @@ highlighted, in the
 same idiom the `[3]` panel's Tables/Views sub-tabs used before the
 object tree replaced them ([design/object-tree-panel](object-tree-panel.md)).
 
+## A query result only ever offers `Data`
+
+`Structure`, `Indexes`, `DDL` and `Relations` all describe a relation;
+an ad-hoc query result is not one, so those four tabs are dropped from
+the strip rather than left dead. `Model.visibleMainTabs` (in
+`internal/ui/meta.go`) is the single predicate both renderers walk:
+`mainTabBar` builds the strip from it, and `mainTabHit` in
+`internal/ui/mouse.go` is passed the same slice so a mouse click cannot
+land on a tab the strip never drew. `setMainTab` already forced the tab
+back to `Data` on a query result before this predicate existed, so `<` /
+`>` (and their `[`/`]`, `,`/`.` aliases) were already no-ops there — this
+only fixes the strip that was still advertising four dead tabs to the
+side of them.
+
+Opening a relation from `[2] Objects` clears `dataView.query`, which is
+`isQuery`'s test, so the full five-tab strip reappears the moment a
+result stops being a result.
+
 ## What resets when the relation changes
 
 Selecting another table keeps the **selected tab** and drops
@@ -105,3 +123,40 @@ never overwrite the developer's real clipboard).
 yet, it sets `copyAfterLoad`, starts the fetch and copies when the reply
 lands, rather than telling the user to visit the DDL tab first. Success
 and failure both land in the command log.
+
+## Shortening the strip before the name (issue #217)
+
+`renderTitledBox` truncates whatever `mainTitle` hands it from the right,
+with no idea which part of the string matters. At narrow widths that ate
+the relation name — the one piece of information the tab strip's
+highlighting cannot convey — while leaving the fully redundant tab list
+(`‹Data|Structure|Indexes|DDL|Relations›`) untouched, since it sits first.
+
+`mainTabBar` now decides how much of the strip to draw *before*
+concatenating the relation name, instead of relying on `renderTitledBox`'s
+blind right-truncation to sort it out:
+
+1. `tabStripFull` — every tab name (unchanged, wide terminals).
+2. `tabStripFocusedName` — only the focused tab's name, e.g. `‹Structure›`.
+3. `tabStripFocusedLetter` — only its first letter, e.g. `‹S›`.
+
+`mainTabLevel` picks the least-shortened level whose width plus the
+relation-name suffix still fits the title's room (`w-2`, matching the
+padding `renderTitledBox` reserves around the title). The focused tab
+keeps its emphasis style at every level, so which tab is open stays
+readable even down to a single letter. This mirrors why the full strip
+was ever considered droppable: the highlight — not the neighbor labels —
+is what identifies the open tab, so collapsing to "highlighted single
+label" loses nothing a sighted user was reading from the list.
+
+Collapsing the strip changes what a click can mean: `mainTabHit` (in
+`internal/ui/mouse.go`) re-derives the same level from the same width
+before hit-testing, so a click never lands on a label that was not
+actually drawn. Once collapsed to one label, every click on it resolves
+to the tab that is already focused — there is nothing else on screen to
+switch to.
+
+The other titles sharing this box (`queryTitle`, `diffTitle`,
+`activityTitle`, `planTitle`) are all `label — value` pairs with no
+redundant list in front of the value, so none of them had this failure
+mode.

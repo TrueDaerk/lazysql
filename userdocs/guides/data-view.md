@@ -30,6 +30,31 @@ query, and that stays an explicit key.
 | `j` / `k`, `↑` / `↓` | Move the row cursor |
 | `h` / `l`, `←` / `→` | Move the cell cursor across columns |
 
+## Pinning and hiding columns
+
+On a wide table the columns that say which row is which scroll off the left
+edge. Pin them, and get the ones you do not care about out of the way:
+
+| Key | Action |
+|---|---|
+| `p` | Pin the cursor column to the left edge, or unpin it |
+| `z` | Hide the cursor column |
+| `Z` | List the hidden columns and show them again |
+
+Pinned columns stay put while `h` / `l` scroll the rest; a heavier `┃`
+separates them from the scrolling part. Several columns can be pinned — they
+lead the grid in the order you pinned them. The last visible column cannot be
+hidden.
+
+The line under the grid counts what is on screen: `columns 5–8 of 20 · 2
+pinned · 3 hidden` means the two pinned columns plus positions 5–8 of the 20
+visible ones, with three more hidden.
+
+Both are remembered for the relation while you page, sort, filter and reload,
+and forgotten when you open another one. The copy and export scopes act on
+what you see: a hidden column is left out of every CSV, JSON and `INSERT`
+copy or export, and the columns come out in the order they are drawn.
+
 ## Sorting
 
 `s` sorts by the cursor column, cycling **ASC → DESC → off**. The sort is part

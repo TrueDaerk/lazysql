@@ -84,6 +84,10 @@ func newFilterInput(s styles, d sqlhl.Dialect, prefix, initial string, hist []st
 	// is ever printed, so anything it computed from them — its prompt
 	// style, its blinking cursor, its own scroll window — would only be
 	// a second, disagreeing answer to a question view() already answers.
+	// Its virtual cursor is off for the same reason: left on, every
+	// keystroke that moves the caret would arm a real Blink() timer for a
+	// cursor cell nobody draws.
+	ti.SetVirtualCursor(false)
 	ti.SetValue(initial)
 	ti.CursorEnd()
 	ti.Focus()

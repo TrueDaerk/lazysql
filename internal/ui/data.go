@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -83,8 +84,17 @@ type dataView struct {
 	total    int64
 	hasTotal bool
 
-	// Cell cursor.
+	// Cell cursor. col indexes cols, not the display order: pinned and
+	// hidden columns reorder what is drawn, never what the cursor means.
 	row, col int
+
+	// pinned and hidden name the columns the user pinned to the left edge
+	// (in pin order) and took out of the grid. They live here, by name,
+	// so they survive a page turn, a sort, a filter and a reload, and go
+	// with the dataView when another relation replaces it — see
+	// colview.go and wiki/design/grid-pinned-hidden-columns.md.
+	pinned []string
+	hidden []string
 
 	// Top-left cell of the scroll window. It is where the grid last
 	// settled, not where it must be: rowWindow and columnWindow clamp it
@@ -161,46 +171,70 @@ func (d dataView) inSelection(r int) bool {
 	return r >= start && r < end
 }
 
-// columnRange is the half-open range of columns the selection covers. A
-// selection that never anchored a column covers all of them, so the
-// row-wise scopes keep reading the full width without asking whether a
-// block is up.
+// columnRange is the half-open range of display positions the selection
+// covers — positions in visibleOrder, so the span is what is on screen
+// between its two edges, with hidden columns out and pinned ones where
+// they are drawn. A selection that never anchored a column covers all
+// visible ones, so the row-wise scopes keep reading the full width
+// without asking whether a block is up.
 func (d dataView) columnRange() (start, end int) {
-	return d.sel.colRange(d.col, len(d.cols))
+	return d.columnRangeIn(d.visibleOrder())
 }
 
-// selectedCols lists the columns of the selection, in column order.
+func (d dataView) columnRangeIn(order []int) (start, end int) {
+	s := d.sel
+	cur := max(slices.Index(order, d.col), 0)
+	if s.colAnchor = slices.Index(order, s.colAnchor); s.colAnchor < 0 {
+		s.colAnchor = cur
+	}
+	return s.colRange(cur, len(order))
+}
+
+// selectedCols lists the data columns of the selection, in display order.
 func (d dataView) selectedCols() []int {
-	start, end := d.columnRange()
+	order := d.visibleOrder()
+	start, end := d.columnRangeIn(order)
 	if end <= start {
 		return nil
 	}
-	out := make([]int, 0, end-start)
-	for c := start; c < end; c++ {
-		out = append(out, c)
-	}
-	return out
+	return slices.Clone(order[start:end])
 }
 
 // narrowedToCols reports whether the selection is a block rather than
 // whole rows — i.e. whether a column span was anchored and it leaves at
-// least one column out.
+// least one visible column out.
 func (d dataView) narrowedToCols() bool {
 	if !d.sel.cols {
 		return false
 	}
-	start, end := d.columnRange()
-	return end-start < len(d.cols)
+	order := d.visibleOrder()
+	start, end := d.columnRangeIn(order)
+	return end-start < len(order)
+}
+
+// cellSelector is the per-cell selection test the renderer asks once per
+// drawn cell. The block is resolved once per frame rather than per cell:
+// walking the display order for every cell of a page would be the grid
+// paying for pinning on every keystroke.
+func (d dataView) cellSelector() func(r, c int) bool {
+	if !d.selecting() {
+		return nil
+	}
+	order := d.visibleOrder()
+	start, end := d.columnRangeIn(order)
+	in := make(map[int]bool, end-start)
+	for _, c := range order[max(start, 0):max(end, start)] {
+		in[c] = true
+	}
+	rs, re := d.selectionRange()
+	return func(r, c int) bool { return r >= rs && r < re && in[c] }
 }
 
 // cellSelected reports whether a rendered cell is part of the selection:
 // its row takes part and its column is inside the block.
 func (d dataView) cellSelected(r, c int) bool {
-	if !d.inSelection(r) {
-		return false
-	}
-	start, end := d.columnRange()
-	return c >= start && c < end
+	sel := d.cellSelector()
+	return sel != nil && sel(r, c)
 }
 
 // clearSelection drops the selection. Every query-shape change goes
@@ -290,6 +324,7 @@ func (d *dataView) clampCursor() {
 	if d.col < 0 {
 		d.col = 0
 	}
+	d.settleCol()
 }
 
 // cell returns the value under the cursor.
@@ -890,7 +925,7 @@ func (m *Model) extendColumnSelection(delta int) tea.Cmd {
 		m.data.sel.cols = true
 		m.data.sel.colAnchor = m.data.col
 	}
-	m.data.col += delta
+	m.data.stepCol(delta)
 	m.clampCursor()
 	return nil
 }
@@ -946,11 +981,20 @@ func (m *Model) focusBack() {
 func (m Model) dataActions(id actionID) (Model, tea.Cmd, bool) {
 	switch id {
 	case actColLeft:
-		m.data.col--
+		m.data.stepCol(-1)
 		m.clampCursor()
 	case actColRight:
-		m.data.col++
+		m.data.stepCol(1)
 		m.clampCursor()
+	case actPinColumn:
+		cmd := m.togglePin()
+		return m, cmd, true
+	case actHideColumn:
+		cmd := m.hideColumn()
+		return m, cmd, true
+	case actHiddenColumns:
+		cmd := m.hiddenColumnsMenu()
+		return m, cmd, true
 	case actNextPage:
 		cmd := m.turnPage(1)
 		return m, cmd, true

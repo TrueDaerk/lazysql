@@ -12,12 +12,19 @@ const LogCapacity = 500
 // query, a staged edit's UPDATE/INSERT/DELETE, a query-editor statement,
 // a transaction boundary (SQL is "BEGIN"/"COMMIT"), or an introspection
 // query. Err is the failure it returned, nil on success.
+//
+// Introspection marks a statement lazysql issued on its own behalf to
+// read the catalog — the List*/Table* methods and the process list —
+// rather than one the user asked for. It is set where the statement is
+// logged (the introspection querier), never guessed from the SQL text,
+// so the UI can hide catalog chatter without a per-engine pattern list.
 type LogEntry struct {
-	SQL      string
-	Args     []any
-	At       time.Time
-	Duration time.Duration
-	Err      error
+	SQL           string
+	Args          []any
+	At            time.Time
+	Duration      time.Duration
+	Err           error
+	Introspection bool
 }
 
 // Logger is a fixed-capacity ring buffer of every statement a conn runs.
@@ -45,13 +52,23 @@ func NewLogger() *Logger {
 
 // record appends one entry, evicting the oldest once the buffer is full.
 func (l *Logger) record(sql string, args []any, start time.Time, err error) {
+	l.add(LogEntry{SQL: sql, Args: args, At: start, Duration: time.Since(start), Err: err})
+}
+
+// recordIntrospection is record for a catalog query lazysql ran on its
+// own behalf; see LogEntry.Introspection.
+func (l *Logger) recordIntrospection(sql string, args []any, start time.Time, err error) {
+	l.add(LogEntry{SQL: sql, Args: args, At: start, Duration: time.Since(start), Err: err, Introspection: true})
+}
+
+func (l *Logger) add(e LogEntry) {
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	idx := (l.start + l.count) % len(l.entries)
-	l.entries[idx] = LogEntry{SQL: sql, Args: args, At: start, Duration: time.Since(start), Err: err}
+	l.entries[idx] = e
 	if l.count < len(l.entries) {
 		l.count++
 	} else {

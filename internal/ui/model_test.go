@@ -10,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/zalando/go-keyring"
 
 	"lazysql/internal/config"
@@ -1046,6 +1047,22 @@ func TestOptionsBarAndHelpShareOneSource(t *testing.T) {
 			if !helpKeys[b.Help().Key] {
 				t.Errorf("panel %v: options bar shows %q which `?` omits", panelTitles[id], b.Help().Key)
 			}
+		}
+	}
+}
+
+// The options bar truncates before it reaches the least useful keys, but
+// `? help` — the app's only visible route to the full keymap — must never
+// be among what gets dropped, at the smallest terminal size lazysql
+// supports. See issue #215.
+func TestOptionsBarPinsHelpAtMinWidth(t *testing.T) {
+	m := sized(minWidth, minHeight)
+	for id := panelID(0); id <= panelMain; id++ {
+		m.focus = id
+		bar := ansi.Strip(m.renderOptionsBar())
+		if !strings.Contains(bar, "? help") {
+			t.Errorf("panel %v: options bar at min width (%d cols) omits ? help:\n%s",
+				panelTitles[id], minWidth, bar)
 		}
 	}
 }

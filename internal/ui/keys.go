@@ -60,6 +60,11 @@ type keyMap struct {
 	// default. It is global, so it works on the slim strip under the main
 	// view, and the expanded log modal matches it too.
 	LogIntrospection key.Binding
+	// ToggleCommandLog collapses the log strip under the main view (issue
+	// #218): collapsed, the main view box takes the full main-column
+	// height instead. `@`/`L` (CommandLog above) still opens the full log
+	// modal either way.
+	ToggleCommandLog key.Binding
 	Help             key.Binding
 	Quit             key.Binding
 
@@ -355,6 +360,11 @@ func newKeyMap() keyMap {
 		// and a global key is matched before the panel sees it.
 		LogIntrospection: key.NewBinding(
 			key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "show/hide introspection in log")),
+		// `T` ("toggle"): a plain letter, free in every context (see
+		// wiki/reference/keyboard-layout-portability.md), so it needs no
+		// layout-neutral alias.
+		ToggleCommandLog: key.NewBinding(
+			key.WithKeys("T"), key.WithHelp("T", "toggle command log strip")),
 		Help: key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 		Quit: key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 
@@ -812,7 +822,8 @@ func (k keyMap) filterInput() []key.Binding {
 func (k keyMap) global() []key.Binding {
 	return []key.Binding{
 		k.Jump, k.NextPanel, k.PrevPanel, k.ScreenNext, k.ScreenPrev,
-		k.OpenEditor, k.CancelQuery, k.CommandLog, k.LogIntrospection, k.Help, k.Quit,
+		k.OpenEditor, k.CancelQuery, k.CommandLog, k.ToggleCommandLog, k.LogIntrospection,
+		k.Help, k.Quit,
 	}
 }
 
@@ -1136,6 +1147,7 @@ func (k *keyMap) slots() []bindingSlot {
 		{"screen-next", &k.ScreenNext}, {"screen-prev", &k.ScreenPrev}, {"open-editor", &k.OpenEditor},
 		{"leave-insert", &k.LeaveInsert}, {"cancel-query", &k.CancelQuery}, {"command-log", &k.CommandLog},
 		{"log-introspection", &k.LogIntrospection},
+		{"toggle-command-log", &k.ToggleCommandLog},
 		{"help", &k.Help}, {"quit", &k.Quit},
 
 		{"new-connection", &k.NewConnection}, {"open-file", &k.OpenFile},

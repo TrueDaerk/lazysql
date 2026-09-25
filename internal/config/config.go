@@ -466,6 +466,9 @@ type State struct {
 	// int so reordering the enum in internal/ui can never corrupt a saved
 	// value. Empty or unrecognized falls back to normal.
 	ScreenMode string `toml:"screen_mode,omitempty"`
+	// LogCollapsed is whether the command log strip under the main view
+	// was collapsed with `T` (see internal/ui keyMap.ToggleCommandLog).
+	LogCollapsed bool `toml:"log_collapsed,omitempty"`
 }
 
 // StatePath returns the full path of the state file.

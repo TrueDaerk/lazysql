@@ -264,7 +264,7 @@ func TestFilterCompletionPopupSitsAboveTheLine(t *testing.T) {
 	if !ok {
 		t.Fatal("no main column to place it against")
 	}
-	lineY := my + maxInt(mh-commandLogHeight(mh)-2, 1)
+	lineY := my + maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	if got := y + lipgloss.Height(box); got > lineY {
 		t.Fatalf("the popup ends at row %d, want it above the filter line at %d", got, lineY)
 	}

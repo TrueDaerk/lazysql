@@ -138,6 +138,7 @@ What each one does, and its default keys, is in
 `save-snippet` · `schema-diff` · `screen-next` · `screen-prev` ·
 `select-columns` · `select-rows` · `shift-down` · `shift-left` ·
 `shift-right` · `shift-up` · `sort-column` · `test-connection` ·
+`toggle-command-log` ·
 `unstage-cell` · `up` · `view-cell` · `vim-append` · `vim-append-eol` ·
 `vim-bottom` · `vim-delete-char` · `vim-delete-line` · `vim-insert-start` ·
 `vim-left` · `vim-line-end` · `vim-line-start` · `vim-open-above` ·

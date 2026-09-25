@@ -163,6 +163,23 @@ func TestMainTabHitOnCollapsedStrip(t *testing.T) {
 	}
 }
 
+// On a query result the strip carries only Data, so a click past its
+// label must miss instead of landing on a tab the strip never drew.
+func TestMainTabHitOnQueryResultOnlyHitsData(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id FROM q ORDER BY id")
+	const w = 200 // plenty of room for the full (one-tab) strip
+	at := 1       // the `‹`
+	for i := 0; i < len(mainTabNames[mainTabData]); i++ {
+		got, ok := m.mainTabHit(at+i, w)
+		if !ok || got != mainTabData {
+			t.Fatalf("mainTabHit(%d) = %v,%v, want Data", at+i, got, ok)
+		}
+	}
+	if _, ok := m.mainTabHit(at+len(mainTabNames[mainTabData]), w); ok {
+		t.Fatal("mainTabHit hit a tab past Data, want a miss on a query result")
+	}
+}
+
 // The wheel is aimed by the pointer, not by the focus: hovering an
 // unfocused panel scrolls that one and leaves the focus alone.
 func TestWheelScrollsHoveredPanelNotFocusedOne(t *testing.T) {

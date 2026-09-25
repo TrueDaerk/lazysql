@@ -46,9 +46,10 @@ func (m Model) mainTabLevel(room int, suffix string) mainTabStripLevel {
 	return level
 }
 
-// mainTabStrip renders the tab list at the given shortening level. The
-// focused tab always keeps its emphasis style, so it stays identifiable
-// even when it is the only label left.
+// mainTabStrip renders the tab list at the given shortening level, over
+// whichever tabs visibleMainTabs currently offers. The focused tab always
+// keeps its emphasis style, so it stays identifiable even when it is the
+// only label left.
 func (m Model) mainTabStrip(level mainTabStripLevel) string {
 	tabStyle := func(t mainTab) lipgloss.Style {
 		if t != m.tab {
@@ -66,8 +67,9 @@ func (m Model) mainTabStrip(level mainTabStripLevel) string {
 		}
 		return m.style.muted.Render("‹") + tabStyle(m.tab).Render(name) + m.style.muted.Render("›")
 	}
-	parts := make([]string, 0, mainTabCount)
-	for t := mainTab(0); t < mainTabCount; t++ {
+	tabs := m.visibleMainTabs()
+	parts := make([]string, 0, len(tabs))
+	for _, t := range tabs {
 		parts = append(parts, tabStyle(t).Render(mainTabNames[t]))
 	}
 	return m.style.muted.Render("‹") +

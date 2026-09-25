@@ -1983,6 +1983,15 @@ Chronological history of wiki changes, newest last.
   separate paths (`QuoteLiteral`'s own `time.Time` switch, `kind.Layout()`)
   and needed no change.
 
+## 2026-09-25 — Query results show only the Data tab (issue #216)
+
+- Updated [design/main-view-tabs](design/main-view-tabs.md): a query result
+  has no relation behind it, so `Structure`/`Indexes`/`DDL`/`Relations` no
+  longer appear in the strip while one is open — only `Data` does.
+  `Model.visibleMainTabs` is the one predicate `mainTabBar` and
+  `mainTabHit` (`internal/ui/mouse.go`) both walk, so a mouse click can't
+  select a tab the strip never drew.
+
 ## 2026-09-25 — Truncate the main view's tab strip before the relation name (issue #217)
 
 - Updated [design/main-view-tabs](design/main-view-tabs.md) with a new

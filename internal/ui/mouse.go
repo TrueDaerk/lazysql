@@ -601,7 +601,10 @@ func gridColumnAt(cols []gridColumn, x int) (int, bool) {
 // is the same width mainTabBar was rendered with, so the two agree on how
 // far the strip was shortened — see mainTabStripLevel. Once the strip is
 // down to a single label, any click on it re-selects the tab that is
-// already focused; there is nothing else visible to switch to.
+// already focused; there is nothing else visible to switch to. At the full
+// level the strip only ever holds visibleMainTabs, so a click past them
+// (a query result offering just Data) misses instead of picking a tab the
+// strip never drew.
 func (m Model) mainTabHit(col, w int) (mainTab, bool) {
 	if col < 0 {
 		return 0, false
@@ -614,8 +617,8 @@ func (m Model) mainTabHit(col, w int) (mainTab, bool) {
 		return 0, false
 	}
 	at := lipgloss.Width("‹")
-	for t := mainTab(0); t < mainTabCount; t++ {
-		if t > 0 {
+	for i, t := range m.visibleMainTabs() {
+		if i > 0 {
 			at += lipgloss.Width("|")
 		}
 		tw := lipgloss.Width(mainTabNames[t])

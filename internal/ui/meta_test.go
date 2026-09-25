@@ -109,6 +109,29 @@ func TestTabBarRendersEveryTab(t *testing.T) {
 	}
 }
 
+// A query result has no relation behind it, so the strip carries only
+// Data. Opening a relation from Objects restores the full five tabs.
+func TestTabBarShowsOnlyDataForQueryResult(t *testing.T) {
+	m := runQuery(t, queryable(t), "SELECT id, name FROM q")
+	out := m.View().Content
+	for _, name := range []string{"Structure", "Indexes", "DDL", "Relations"} {
+		if strings.Contains(out, name) {
+			t.Errorf("query result view unexpectedly shows the %q tab", name)
+		}
+	}
+	if !strings.Contains(out, "Data") {
+		t.Error("query result view is missing the Data tab")
+	}
+
+	m = metaBrowsing(t)
+	out = m.View().Content
+	for _, name := range mainTabNames {
+		if !strings.Contains(out, name) {
+			t.Errorf("relation view is missing the %q tab", name)
+		}
+	}
+}
+
 // The Structure tab lists every column with its type, nullability,
 // default, key info and extra.
 func TestStructureTabRendersColumns(t *testing.T) {

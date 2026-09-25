@@ -74,6 +74,7 @@ type hit struct {
 	title bool
 	row   int
 	col   int
+	boxW  int // the box's outer width, for title hit-tests that depend on it
 }
 
 // hitTest maps an absolute cell onto the layout. It walks exactly the
@@ -134,6 +135,7 @@ func (m Model) hitMainColumn(r rect, x, y int) hit {
 // the title, everything one cell in is content, and the rest is border.
 func boxHit(h hit, box rect, x, y int) hit {
 	h.row, h.col = -1, -1
+	h.boxW = box.w
 	if y == box.y {
 		// The title starts after the corner rune and titleBorderPad
 		// fill runes — see renderTitledBox.
@@ -520,7 +522,10 @@ func (m Model) clickMain(h hit) (tea.Model, tea.Cmd) {
 		// The Data/Structure/Indexes/DDL/Relations bar rides the title
 		// whenever a relation or a result is open — see mainTitle.
 		if m.focus != panelConnections && m.data.open() {
-			if t, ok := mainTabHit(h.col, m.visibleMainTabs()); ok {
+			// mainTitle hands mainTabBar the box width minus the border,
+			// so the hit-test must shrink h.boxW the same way to agree on
+			// which strip level was actually drawn.
+			if t, ok := m.mainTabHit(h.col, h.boxW-2); ok {
 				m.setFocus(panelMain)
 				cmd := m.setMainTab(t)
 				return m, cmd
@@ -592,24 +597,35 @@ func gridColumnAt(cols []gridColumn, x int) (int, bool) {
 
 // ---------- tab hit-testing ----------
 
-// mainTabHit maps a cell offset inside the main view's title onto a tab.
-// mainTabBar opens with `‹` and separates the labels with `|`; tabs must
-// be the same set mainTabBar rendered, or the hit test would let a click
-// select a tab the strip never showed.
-func mainTabHit(col int, tabs []mainTab) (mainTab, bool) {
+// mainTabHit maps a cell offset inside the main view's title onto a tab. w
+// is the same width mainTabBar was rendered with, so the two agree on how
+// far the strip was shortened — see mainTabStripLevel. Once the strip is
+// down to a single label, any click on it re-selects the tab that is
+// already focused; there is nothing else visible to switch to. At the full
+// level the strip only ever holds visibleMainTabs, so a click past them
+// (a query result offering just Data) misses instead of picking a tab the
+// strip never drew.
+func (m Model) mainTabHit(col, w int) (mainTab, bool) {
 	if col < 0 {
 		return 0, false
 	}
+	level := m.mainTabLevel(maxInt(w-2, 0), m.mainTabSuffix(w))
+	if level != tabStripFull {
+		if col < lipgloss.Width(m.mainTabStrip(level)) {
+			return m.tab, true
+		}
+		return 0, false
+	}
 	at := lipgloss.Width("‹")
-	for i, t := range tabs {
+	for i, t := range m.visibleMainTabs() {
 		if i > 0 {
 			at += lipgloss.Width("|")
 		}
-		w := lipgloss.Width(mainTabNames[t])
-		if col >= at && col < at+w {
+		tw := lipgloss.Width(mainTabNames[t])
+		if col >= at && col < at+tw {
 			return t, true
 		}
-		at += w
+		at += tw
 	}
 	return 0, false
 }

@@ -201,7 +201,7 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 
 // renderMainColumn stacks the main view and the command log beneath it.
 func (m Model) renderMainColumn(w, h int) string {
-	logH := commandLogHeight(h)
+	logH := m.commandLogHeight(h)
 	mainH := h - logH
 
 	border := m.style.blurredBorder
@@ -224,8 +224,14 @@ func (m Model) renderMainColumn(w, h int) string {
 }
 
 // commandLogHeight is how many of the main column's rows the log strip
-// under the main view takes, borders included.
-func commandLogHeight(h int) int {
+// under the main view takes, borders included. Collapsed (see
+// wiki/design/collapsible-command-log.md), it takes none: the main view
+// box gets the full main-column height instead of leaving an empty strip
+// or a stray border behind.
+func (m Model) commandLogHeight(h int) int {
+	if m.logCollapsed {
+		return 0
+	}
 	logH := h / 4
 	if logH < 5 {
 		logH = 5
@@ -303,7 +309,7 @@ func (m Model) editorAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
 	if m.focus != panelQuery || !m.editor.editing {
 		return 0, 0, false
 	}
-	cw, rows := maxInt(mw-2, 1), maxInt(mh-commandLogHeight(mh)-2, 1)
+	cw, rows := maxInt(mw-2, 1), maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	caretRow, caretCol, ok := m.editorCaret(cw, m.editorHeight(cw, rows))
 	if !ok {
 		return 0, 0, false
@@ -323,7 +329,7 @@ func (m Model) filterAnchor(mx, my, mw, mh int) (x, y int, ok bool) {
 		return 0, 0, false
 	}
 	cw := maxInt(mw-2, 1)
-	rows := maxInt(mh-commandLogHeight(mh)-2, 1)
+	rows := maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	return mx + 1 + min(m.filterInput.caret, cw-1), my + rows, true
 }
 

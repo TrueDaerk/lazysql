@@ -33,6 +33,7 @@ Handled by the root model, so they act from any panel.
 | `:` | Focus the query editor | `open-editor` |
 | `ctrl+c` | Cancel the running query (only while one runs) | `cancel-query` |
 | `@` · `L` | Expand the command log | `command-log` |
+| `T` | Toggle the command log strip (collapse/show) | `toggle-command-log` |
 | `?` | Help | `help` |
 | `q` · `ctrl+c` | Quit | `quit` |
 

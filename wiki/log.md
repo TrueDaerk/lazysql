@@ -2000,3 +2000,14 @@ Chronological history of wiki changes, newest last.
   appending the relation name, instead of letting `renderTitledBox`'s blind
   right-truncation eat the name first. `mainTabHit` re-derives the same
   level from the same width so mouse clicks agree with what was drawn.
+
+## 2026-09-25 — Collapse the command log strip with a key (issue #218)
+
+- Added [design/collapsible-command-log](design/collapsible-command-log.md):
+  `T` toggles `Model.logCollapsed`, `commandLogHeight` became a `Model`
+  method that returns 0 while it is set (every other reader — the
+  completion popup's anchors, `gridViewport`, mouse hit-testing,
+  `editorBlockRows` — already called through it, so the main view reclaims
+  the strip's rows everywhere at once), `@`/`L` still opens the expanded
+  modal, and the choice persists in `config.State.LogCollapsed` next to
+  `ScreenMode`.

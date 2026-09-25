@@ -123,7 +123,7 @@ func (m Model) hitTest(x, y int) hit {
 // hitMainColumn splits the main column the way renderMainColumn does:
 // the main view box, and the command log strip under it.
 func (m Model) hitMainColumn(r rect, x, y int) hit {
-	logH := commandLogHeight(r.h)
+	logH := m.commandLogHeight(r.h)
 	mainH := r.h - logH
 	if y < r.y+mainH {
 		return boxHit(hit{zone: zoneMain}, rect{r.x, r.y, r.w, mainH}, x, y)
@@ -374,7 +374,7 @@ func (m Model) editorBlockRows() int {
 		return 0
 	}
 	cw := maxInt(mw-2, 1)
-	rows := maxInt(mh-commandLogHeight(mh)-2, 1)
+	rows := maxInt(mh-m.commandLogHeight(mh)-2, 1)
 	return m.editorHeight(cw, rows) + 1 // + the hint line under the buffer
 }
 

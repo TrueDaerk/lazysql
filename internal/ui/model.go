@@ -165,6 +165,11 @@ type Model struct {
 
 	modal  modal
 	screen screenMode
+	// logCollapsed hides the command log strip under the main view,
+	// handing its rows to the main view box instead. `@`/`L` still opens
+	// the full log modal while it is collapsed. Persisted alongside
+	// screen the same way — see wiki/design/collapsible-command-log.md.
+	logCollapsed bool
 
 	commandLog []logLine
 
@@ -390,6 +395,7 @@ func New(noRestore bool) (Model, error) {
 
 	if st, err := config.LoadState(); err == nil && st != nil {
 		m.screen = screenModeFromName(st.ScreenMode)
+		m.logCollapsed = st.LogCollapsed
 	}
 
 	selectName := ""
@@ -1346,6 +1352,10 @@ func (m Model) updateGlobal(msg tea.KeyPressMsg) (bool, tea.Model, tea.Cmd) {
 		m.modal = newCommandLogModal(m.commandLogEntries())
 		return true, m, nil
 
+	case key.Matches(msg, k.ToggleCommandLog):
+		m.logCollapsed = !m.logCollapsed
+		return true, m, nil
+
 	// With rows marked in the data grid, ctrl+c copies the selection
 	// instead of quitting. CopySelection is enabled only while a
 	// selection is up, so key.Matches only takes this branch then — and
@@ -1805,7 +1815,7 @@ func (m *Model) quit() {
 	if m.cfg.RestoreSessionEnabled() {
 		m.saveSession()
 	}
-	_ = (&config.State{ScreenMode: screenModeNames[m.screen]}).Save()
+	_ = (&config.State{ScreenMode: screenModeNames[m.screen], LogCollapsed: m.logCollapsed}).Save()
 	m.closeSession()
 }
 

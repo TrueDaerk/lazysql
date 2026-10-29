@@ -3,7 +3,8 @@
 
 Usage: ptycheck.py <cols> <rows> <cmd> [args...]  — key sequences are read
 from stdin as python-escaped lines, one per step, and the last screen is
-printed to stdout.
+printed to stdout. A line `@resize <cols> <rows>` resizes the PTY (SIGWINCH)
+instead of typing.
 """
 import os
 import pty
@@ -23,6 +24,7 @@ if pid == 0:
 
 import fcntl
 import struct
+import signal
 import termios
 
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
@@ -47,10 +49,16 @@ def pump(seconds):
 
 pump(2.0)
 for s in steps:
+    # `@resize <cols> <rows>` resizes the PTY mid-run instead of typing.
+    if s.startswith("@resize "):
+        cols, rows = (int(n) for n in s.split()[1:3])
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+        os.kill(pid, signal.SIGWINCH)
+        pump(1.0)
+        continue
     os.write(fd, s.encode())
     pump(1.0)
 
-import signal
 
 try:
     os.kill(pid, signal.SIGKILL)

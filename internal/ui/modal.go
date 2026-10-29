@@ -653,10 +653,15 @@ type commandLogModal struct {
 	toggleHelp string
 }
 
+// logTail parks commandLogModal's offset past any real line; view clamps
+// it to the last page. The entry count would not do: offset counts
+// display lines, and a multi-line statement has more of those.
+const logTail = 1 << 30
+
 func newCommandLogModal(m Model) *commandLogModal {
 	lines := m.commandLogEntries()
 	return &commandLogModal{
-		lines: lines, offset: max(len(lines)-1, 0), title: m.commandLogTitle(),
+		lines: lines, offset: logTail, title: m.commandLogTitle(),
 		toggleHelp: m.keys.LogIntrospection.Help().Key + " introspection",
 	}
 }
@@ -674,7 +679,7 @@ func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) 
 		m.showIntrospection = !m.showIntrospection
 		c.lines = m.commandLogEntries()
 		c.title = m.commandLogTitle()
-		c.offset = len(c.lines)
+		c.offset = logTail
 		return false, nil
 	}
 	switch msg.String() {
@@ -691,7 +696,7 @@ func (c *commandLogModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) 
 	case "g", "home":
 		c.offset = 0
 	case "G", "end":
-		c.offset = len(c.lines)
+		c.offset = logTail
 	}
 	return false, nil
 }
@@ -704,14 +709,29 @@ func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 	if width < 20 {
 		width = 20
 	}
+	// The view scrolls by display line, not by entry: a multi-line
+	// statement keeps its line breaks here, and counting it as one row
+	// would grow the box past the terminal by every extra line it has.
+	type displayLine struct {
+		text string
+		err  bool
+	}
+	var shown []displayLine
+	for _, e := range c.lines {
+		for _, l := range strings.Split(e.render(), "\n") {
+			shown = append(shown, displayLine{text: l, err: e.err})
+		}
+	}
 	rows := maxH - 6
 	if rows < 1 {
 		rows = 1
 	}
-	if rows > len(c.lines) {
-		rows = len(c.lines)
+	if rows > len(shown) {
+		rows = len(shown)
 	}
-	if maxOff := len(c.lines) - rows; c.offset > maxOff {
+	// The opener and G park the offset at the entry count, which is at
+	// most the display-line count: the clamp turns it into the tail.
+	if maxOff := len(shown) - rows; c.offset > maxOff {
 		c.offset = maxOff
 	}
 	if c.offset < 0 {
@@ -720,8 +740,8 @@ func (c *commandLogModal) view(s styles, maxW, maxH int) string {
 
 	var b strings.Builder
 	b.WriteString(s.modalTitle.Render(c.title) + "\n\n")
-	for _, line := range c.lines[c.offset : c.offset+rows] {
-		text := truncate(line.render(), width)
+	for _, line := range shown[c.offset : c.offset+rows] {
+		text := truncate(line.text, width)
 		if line.err {
 			b.WriteString(s.danger.Render(text) + "\n")
 		} else {

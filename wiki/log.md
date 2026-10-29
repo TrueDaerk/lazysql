@@ -2157,3 +2157,14 @@ Chronological history of wiki changes, newest last.
   a transaction, the `⛁ TX` badge and `[tx]` command-log tag, the
   quit/disconnect/connect prompts, and the refusal to commit the staged
   changeset or import CSV while a transaction is open.
+
+## 2026-10-29 — Panels stay inside their boxes (issue #246)
+
+- Added [design/box-size-contract](design/box-size-contract.md): every box
+  is fitted to exactly its allocated size by one `fitBlock` helper behind
+  `renderTitledBox`, also applied to the options bar and the composited
+  frame (the compositor's canvas grows with an overhanging layer); why
+  lipgloss's `Width` (wraps) and `Height` (only pads) do not keep a box in
+  its rectangle; tabs and `\r` measuring zero cells; the command log strip
+  folding each entry onto one row and the `@` view scrolling by display
+  line. `scripts/ptycheck.py` gained an `@resize <cols> <rows>` step.

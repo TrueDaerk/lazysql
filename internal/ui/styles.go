@@ -230,8 +230,16 @@ const titleBorderPad = 1
 // title is expected to be pre-styled (it mixes colours — number, name,
 // sub-tabs, loading marker), so truncation has to be ANSI-aware; a byte or
 // rune cut would slice an escape sequence and bleed colour into the border.
+//
+// The box is exactly w x h whatever body holds: body is fitted to the
+// content area with fitBlock first — overlong lines cut, surplus rows
+// dropped, short ones padded — so no renderer can push a border out by
+// handing over a line too many or a cell too wide. See
+// wiki/design/box-size-contract.md.
 func renderTitledBox(border lipgloss.Style, title, body string, w, h int) string {
-	box := border.Width(w).Height(h).Render(body)
+	cw := maxInt(w-border.GetHorizontalFrameSize(), 0)
+	ch := maxInt(h-border.GetVerticalFrameSize(), 0)
+	box := border.Width(w).Height(h).Render(fitBlock(body, cw, ch))
 	if title == "" || !border.GetBorderTop() {
 		return box
 	}
@@ -250,6 +258,9 @@ func renderTitledBox(border lipgloss.Style, title, body string, w, h int) string
 	if room < 1 {
 		return box
 	}
+	// The title is one border row: a line break in it (a connection or
+	// database name can carry anything) would split the top line.
+	title = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ").Replace(title)
 	t := ansi.Truncate(title, room, "…")
 	fill := room - lipgloss.Width(t)
 	if fill < 0 {
@@ -267,6 +278,43 @@ func renderTitledBox(border lipgloss.Style, title, body string, w, h int) string
 		t +
 		ink.Render(strings.Repeat(b.Top, fill+titleBorderPad)+b.TopRight)
 	return strings.Join(lines, "\n")
+}
+
+// fitBlock makes block exactly w cells wide and h rows tall: every line is
+// cut to w cells (ANSI- and wide-rune-aware, with an ellipsis), rows past
+// h are dropped, and short lines and missing rows are padded with spaces.
+// It is the one place the size contract of a box is enforced — lipgloss's
+// own Width wraps an overlong line onto a new row instead of cutting it,
+// and Height only ever adds rows, so neither keeps a box inside its
+// rectangle by itself.
+//
+// Tabs are expanded to the four spaces lipgloss would render them as, and
+// carriage returns dropped: both measure zero cells, so a line carrying
+// them passes the width check here and still overflows — or rewinds the
+// cursor — on screen.
+func fitBlock(block string, w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	block = strings.ReplaceAll(block, "\r\n", "\n")
+	block = strings.ReplaceAll(block, "\r", "")
+	block = strings.ReplaceAll(block, "\t", "    ")
+	lines := strings.Split(block, "\n")
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	out := make([]string, h)
+	for i := range out {
+		l := ""
+		if i < len(lines) {
+			l = ansi.Truncate(lines[i], w, "…")
+		}
+		if pad := w - ansi.StringWidth(l); pad > 0 {
+			l += strings.Repeat(" ", pad)
+		}
+		out[i] = l
+	}
+	return strings.Join(out, "\n")
 }
 
 // statusColor maps a row status to its tint. The idle status has no color of

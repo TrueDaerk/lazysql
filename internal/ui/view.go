@@ -92,7 +92,10 @@ func (m Model) View() tea.View {
 		full = lipgloss.NewCompositor(layers...).Render()
 	}
 
-	v.SetContent(full)
+	// The compositor's canvas is the union of its layers, so a modal or
+	// popup reaching past the screen edge would grow the frame with it.
+	// The frame is the terminal, nothing more: anything past it is cut.
+	v.SetContent(fitBlock(full, m.width, m.height))
 	return v
 }
 
@@ -191,7 +194,7 @@ func (m Model) renderPanel(id panelID, w, h int) string {
 	// Panel [3] is not a list, so it renders itself; every other side
 	// panel is a cursor over a slice of strings.
 	title := m.queryPanelTitle()
-	body := clipHeight(m.queryPanelBody(cw, ch), ch)
+	body := m.queryPanelBody(cw, ch)
 	if id != panelQuery {
 		title = m.panels[id].titleLine(m.style, id == m.focus)
 		body = m.panels[id].render(m.style, id == m.focus, cw, ch, m.isOpenNode)
@@ -600,6 +603,12 @@ func joinTruncated(lines []string, w, h int) string {
 // renderCommandLog shows the tail of the command log — every statement
 // the app executed plus its own notes, newest last. `@` expands it into
 // a full scrollable view; this slim strip truncates long SQL to fit.
+//
+// Every entry is exactly one row: a multi-line statement is folded onto
+// a single line (its whitespace runs collapsed) before it is cut to the
+// box width, so the strip always shows the newest rows entries rather
+// than the last few lines of one long statement. The expanded view keeps
+// the statement's own line breaks.
 func (m Model) renderCommandLog(w, h int) string {
 	cw, rows := maxInt(w-2, 1), maxInt(h-2, 1)
 
@@ -613,18 +622,17 @@ func (m Model) renderCommandLog(w, h int) string {
 		if e.err {
 			style = m.style.danger
 		}
-		for _, l := range strings.Split(e.render(), "\n") {
-			lines = append(lines, style.Render(truncate(l, cw)))
-		}
-	}
-	// An entry can itself span multiple display lines (wrapped SQL), so
-	// the split above may still exceed rows — clip to the newest lines
-	// that fit or the box overflows its border and hides the options bar.
-	if start := len(lines) - rows; start > 0 {
-		lines = lines[start:]
+		e.text = oneLine(e.text)
+		lines = append(lines, style.Render(truncate(e.render(), cw)))
 	}
 	return renderTitledBox(m.style.blurredBorder,
 		m.style.title.Render(m.commandLogTitle()), strings.Join(lines, "\n"), w, h)
+}
+
+// oneLine folds a block onto a single line: every run of whitespace —
+// line breaks included — becomes one space.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // commandLogTitle names the log, and says so while it also lists the
@@ -786,18 +794,23 @@ func (m Model) renderOptionsBar() string {
 	}
 	left := renderShortHelpPinned(h, bindings, m.keys.Help)
 
+	// The bar is one row exactly m.width wide: fitBlock cuts rather than
+	// letting Style.Width wrap an overlong bar onto a second row, which
+	// would push the whole frame up by one line.
+	bar := func(s string) string {
+		return m.style.optionsBar.Render(fitBlock(s, m.width, 1))
+	}
 	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		// Too narrow for both sides: the version line goes, the
 		// transaction badge stays.
 		if badge != "" {
 			room := maxInt(m.width-lipgloss.Width(badge)-1, 0)
-			return m.style.optionsBar.Width(m.width).Render(
-				truncate(truncate(left, room)+" "+badge, m.width))
+			return bar(truncate(left, room) + " " + badge)
 		}
-		return m.style.optionsBar.Width(m.width).Render(truncate(left, m.width))
+		return bar(left)
 	}
-	return m.style.optionsBar.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)
+	return bar(left + strings.Repeat(" ", gap) + right)
 }
 
 // ---------- helpers ----------

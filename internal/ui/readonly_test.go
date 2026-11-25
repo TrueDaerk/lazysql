@@ -17,7 +17,7 @@ import (
 func readOnlyGrid(t *testing.T) Model {
 	t.Helper()
 	seed := dataBrowsing(t)
-	seed.closeSession()
+	seed.closeSessions()
 
 	m := sized(120, 40)
 	m.cfg.Connections[0].ReadOnly = true

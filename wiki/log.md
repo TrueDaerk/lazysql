@@ -2168,3 +2168,33 @@ Chronological history of wiki changes, newest last.
   its rectangle; tabs and `\r` measuring zero cells; the command log strip
   folding each entry onto one row and the `@` view scrolling by display
   line. `scripts/ptycheck.py` gained an `@resize <cols> <rows>` step.
+
+## 2026-11-24 — Several connections open at once (issue #248)
+
+- Added [design/multiple-open-connections](design/multiple-open-connections.md):
+  one `connSession` per open connection, embedded by value for the one on
+  screen and parked for the rest; why not a session pointer; the table of
+  what is per session, shared (`recallStore`) or global (dump/restore,
+  schema diff); replies scoped at the `Update` boundary (`scopeCmd`,
+  `sessionMsg`, the `sessionScoped` list) instead of in every command
+  constructor; `inBackground` and what it restores; draining workers;
+  switching and `lastFocus`; a connect that lands under an open dialog;
+  panel [1]'s `◆`/`◇`/`busy` marks; closing sessions; lost background
+  connections via the new `db.ConnectionLost`; `[name]` log prefixes.
+- Updated [design/tui-shell-architecture](design/tui-shell-architecture.md):
+  the sub-model table (`recall` added, `backup` out of `exports`), and a
+  "Sessions under the root" section with the two routing additions.
+- Updated [design/disconnect-action](design/disconnect-action.md): `x`
+  acts on any connected row, `closeShown` as the one teardown, and the
+  confirm when a transaction or staged changes would be lost.
+- Updated [design/session-restore](design/session-restore.md): only the
+  session on screen is saved, the file format is unchanged, and the
+  `restoring()` guard.
+- Updated [design/editor-transactions](design/editor-transactions.md)
+  (connecting no longer rolls a transaction back),
+  [design/ephemeral-file-connections](design/ephemeral-file-connections.md)
+  (an ordinary session next to the saved ones),
+  [design/command-log-panel](design/command-log-panel.md) (every open
+  driver's Logger, connection prefixes) and
+  [design/dump-and-restore](design/dump-and-restore.md) (the job belongs
+  to a profile and borrows that profile's own session).

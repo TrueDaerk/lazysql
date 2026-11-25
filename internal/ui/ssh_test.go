@@ -265,7 +265,7 @@ func TestQuitClosesTheConnection(t *testing.T) {
 
 func TestCloseSessionIsSafeWithoutAConnection(t *testing.T) {
 	m := sized(120, 40)
-	m.closeSession()
+	m.closeSessions()
 	if m.driver != nil || m.tunnel != nil {
 		t.Fatal("closeSession left state behind")
 	}

@@ -149,9 +149,9 @@ func (hm *historyModal) update(msg tea.KeyPressMsg, m *Model) (bool, tea.Cmd) {
 		// The model's history is the source of truth the pane was
 		// snapshotted from; the entry is matched by value because the
 		// model may have recorded new statements since the snapshot.
-		m.query.dropHistory(e)
+		m.recall.dropHistory(e)
 		return false, tea.Batch(
-			saveHistoryCmd(m.query.history),
+			saveHistoryCmd(m.recall.history),
 			logCmd("-- delete history entry: %s", truncate(flatten(e.SQL), 60)),
 		)
 	}

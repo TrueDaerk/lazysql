@@ -67,7 +67,7 @@ func (m Model) filterHistory() []string {
 	if !ok {
 		return nil
 	}
-	entries := history.InRelation(m.grid.filters, conn, database, table)
+	entries := history.InRelation(m.recall.filters, conn, database, table)
 	out := make([]string, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.SQL)
@@ -102,23 +102,23 @@ func (m *Model) recordFilter(where string) tea.Cmd {
 		Table:      table,
 	}
 
-	kept := make([]history.Entry, 0, len(m.grid.filters)+1)
+	kept := make([]history.Entry, 0, len(m.recall.filters)+1)
 	dropped := false
-	for _, old := range m.grid.filters {
+	for _, old := range m.recall.filters {
 		if old.Connection == conn && old.Database == database && old.Table == table && old.SQL == where {
 			dropped = true
 			continue
 		}
 		kept = append(kept, old)
 	}
-	m.grid.filters = append([]history.Entry{e}, kept...)
-	trimmed := history.TrimRelation(m.grid.filters, conn, database, table, history.MaxRelationEntries)
-	if len(trimmed) != len(m.grid.filters) {
-		m.grid.filters = trimmed
+	m.recall.filters = append([]history.Entry{e}, kept...)
+	trimmed := history.TrimRelation(m.recall.filters, conn, database, table, history.MaxRelationEntries)
+	if len(trimmed) != len(m.recall.filters) {
+		m.recall.filters = trimmed
 		dropped = true
 	}
 	if dropped {
-		return saveFiltersCmd(m.grid.filters)
+		return saveFiltersCmd(m.recall.filters)
 	}
 	return appendFilterCmd(e)
 }

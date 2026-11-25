@@ -44,3 +44,28 @@ already call — clears the staged changeset, any running export/backup,
 the plan, activity view, and rebuilds `[2] Objects` to an empty tree, so
 disconnect and delete-while-connected leave the UI in the identical
 no-connection shape. No new teardown path was written.
+
+## Update (issue #248): any connected row, and a question when work is lost
+
+With [several connections open at once](multiple-open-connections.md)
+"the active row" is no longer the only row `x` can mean.
+
+- `actDisconnect` acts on the **selected** row whenever that profile has a
+  session, whether it is the one on screen or one in the background. A
+  row that is not connected still only logs a line.
+- The teardown is one function, `closeShown`: drop the transaction, cancel
+  what runs on the session, `resetBrowse`, then `closeSessionCmd(driver,
+  tunnel)`. For a background session it runs under `inBackground`, so it
+  is literally the same code. `disconnect(name)` adds the status reset,
+  the ephemeral row's removal and the log line; removing a profile and
+  replacing the ephemeral file go through `endSession`, which is the same
+  teardown without those.
+- Disconnecting the session on screen leaves the blank "no connection"
+  state there. The background sessions stay open, one `enter` away.
+- "No confirm modal" above no longer holds when there is something to
+  lose. `sessionLosses` names an open editor transaction and staged
+  changes of the session being closed, and the confirm asks before either
+  is thrown away. Staged changes were silently discarded by a disconnect
+  before; the transaction prompt came with
+  [editor-transactions](editor-transactions.md).
+- The binding's help reads `disconnect selected`.

@@ -37,7 +37,8 @@ var panelTitles = [panelCount + 1]string{
 }
 
 // itemStatus tints a row. The [1] Connections panel uses it to show which
-// profile is live (green), which one last failed (red) and which are idle.
+// profile is on screen (green), which ones are open in the background —
+// idle there or busy —, which one last failed (red) and which are idle.
 type itemStatus int
 
 const (
@@ -45,6 +46,8 @@ const (
 	statusOK
 	statusError
 	statusPending
+	statusBackground
+	statusBusy
 )
 
 // sidePanel is a plain cursor-over-slice list. Bubbles' list component carries

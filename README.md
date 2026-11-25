@@ -33,6 +33,7 @@ GUI database clients are heavy; raw CLI clients (`mysql`, `psql`) are fast but c
 - **Copy & export** — cell, row, or whole table as CSV, JSON, or `INSERT` statements to clipboard or file; a table's DDL, or a whole database's DDL in foreign-key dependency order, to a `.sql` file.
 - **Command log** — every SQL statement the app executes is visible.
 - **SSH tunnels** — connect to remote databases through a jump host.
+- **Several connections at once** — every connected profile keeps its own tree, open table, filters, staged changes, editor and transaction; `enter` on a connected profile in panel `[1]` switches to it instantly, and work started on one keeps running while another is on screen.
 - **Configurable** — keybindings and theme via config file.
 
 ## UI layout

@@ -15,7 +15,9 @@ import (
 // `lazysql mydb.db` on the command line, or `o` in panel [1]. Nothing about
 // it is written to config.toml, no keyring entry belongs to it and no
 // session restore brings it back — it lives in this one Model and
-// disappears with the disconnect. See
+// disappears with the disconnect. Its session is an ordinary one: it can
+// be open next to the saved profiles' and moves to the background like
+// theirs. See
 // wiki/design/ephemeral-file-connections.md.
 
 // ephemeralTag is what panel [1] appends to the ephemeral row, so a
@@ -153,15 +155,19 @@ func (m Model) dialRequestFor(c config.Connection, test bool) dialRequest {
 // and `o` in panel [1].
 func (m *Model) openEphemeral(e *ephemeralConn) tea.Cmd {
 	// Only one ephemeral connection exists at a time: opening a second
-	// file replaces the first, whose session (if live) is closed by the
-	// connect that follows, exactly like switching saved profiles.
+	// file replaces the first, and with its row goes its session. The
+	// saved profiles' sessions are not touched.
+	var closeCmd tea.Cmd
 	if m.ephem != nil {
-		delete(m.connState, m.ephem.conn.Name)
+		old := m.ephem.conn.Name
+		closeCmd = m.endSession(old, "its file was replaced")
+		delete(m.connState, old)
 	}
 	m.ephem = e
 	m.refreshConnections(e.conn.Name)
 	m.setConnStatus(e.conn.Name, statusPending, "")
 	return tea.Batch(
+		closeCmd,
 		logCmd("-- open %s (%s, ephemeral)", e.path, e.engineLabel()),
 		redialCmd(m.dialRequestFor(e.conn, false)),
 	)

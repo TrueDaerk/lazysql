@@ -23,7 +23,9 @@ the Bubbletea program.
 
 `ui.Model` owns terminal size, the focused panel, one `sidePanel` per side
 panel, the main view state, the open modal (`nil` = none), the screen mode and
-the command log. `[4] Query` is the one numbered panel that is not a
+the command log. Since issue #248 the connection-bound part of that state
+lives in one `connSession` per open connection — see "Sessions under the
+root" below. `[4] Query` is the one numbered panel that is not a
 `sidePanel`: it is a `panelID` with a textarea behind it, drawn and keyed by
 its own code ([query-editor-panel](query-editor-panel.md)). Panels are not independent `tea.Model`s: they are plain
 structs with a cursor, rendered by the root. A full child-model interface buys
@@ -92,21 +94,50 @@ boundary to be explicit, but at the price of exporting most of the currently
 unexported API the rest of the shell reaches into (`view.go`, `mouse.go`,
 `session.go`).
 
-| Field on `Model` | Type | Holds | File |
+| Field | Type | Holds | File |
 | --- | --- | --- | --- |
-| `grid` | `gridModel` | the Data tab page, its in-flight page/count queries, the inline `/` filter line and filter history, the staged changeset, the FK caches, jump history and the action waiting on an FK fetch | `grid.go` |
-| `query` | `queryModel` | panel [3]: the editor buffer and mode, the running script, query history, snippets, the session-scoped parameter memory, the completion popup with its schema cache, and the highlight cache | `querymodel.go` |
-| `exports` | `exportsModel` | the three one-at-a-time file transfers: streaming table export (`file`), dump or restore (`backup`), whole-database DDL export (`ddl`) | `exportsmodel.go` |
+| `grid` | `gridModel` | the Data tab page, its in-flight page/count queries, the inline `/` filter line, the staged changeset, the FK caches, jump history and the action waiting on an FK fetch | `grid.go` |
+| `query` | `queryModel` | panel [3]: the editor buffer and mode, the running script, the editor's transaction, the parameter memory, the completion popup with its schema cache, and the highlight cache | `querymodel.go` |
+| `exports` | `exportsModel` | the one-at-a-time file transfers that run through a connection's driver: streaming table export (`file`), whole-database DDL export (`ddl`), CSV import (`csv`) | `exportsmodel.go` |
+| `recall` | `recallStore` | the lists every connection shares because each mirrors a file on disk: query history, snippets, filter history | `recall.go` |
 
 What moves onto a sub-model is only the state and the helpers that touch
 nothing but that state (`gridModel.pushBrowse`/`popBrowse`/`clearBrowse`,
-`cacheFKs`, the page-query cancel handle; `queryModel.pushHistory`/
+`cacheFKs`, the page-query cancel handle; `recallStore.pushHistory`/
 `dropHistory`, `putSnippet`/`removeSnippet`; `exportsModel.cancelAll`). Anything that also reads root
 state — the open relation, the selected tab, the driver — stays a `Model`
 method and reaches in as `m.grid.…`. The pay-off is that the sub-model can
-be unit-tested without a shell (`grid_test.go`, `querymodel_test.go`,
+be unit-tested without a shell (`grid_test.go`, `recall_test.go`,
 `exportsmodel_test.go`), and that a new feature widens
 one struct instead of the root.
+
+## Sessions under the root (issue #248)
+
+The root no longer owns "the" connection. `grid`, `query` and `exports`
+— together with the driver, the tunnel, the object tree and panel `[2]`'s
+list state, the open relation, the main tab, the metadata, the EXPLAIN and
+activity views — are fields of a `connSession`, one per open connection.
+The session **on screen** is embedded by value in `Model`, which is why
+they are still read as `m.grid`, `m.query`, `m.driver`; the others are
+parked in `Model.parked`. `recall`, the dump/restore job (`backup`), the
+schema diff, the command log, the modal and the focus stay on the root:
+they belong to the shell, to a file on disk, or to a profile rather than
+to a live connection.
+
+Two additions to the routing order follow from that, both ahead of step 1:
+
+- A `sessionMsg` — a reply of work done on a connection, wrapped with the
+  id of the session that issued it — is unwrapped and reduced into that
+  session. For a parked one the session is put in the on-screen slot for
+  the length of the reducer (`inBackground`) and taken out again, with
+  the modal and the focus restored afterwards.
+- Every command `Update` returns is wrapped by `scopeCmd`, which is what
+  produces those `sessionMsg`s. `sessionScoped` is the single list of
+  reply types that belong to a session.
+
+The whole design — why an embedded value, what is per session, how a
+background session is reduced, closed and marked — is in
+[multiple-open-connections](multiple-open-connections.md).
 
 See also [keybindings single source](keybindings-single-source.md) and
 [lipgloss v2 sizing](../reference/lipgloss-v2-sizing.md).

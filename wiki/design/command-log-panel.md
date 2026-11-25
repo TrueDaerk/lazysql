@@ -37,9 +37,14 @@ introspection queries now show up too.
 The UI still has its own `commandLog []logLine` of plain status notes —
 "connect X FAILED", "copy skipped: nothing open", export progress — that
 never touch the database and so have nothing for `Logger` to record.
-`Model.commandLogEntries()` merges that slice with
-`m.driver.Logger().Entries()` by timestamp (`sort.SliceStable`) into one
-feed both the slim panel and the `@` expanded view render from. At
+`Model.commandLogEntries()` merges that slice with the `Logger` entries of
+every open connection's driver by timestamp (`sort.SliceStable`) into one
+feed both the slim panel and the `@` expanded view render from. With
+[several connections open](multiple-open-connections.md) a line carries
+its connection (`logLine.conn`) and is prefixed `[name]` whenever that is
+not obvious — more than one connection open, or a line of a connection
+that is not the one on screen; with a single connection the feed reads as
+it always did. At
 session scale (≤ ~700 entries total) a sort on every render is not worth
 optimizing away; "no noticeable render slowdown" is trivially satisfied.
 

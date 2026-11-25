@@ -770,8 +770,8 @@ func TestDrillInLogsThePageWithoutRecordingHistory(t *testing.T) {
 	}
 	// Browsing is generated SQL: the command log gets it, the query
 	// history — which only holds what the user submitted — does not.
-	if len(m.query.history) != 0 {
-		t.Fatalf("history = %v, want drilling in to record nothing", m.query.history)
+	if len(m.recall.history) != 0 {
+		t.Fatalf("history = %v, want drilling in to record nothing", m.recall.history)
 	}
 	if !logContains(m, `SELECT * FROM "drill" LIMIT 100 OFFSET 0;`) {
 		t.Fatalf("command log = %v", m.commandLog)

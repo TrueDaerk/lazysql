@@ -325,8 +325,10 @@ func statusColor(st itemStatus) (color.Color, bool) {
 		return colorGreen, true
 	case statusError:
 		return colorError, true
-	case statusPending:
+	case statusPending, statusBusy:
 		return colorYellow, true
+	case statusBackground:
+		return colorCyan, true
 	}
 	return nil, false
 }

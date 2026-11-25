@@ -57,8 +57,8 @@ mode it runs the statement the caret is in.
 
 | Keys | Action | Action name |
 |---|---|---|
-| `enter` · `space` | Connect | `connect` |
-| `x` | Disconnect (only the active connection) | `disconnect` |
+| `enter` · `space` | Connect — or, on a profile that is already connected, switch to it | `connect` |
+| `x` | Disconnect the selected profile, whether it is on screen or open in the background | `disconnect` |
 | `n` | New connection | `new-connection` |
 | `o` | Open a file for this session only (SQLite/DuckDB/Parquet) | `open-file` |
 | `e` | Edit connection | `edit-connection` |

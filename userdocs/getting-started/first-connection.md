@@ -106,6 +106,35 @@ now in [Browsing objects](../guides/browsing-objects.md) and
     the tree starts at the category level instead of making you expand a
     database that could never have a sibling.
 
+## Several connections at once
+
+Connecting to a second profile does **not** close the first. Every connected
+profile keeps its own complete working state — the object tree, the open
+table with its filter, sort and cursor, staged changes, the query editor's
+buffer, result and open transaction — and panel `[1]` shows where each one is:
+
+```text
+├─[1] Connections──┤
+│ ◆ staging        │   connected, on screen
+│ ◇ production     │   connected, in the background
+│ ◇ reports busy   │   in the background, with a query or load still running
+│   local          │   not connected
+```
+
+++enter++ on a profile that is already connected switches to it at once:
+nothing is dialled or reloaded, and the screen is exactly as you left it. A
+query, an export or a page load that was running when you switched away keeps
+running; its result is there when you come back, and its lines in the command
+log carry the connection's name (`[production] SELECT …`).
+
+`x` disconnects the **selected** profile, on screen or not. If that connection
+has an open transaction or staged changes, lazysql asks first and names what
+would be lost. Quitting closes every connection, and its confirmation lists
+the losses of each one.
+
+Only the connection on screen when you quit is
+[restored](../reference/settings.md) on the next start, when `restore_session` is on.
+
 ## Opening a file without saving a profile
 
 A local SQLite, DuckDB or Parquet file needs nothing but its path, so it has

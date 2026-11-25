@@ -149,6 +149,20 @@ Two consequences:
 A **restore** is refused outright on a read-only connection, before any
 engine sees it.
 
+### A job belongs to a profile, not to a session (issue #248)
+
+A dump targets a profile, which need not be connected, so its state is
+`Model.backup` on the root rather than part of a connection's
+[session](multiple-open-connections.md): it keeps running when the user
+switches connections, and still only one runs at a time. Where the job
+needs a live session — the file engines' driver, a tunnel to forward
+through — it takes the **profile's own**, on screen or in the background,
+and `backupState.session` records the name. Closing that session cancels
+the job; closing any other connection does not, where a disconnect used
+to cancel whatever dump was running. The SQLite restore closes exactly
+that profile's session (`shutSession`), and the dump target's namespace
+is read from that session instead of from whatever is on screen.
+
 ## Tunnelled connections
 
 [design/ssh-tunnels](ssh-tunnels.md) makes the point that lazysql's tunnel

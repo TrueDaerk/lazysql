@@ -526,12 +526,21 @@ func (m Model) connectionDetail(w, h int) string {
 	status := "idle"
 	statusStyle := m.style.muted
 	switch state.status {
-	case statusOK:
-		status, statusStyle = "connected", m.style.titleFocused
 	case statusError:
 		status, statusStyle = "error", m.style.danger
 	case statusPending:
 		status, statusStyle = "connecting…", m.style.pending
+	}
+	// An open session says where it is, and what enter and x do about it.
+	if s := m.sessionOf(c.Name); s != nil {
+		switch {
+		case s == &m.connSession:
+			status, statusStyle = "connected · on screen", m.style.titleFocused
+		case s.busy():
+			status, statusStyle = "connected · in background, busy — enter switches to it", m.style.pending
+		default:
+			status, statusStyle = "connected · in background — enter switches to it", m.style.keyHint
+		}
 	}
 
 	engine := string(c.Engine)

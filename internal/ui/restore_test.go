@@ -70,7 +70,7 @@ func TestRestoreSessionReconnectsToTableTabAndCursor(t *testing.T) {
 	cmd := m.setMainTab(mainTabStructure)
 	m = send(t, m, drain(cmd)...)
 	m.saveSession()
-	m.closeSession()
+	m.closeSessions()
 
 	// Simulate a restart: a fresh model reading the same config and the
 	// session file the first run just wrote.
@@ -114,7 +114,7 @@ func TestRestoreSessionClampsAnOutOfRangeCursor(t *testing.T) {
 	}
 	m = connectAndOpenWidgets(t, m)
 	m.saveSession()
-	m.closeSession()
+	m.closeSessions()
 
 	// Hand-write a session with a cursor well past the 3 rows / 2 columns
 	// the table actually has.
@@ -180,7 +180,7 @@ func TestRestoreSessionDegradesOnMissingTable(t *testing.T) {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = next.(Model)
 	m = send(t, m, special(tea.KeyEnter, 0))
-	m.closeSession()
+	m.closeSessions()
 	if err := session.Save(session.Session{Connection: conn.Name, Table: "ghosts"}); err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestEscDuringRestoreDialCancels(t *testing.T) {
 	}
 	m = connectAndOpenWidgets(t, m)
 	m.saveSession()
-	m.closeSession()
+	m.closeSessions()
 
 	m2, err := New(false)
 	if err != nil {

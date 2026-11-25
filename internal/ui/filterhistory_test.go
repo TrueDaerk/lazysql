@@ -180,8 +180,8 @@ func TestFilterHistoryLoadsAtStartup(t *testing.T) {
 		next, _ := m.Update(msg)
 		m = next.(Model)
 	}
-	if len(m.grid.filters) != 1 {
-		t.Fatalf("filters = %#v, want the file loaded at startup", m.grid.filters)
+	if len(m.recall.filters) != 1 {
+		t.Fatalf("filters = %#v, want the file loaded at startup", m.recall.filters)
 	}
 }
 

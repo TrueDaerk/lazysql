@@ -65,7 +65,7 @@ func (m *Model) recordHistory(sql string) tea.Cmd {
 		engine = string(m.driver.Engine())
 	}
 	e := history.Entry{SQL: sql, Connection: m.active, Engine: engine, At: time.Now()}
-	if !m.query.pushHistory(e) {
+	if !m.recall.pushHistory(e) {
 		return nil
 	}
 	return appendHistoryCmd(e)

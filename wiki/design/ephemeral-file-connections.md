@@ -65,8 +65,12 @@ Consequences, each one deliberate:
 - **Disconnect removes it**: `actDisconnect` calls `dropEphemeral`, so the
   panel returns to the plain saved-connections list with the app still
   running. That is the only way it goes away.
-- **One at a time**: opening a second file replaces the first, exactly like
-  switching between saved profiles.
+- **One at a time**: opening a second file replaces the first. Since
+  issue #248 a connect no longer closes anything, so `openEphemeral`
+  closes the replaced file's session itself (`endSession`) — and only
+  that one: an ephemeral connection is an ordinary
+  [session](multiple-open-connections.md) and stays open next to the
+  saved profiles' sessions, in the background or on screen.
 - **Name collisions**: the row is labelled after the file's base name, made
   unique against the saved profiles (`local-sqlite (2)`). The name is a
   label only — nothing keys config or keyring entries by it.

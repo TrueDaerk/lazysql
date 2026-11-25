@@ -154,8 +154,11 @@ explanation:
   importing a CSV file: both run on another connection and could wait forever
   on rows the transaction has locked. Finish the transaction first.
 
-Quitting, disconnecting, or connecting elsewhere with a transaction open asks
-first, and rolls it back on confirm. A read-only connection refuses `B`.
+Quitting or disconnecting with a transaction open asks first, and rolls it
+back on confirm. Connecting to another profile does not touch it: the
+transaction stays open on its connection while the other one is on screen, and
+is still there to commit or roll back when you switch back. A read-only
+connection refuses `B`.
 
 ## Query plans
 

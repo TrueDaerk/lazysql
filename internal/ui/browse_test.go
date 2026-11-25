@@ -453,10 +453,15 @@ func TestConnectResetsBrowseState(t *testing.T) {
 	}
 	// enter leaves input mode with the filter still applied, so the digit
 	// jumps panels instead of typing.
-	m = send(t, m, special(tea.KeyEnter, 0), press('1'), special(tea.KeyEnter, 0))
+	m = send(t, m, special(tea.KeyEnter, 0), press('1'))
+	m.panels[panelConnections].selectByName("analytics")
+	m = send(t, m, special(tea.KeyEnter, 0))
+	if m.active != "analytics" {
+		t.Fatalf("active = %q, want analytics", m.active)
+	}
 	p := m.panels[panelObjects]
 	if p.filter != "" || p.filtering {
-		t.Fatalf("filter survived the reconnect: %q", p.filter)
+		t.Fatalf("filter leaked into the next connection: %q", p.filter)
 	}
 }
 

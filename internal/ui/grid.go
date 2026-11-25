@@ -2,14 +2,13 @@ package ui
 
 import (
 	"lazysql/internal/db"
-	"lazysql/internal/history"
 )
 
 // gridModel is the main view's Data tab as a sub-model: the page on
-// screen, the queries fetching it, the inline filter line and its
-// history, the staged changeset, and the foreign-key navigation state
-// — caches, in-flight markers, the jump history and the action waiting
-// on a fetch. The root Model owns one and routes to it; it does not
+// screen, the queries fetching it, the inline filter line, the staged
+// changeset, and the foreign-key navigation state — caches, in-flight
+// markers, the jump history and the action waiting on a fetch. Every
+// open connection owns one (see sessions.go); it does not
 // implement tea.Model, because the keys that drive it are reduced by the
 // root the same way the side panels' are. See
 // wiki/design/tui-shell-architecture.md.
@@ -32,10 +31,9 @@ type gridModel struct {
 	pageSize int
 
 	// filterInput is the grid's inline `/` line — the WHERE clause being
-	// typed — nil when none is open. filters is the per-relation filter
-	// history behind its recall keys, newest first, across every scope.
+	// typed — nil when none is open. The filter history behind its recall
+	// keys is shared by every connection: recallStore.filters.
 	filterInput *filterInput
-	filters     []history.Entry
 
 	// changes is the staged changeset: edits accumulate here and only
 	// execute on explicit commit. It is a pointer so every copied Model

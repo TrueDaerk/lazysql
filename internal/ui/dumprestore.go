@@ -40,6 +40,10 @@ type backupState struct {
 	action  dump.Action
 	subject string
 	cancel  context.CancelFunc
+	// session names the profile whose open session the job borrows its
+	// driver or its tunnel from, "" for a tool that dials on its own.
+	// Closing that session cancels the job; closing any other does not.
+	session string
 	// ch carries stderr lines and the final outcome out of the worker.
 	ch chan tea.Msg
 }
@@ -69,8 +73,8 @@ type backupDoneMsg struct {
 // backupConnection is the profile a dump or restore acts on. From panel
 // [1] that is whatever the cursor is on — a dump does not need the profile
 // to be connected, so picking one there and pressing `B` has to mean it.
-// From anywhere else it is the live connection, since that is what the
-// browsed database belongs to.
+// From anywhere else it is the connection on screen, since that is what
+// the browsed database belongs to.
 func (m Model) backupConnection() (config.Connection, bool) {
 	if m.focus == panelConnections {
 		if c, ok := m.selectedConnection(); ok {
@@ -91,8 +95,8 @@ func (m *Model) openBackupMenu() tea.Cmd {
 	if !ok {
 		return logCmd("-- backup skipped: no connection selected")
 	}
-	if m.exports.backup.running {
-		return logCmd("-- backup skipped: a %s is already running (X cancels it)", m.exports.backup.action)
+	if m.backup.running {
+		return logCmd("-- backup skipped: a %s is already running (X cancels it)", m.backup.action)
 	}
 	// The entries dispatch through runAction, like the `a` actions menu,
 	// so a key press and a menu pick reach the same code.
@@ -123,16 +127,17 @@ func (m *Model) startBackup(action dump.Action) tea.Cmd {
 	if !ok {
 		return logCmd("-- %s skipped: no connection selected", action)
 	}
-	if m.exports.backup.running {
-		return logCmd("-- %s skipped: a %s is already running (X cancels it)", action, m.exports.backup.action)
+	if m.backup.running {
+		return logCmd("-- %s skipped: a %s is already running (X cancels it)", action, m.backup.action)
 	}
-	if db.FileBased(c.Engine) && (m.driver == nil || m.active != c.Name) {
+	sess := m.sessionOf(c.Name)
+	if db.FileBased(c.Engine) && (sess == nil || sess.driver == nil) {
 		// SQLite and DuckDB run their dump through the open session's own
 		// engine, so it has to be *this* profile's session: another
 		// connection's driver would back up the wrong database.
 		return logCmd("-- %s skipped: connect to %s first", action, c.Name)
 	}
-	if action == dump.Restore && (c.ReadOnly || m.readOnly()) {
+	if action == dump.Restore && (c.ReadOnly || (sess != nil && sess.driver != nil && sess.driver.ReadOnly())) {
 		return logCmd("-- restore skipped: %s is read-only", c.Name)
 	}
 	if c.NeedsPassword() && c.AskPassword {
@@ -159,7 +164,11 @@ type backupPasswordMsg struct {
 // own arguments filled in. The endpoint is still the profile's: the tunnel
 // substitution happens in the worker, which is where the forward exists.
 func (m Model) baseRequest(action dump.Action, c config.Connection, password string) dump.Request {
-	database, schema := m.backupTarget(c)
+	browsed := ""
+	if s := m.sessionOf(c.Name); s != nil {
+		browsed = s.database
+	}
+	database, schema := backupTarget(c, browsed)
 	return dump.Request{
 		Action:   action,
 		Engine:   c.Engine,
@@ -177,8 +186,7 @@ func (m Model) baseRequest(action dump.Action, c config.Connection, password str
 // PostgreSQL has both a database and a schema — panel [2] lists schemas
 // there — so only there can a dump be narrowed to the browsed namespace.
 // Everywhere else the browsed namespace *is* the database.
-func (m Model) backupTarget(c config.Connection) (database, schema string) {
-	browsed := m.database
+func backupTarget(c config.Connection, browsed string) (database, schema string) {
 	if browsed == pseudoDatabase {
 		browsed = ""
 	}
@@ -328,48 +336,47 @@ func (m *Model) runBackup(req dump.Request) tea.Cmd {
 	if !ok {
 		return logCmd("-- %s skipped: no connection selected", req.Action)
 	}
-	if m.exports.backup.running {
-		return logCmd("-- %s skipped: a %s is already running", req.Action, m.exports.backup.action)
+	if m.backup.running {
+		return logCmd("-- %s skipped: a %s is already running", req.Action, m.backup.action)
 	}
 
 	job := backupJob{ctx: nil, req: req}
 	var closed tea.Cmd
+	// The job runs through the profile's own session where it needs one,
+	// whether that session is on screen or in the background.
+	sess, borrowed := m.sessionOf(c.Name), ""
 	if db.FileBased(c.Engine) {
-		if m.driver == nil || m.active != c.Name {
+		if sess == nil || sess.driver == nil {
 			return logCmd("-- %s skipped: connect to %s first", req.Action, c.Name)
 		}
 		if c.Engine == db.EngineSQLite && req.Action == dump.Restore {
-			name := m.active
-			// Synchronous, not closeSessionCmd: the copy must not race a
-			// teardown still queued as a command.
-			m.closeSession()
-			m.setConnStatus(name, statusIdle, "")
-			m.resetBrowse()
-			closed = logCmd("-- restore closed the connection to %s — reconnect when it finishes", name)
+			m.shutSession(c.Name)
+			closed = logCmd("-- restore closed the connection to %s — reconnect when it finishes", c.Name)
 		} else {
-			job.driver = m.driver
+			job.driver, borrowed = sess.driver, c.Name
 		}
-	} else if m.tunnel != nil && m.active == c.Name {
+	} else if sess != nil && sess.tunnel != nil {
 		// The tool cannot be handed a Go dialer, so the live tunnel gets
 		// a real loopback port for the duration of the run.
-		job.tunnel = m.tunnel
+		job.tunnel, borrowed = sess.tunnel, c.Name
 		job.remote = dump.Endpoint(c.Host, portOrDefault(c))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.exports.backup = backupState{
+	m.backup = backupState{
 		running: true,
-		id:      m.exports.backup.id + 1,
+		id:      m.backup.id + 1,
 		action:  req.Action,
 		subject: req.Database,
 		cancel:  cancel,
+		session: borrowed,
 		ch:      make(chan tea.Msg),
 	}
 	m.keys.CancelBackup.SetEnabled(true)
 
-	job.id = m.exports.backup.id
+	job.id = m.backup.id
 	job.ctx = ctx
-	job.ch = m.exports.backup.ch
+	job.ch = m.backup.ch
 
 	return tea.Batch(
 		closed,
@@ -534,19 +541,19 @@ func removeSQLiteSidecars(path string) {
 // and a partial dump is removed; a restore is left as it is, because
 // half a database is not something lazysql can undo by deleting a file.
 func (m *Model) cancelBackup() tea.Cmd {
-	if !m.exports.backup.running {
+	if !m.backup.running {
 		return nil
 	}
-	m.exports.backup.cancel()
-	return logCmd("-- cancelling %s of %s…", m.exports.backup.action, m.exports.backup.subject)
+	m.backup.cancel()
+	return logCmd("-- cancelling %s of %s…", m.backup.action, m.backup.subject)
 }
 
 // finishBackup clears the in-flight state and renders the outcome.
 func (m *Model) finishBackup(msg backupDoneMsg) tea.Cmd {
-	subject := m.exports.backup.subject
-	m.exports.backup.running = false
-	m.exports.backup.cancel = nil
-	m.exports.backup.ch = nil
+	subject := m.backup.subject
+	m.backup.running = false
+	m.backup.cancel = nil
+	m.backup.ch = nil
 	m.keys.CancelBackup.SetEnabled(false)
 
 	var cmds []tea.Cmd

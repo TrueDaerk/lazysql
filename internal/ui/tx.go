@@ -315,7 +315,8 @@ func errText(err error) string {
 }
 
 // dropTx forgets the transaction because its session is going away. The
-// driver's Close rolls it back; this only says so.
+// driver's Close rolls it back; this only says so. The paths that close a
+// session ask first when it has one — see sessionLosses.
 func (m *Model) dropTx(why string) tea.Cmd {
 	tx := m.query.tx
 	if tx == nil {
@@ -323,23 +324,6 @@ func (m *Model) dropTx(why string) tea.Cmd {
 	}
 	m.query.tx = nil
 	return logCmd("-- transaction on %s rolled back (%s): %s discarded", tx.conn, why, countStatements(tx.stmts))
-}
-
-// guardTx runs next straight away when no transaction is open, and asks
-// first when one is: disconnecting, switching connections and quitting
-// all roll it back.
-func (m *Model) guardTx(title, verb string, next func(*Model) tea.Cmd) tea.Cmd {
-	tx := m.query.tx
-	if tx == nil {
-		return next(m)
-	}
-	m.modal = &confirmModal{
-		title:     title,
-		body:      fmt.Sprintf("%s and roll back the open transaction on %s (%s)?", verb, m.taggedConnName(tx.conn), countStatements(tx.stmts)),
-		danger:    true,
-		onConfirm: next,
-	}
-	return nil
 }
 
 // refuseWithTx is the answer of a write path that runs outside the

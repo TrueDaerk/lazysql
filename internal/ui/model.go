@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"image/color"
@@ -19,7 +18,6 @@ import (
 	"lazysql/internal/dump"
 	"lazysql/internal/history"
 	"lazysql/internal/session"
-	"lazysql/internal/sshtunnel"
 )
 
 // Minimum usable terminal. Below this the layout math produces negative
@@ -60,7 +58,12 @@ func screenModeFromName(name string) screenMode {
 // model reduces them. Real DB work will arrive the same way, from tea.Cmds.
 
 // commandLogMsg appends a line to the command log under the main view.
-type commandLogMsg struct{ line string }
+// conn is the connection the note belongs to, "" for one that belongs to
+// none; scopeCmd fills it in.
+type commandLogMsg struct {
+	line string
+	conn string
+}
 
 func logCmd(format string, a ...any) tea.Cmd {
 	line := fmt.Sprintf(format, a...)
@@ -70,11 +73,13 @@ func logCmd(format string, a ...any) tea.Cmd {
 // logLine is one line the command log panel renders: either a UI note
 // (skip reasons, connect status, export progress — logCmd's own text) or
 // an executed statement pulled from the Driver's Logger. at orders the
-// two streams into one timeline; err colors the line red.
+// two streams into one timeline; err colors the line red. conn is the
+// connection the line belongs to, "" for a note that belongs to none.
 type logLine struct {
 	text string
 	at   time.Time
 	err  bool
+	conn string
 }
 
 // render expands tabs: truncate measures a tab as one cell, the terminal
@@ -83,26 +88,43 @@ func (l logLine) render() string {
 	return l.at.Format("15:04:05") + "  " + strings.ReplaceAll(l.text, "\t", "    ")
 }
 
-// commandLogEntries merges the UI's own notes with the connected
-// Driver's Logger — the single choke point every Exec/Query runs
-// through — into one chronological feed for the slim panel and its `@`
-// expanded view. The Logger, not this slice, is what guarantees a
+// commandLogEntries merges the UI's own notes with the Logger of every
+// open connection's Driver — the single choke point every Exec/Query
+// runs through — into one chronological feed for the slim panel and its
+// `@` expanded view. The Logger, not this slice, is what guarantees a
 // statement from browsing, editing or the query editor shows up exactly
 // once: nothing here re-formats SQL by hand.
 //
 // Catalog introspection the Driver ran on its own behalf is left out
 // unless showIntrospection is on — except when it failed: an error the
 // user cannot see is worse than noise.
+//
+// A line names its connection whenever that is not obvious: while more
+// than one is open, and for a line of a connection that is not the one
+// on screen.
 func (m Model) commandLogEntries() []logLine {
-	out := append([]logLine(nil), m.commandLog...)
-	if m.driver != nil {
-		for _, e := range m.driver.Logger().Entries() {
+	sessions := m.openSessions()
+	tag := func(l logLine) logLine {
+		if l.conn != "" && (len(sessions) > 1 || l.conn != m.active) {
+			l.text = "[" + l.conn + "] " + l.text
+		}
+		return l
+	}
+	out := make([]logLine, 0, len(m.commandLog))
+	for _, l := range m.commandLog {
+		out = append(out, tag(l))
+	}
+	for _, s := range sessions {
+		for _, e := range s.driver.Logger().Entries() {
 			if e.Introspection && !m.showIntrospection && (e.Err == nil || cancelled(e.Err)) {
 				continue
 			}
 			// A superseded page or count query is not a failed one: it is
 			// logged, but neither spelled nor coloured as a failure.
-			out = append(out, logLine{text: sqlEntryText(e), at: e.At, err: e.Err != nil && !cancelled(e.Err)})
+			out = append(out, tag(logLine{
+				text: sqlEntryText(e), at: e.At, conn: s.active,
+				err: e.Err != nil && !cancelled(e.Err),
+			}))
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].at.Before(out[j].at) })
@@ -168,10 +190,11 @@ type historyEntryMsg struct{ statement string }
 // ---------- root model ----------
 
 // Model is the single root model: it owns terminal size, focus, one child
-// model per side panel, main view state, the open modal (nil = none) and the
-// command log. The larger feature states hang off it as sub-models — grid,
-// query, exports — that are plain structs the root routes to, not
-// tea.Models; see wiki/design/tui-shell-architecture.md.
+// model per side panel, the open modal (nil = none), the command log and
+// the open connections' sessions — one on screen, the rest parked. The
+// larger feature states hang off a session as sub-models — grid, query,
+// exports — that are plain structs the root routes to, not tea.Models;
+// see wiki/design/tui-shell-architecture.md.
 type Model struct {
 	width, height int
 
@@ -200,67 +223,35 @@ type Model struct {
 	// in panel [1] — and nil for the ordinary saved-connections view. It
 	// lives here rather than in cfg because it is never persisted: see
 	// ephemeral.go.
-	ephem  *ephemeralConn
-	driver db.Driver
-	active string // name of the connected profile, "" when none
-	// tunnel is the SSH tunnel the active driver runs through, nil for a
-	// direct connection. Its lifetime is the connection's: it is closed
-	// whenever driver is, including on quit.
-	tunnel *sshtunnel.Tunnel
+	ephem *ephemeralConn
 
-	// Browsing state: the namespace the main view belongs to, its relation
-	// listing (both kinds, one round trip) and the relation on screen.
-	// relations is a mirror of the [2] tree's cache for that namespace —
-	// syncRelations is the one place it is filled.
-	database  string
-	relations []db.Relation
-	table     string // the relation the main view is showing
+	// connSession is the session on screen: the connection, its object
+	// tree, the open relation, the grid, the editor — everything a
+	// reducer or a renderer reads as m.driver, m.grid, m.query. With
+	// nothing connected it is a blank one. parked are the sessions in the
+	// background, each exactly as it was left; sessSeq numbers them. See
+	// sessions.go.
+	connSession
+	parked  []*connSession
+	sessSeq sessID
+	// background is set while a parked session sits in the on-screen slot
+	// for the length of one reducer — see inBackground.
+	background bool
 
-	// tree is the [2] Objects panel's model: databases, their object
-	// categories and the objects themselves, with the listings each was
-	// lazily loaded from. It is a pointer so every copied Model shares one
-	// tree, the way changes shares one changeset.
-	tree *objectTree
+	// recall holds the lists every connection shares: query history,
+	// snippets and filter history. See recall.go.
+	recall recallStore
 
-	// trigger is the read-only trigger definition on the main view, nil
-	// when none is open. triggerReq drops a reply for a trigger that has
-	// already been left. See triggerview.go.
-	trigger    *triggerView
-	triggerReq int
-
-	// tab is the main view's selected tab and meta is the metadata the
-	// three introspection tabs render.
-	tab  mainTab
-	meta metaView
-
-	// grid is the main view's Data tab — the page on screen, its
-	// queries, filter line, staged changeset and foreign-key navigation.
-	// See grid.go.
-	grid gridModel
-
-	// exports are the file transfers in flight — table export, dump or
-	// restore, whole-database DDL export — one of each at most. See
-	// exportsmodel.go.
-	exports exportsModel
+	// backup is the dump or restore in flight, if any — an external tool
+	// (pg_dump, mysqldump) or the file engines' own SQL. It targets a
+	// profile, connected or not, so it belongs to no session; only one
+	// runs at a time and `X` cancels it.
+	backup backupState
 
 	// diff is the schema diff on screen (running or finished), nil when
-	// none. It dials its own connections, so it survives disconnects.
+	// none. It dials its own connections, so it belongs to no session
+	// and survives disconnects.
 	diff *diffView
-
-	// activity is the server activity report on screen (processes, lock
-	// waits), nil when none. Like the diff it takes over the main view
-	// while panel [1] keeps the focus. See activity.go.
-	activity *activityView
-
-	// plan is the EXPLAIN result on screen, nil when none. It replaces
-	// the editor in the main view while panel [3] keeps the focus, and
-	// `esc` dismisses it with the buffer untouched.
-	plan *planView
-
-	// query is panel [3] — the editor and its mode, the running script,
-	// history, snippets, parameter memory, completion and the schema and
-	// highlight caches behind it. See querymodel.go.
-	query queryModel
 
 	// restoreSess is the on-disk session's target — connection, database,
 	// table, tab, cursor — while startup is still dialing and navigating
@@ -319,8 +310,6 @@ func New(noRestore bool) (Model, error) {
 		help:      help.New(),
 		style:     newStyles(),
 		connState: map[string]connState{},
-		grid:      newGridModel(cfg.PageSizeOrDefault()),
-		query:     newQueryModel(),
 		cfg:       cfg,
 	}
 	m.spin = spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(m.style.pending))
@@ -331,7 +320,7 @@ func New(noRestore bool) (Model, error) {
 	for id := panelID(0); id < panelCount; id++ {
 		m.panels[id] = &sidePanel{id: id, filterIn: newPanelFilterInput()}
 	}
-	m.tree = newObjectTree(nil)
+	m.show(m.blankSession())
 
 	if st, err := config.LoadState(); err == nil && st != nil {
 		m.screen = screenModeFromName(st.ScreenMode)
@@ -381,11 +370,26 @@ const lockMark = "🔒"
 // view — when it carries a valid environment color tag (config.Connection.Color).
 const tagMarker = "●"
 
+// Panel [1] marks every connected profile: the one whose session is on
+// screen, and the ones that are open in the background — which also say
+// so when a query, a page load or a transfer is running there.
+const (
+	onScreenMark   = "◆"
+	backgroundMark = "◇"
+	busyTag        = "busy"
+)
+
 // readOnly reports whether the live connection refuses writes. The driver
 // is asked rather than the profile: the session's own guard is what
 // enforces the mode, and a profile edited after connecting must not make
 // the UI believe writes are back.
 func (m Model) readOnly() bool { return m.driver != nil && m.driver.ReadOnly() }
+
+// restoring reports whether the session in the on-screen slot is the one
+// the startup restore is still navigating.
+func (m Model) restoring() bool {
+	return m.restoreSess != nil && m.restoreSess.Connection == m.active
+}
 
 // connReadOnly reports whether the named profile is configured read-only.
 // It answers for connections that are not open, which is what the panel's
@@ -408,11 +412,24 @@ func (m *Model) refreshConnections(selectName string) {
 	for i, n := range names {
 		live[n] = true
 		status[i] = m.connState[n].status
+		// An open session outranks whatever the last dial or test left
+		// behind, and says where it is: on screen, or in the background
+		// and possibly busy there.
+		if s := m.sessionOf(n); s != nil {
+			switch {
+			case s == &m.connSession:
+				status[i], marks[n] = statusOK, onScreenMark+" "
+			case s.busy():
+				status[i], marks[n], notes[n] = statusBusy, backgroundMark+" ", busyTag
+			default:
+				status[i], marks[n] = statusBackground, backgroundMark+" "
+			}
+		}
 		if m.connReadOnly(n) {
-			marks[n] = lockMark + " "
+			marks[n] += lockMark + " "
 		}
 		if m.isEphemeral(n) {
-			notes[n] = ephemeralTag
+			notes[n] = strings.TrimSpace(ephemeralTag + " " + notes[n])
 		}
 		if c, ok := m.findConn(n); ok {
 			if tc, ok := connTagColor(c); ok {
@@ -452,7 +469,8 @@ func (m *Model) setConnStatus(name string, st itemStatus, lastErr string) {
 }
 
 // renameConnState follows a profile rename so its status does not stick to a
-// name that no longer exists.
+// name that no longer exists, and so an open session of it — on screen or
+// in the background — keeps answering to the profile's name.
 func (m *Model) renameConnState(oldName, newName string) {
 	if oldName == "" || oldName == newName {
 		return
@@ -461,12 +479,16 @@ func (m *Model) renameConnState(oldName, newName string) {
 		m.connState[newName] = st
 		delete(m.connState, oldName)
 	}
-	if m.active == oldName {
-		m.active = newName
+	if s := m.sessionOf(oldName); s != nil {
+		s.active = newName
+	}
+	if m.backup.session == oldName {
+		m.backup.session = newName
 	}
 }
 
-// resetBrowse drops everything that belonged to the previous connection.
+// resetBrowse drops everything that belonged to the connection the
+// session in the on-screen slot had.
 func (m *Model) resetBrowse() {
 	// Staged changes reference the connection's tables; they cannot
 	// survive it. They are discarded, not committed.
@@ -475,9 +497,7 @@ func (m *Model) resetBrowse() {
 	// Callers that can say so in the log call dropTx first.
 	m.query.tx = nil
 	// An export reads through the driver that is about to be closed, and
-	// so does a whole-database DDL export. A dump of a file engine runs
-	// its SQL through the same driver, and a tunnelled dump runs through
-	// the tunnel that is about to close.
+	// so do a whole-database DDL export and a CSV import.
 	m.exports.cancelAll()
 	// So does a running script.
 	if m.query.run.running && m.query.run.cancel != nil {
@@ -620,7 +640,30 @@ func (m Model) selectedConnection() (config.Connection, bool) {
 // mouse event through updateMouse — where a click that moves the focus
 // is the "global" step and the wheel is aimed by the pointer rather than
 // by the focus.
+//
+// Ahead of all that, a reply of work done on a connection is handed to
+// the session that started it — see updateSession — and every command
+// that comes back is scoped to the session it was issued for, so its own
+// replies find their way home after the user has switched away.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if sm, ok := msg.(sessionMsg); ok {
+		return m.updateSession(sm)
+	}
+	shown, conn := m.id, m.noteOwner(msg)
+	next, cmd := m.reduce(msg)
+	mm := next.(Model)
+	mm.trackFocus()
+	if mm.id != shown {
+		// The session on screen changed under this message: what it
+		// logged is not the new one's.
+		conn = ""
+	}
+	return mm, scopeCmd(mm.id, conn, false, cmd)
+}
+
+// reduce is the update proper, working on whatever session sits in the
+// on-screen slot.
+func (m Model) reduce(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -631,6 +674,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			text: msg.line,
 			at:   time.Now(),
 			err:  strings.Contains(msg.line, "FAILED"),
+			conn: msg.conn,
 		})
 		if n := len(m.commandLog); n > db.LogCapacity {
 			m.commandLog = m.commandLog[n-db.LogCapacity:]
@@ -647,7 +691,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// nothing else; the session keeps recording into it.
 			return m, logCmd("-- read query history FAILED: %v", msg.err)
 		}
-		m.query.history = msg.entries
+		m.recall.history = msg.entries
 		return m, nil
 
 	case historyWrittenMsg:
@@ -662,7 +706,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// else; the session keeps recording into it.
 			return m, logCmd("-- read filter history FAILED: %v", msg.err)
 		}
-		m.grid.filters = msg.entries
+		m.recall.filters = msg.entries
 		return m, nil
 
 	case filtersWrittenMsg:
@@ -677,7 +721,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and nothing else; a save rewrites the file from scratch.
 			return m, logCmd("-- read query snippets FAILED: %v", msg.err)
 		}
-		m.query.snippets = msg.list
+		m.recall.snippets = msg.list
 		return m, nil
 
 	case snippetsWrittenMsg:
@@ -807,9 +851,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, logCmd("-- test %s FAILED: %v", msg.name, msg.err)
 		}
-		// A successful test does not make the profile the active connection:
-		// it only clears a stale error on anything that is not connected.
-		if m.active != msg.name {
+		// A successful test does not open a session: it only clears a
+		// stale error on anything that is not connected.
+		if !m.connected(msg.name) {
 			m.setConnStatus(msg.name, statusIdle, "")
 		}
 		return m, logCmd("-- test %s ok in %s (%s)", msg.name, msg.took.Round(time.Millisecond), msg.dsn)
@@ -848,46 +892,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, logCmd("-- connect %s FAILED: %v", msg.name, msg.err)
 		}
-		prevDriver, prevTunnel := m.driver, m.tunnel
-		if m.active != "" && m.active != msg.name {
-			m.setConnStatus(m.active, statusIdle, "")
-		}
-		// A new session replaces the old one, and closing the old one
-		// rolls back its transaction — whichever way the dial started.
-		txCmd := m.dropTx("the connection was replaced")
-		m.driver = msg.driver
-		m.tunnel = msg.tunnel
-		m.active = msg.name
-		m.setConnStatus(msg.name, statusOK, "")
-		m.resetBrowse()
-		dbs := namespaceList(msg.driver.Engine(), m.scopeDatabases(msg.name, msg.databases))
-		m.rebuildTree(dbs)
-		cmds := []tea.Cmd{
-			txCmd,
-			closeSessionCmd(prevDriver, prevTunnel),
-			logCmd("-- connect %s (%s)", msg.name, msg.dsn),
-		}
-		if restoring {
-			if display, ok := findDatabaseDisplayName(dbs, m.restoreSess.Database); ok {
-				cmds = append(cmds, m.openDatabase(display), focusCmd(panelObjects))
-				return m, tea.Batch(cmds...)
+		// A second dial of a profile that is already open — enter pressed
+		// twice before the first reply — must not leave two sessions
+		// behind one row: the one that is open stays.
+		if m.connected(msg.name) {
+			if restoring {
+				m.restoreSess = nil
 			}
-			sess := *m.restoreSess
-			m.restoreSess = nil
-			cmds = append(cmds, logCmd("-- restore session: database %q not found", displayDatabase(sess.Database)))
+			return m, tea.Batch(
+				closeSessionCmd(msg.driver, msg.tunnel),
+				logCmd("-- connect %s: already connected", msg.name))
 		}
-		// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
-		// the tree skips the database level entirely, so its Tables
-		// category is opened straight away.
-		if len(dbs) == 1 {
-			cmds = append(cmds, m.openDatabase(dbs[0]))
+		open := func(mm *Model) tea.Cmd { return mm.adoptConnection(msg, restoring) }
+		// A dialog on screen was opened for the session behind it, and
+		// its answer acts on whatever is on screen when it is given. So a
+		// connection that lands meanwhile opens in the background instead
+		// of taking the screen from under it.
+		if m.driver != nil && m.modal != nil {
+			s := m.blankSession()
+			m.parked = append(m.parked, &s)
+			cmd := m.inBackground(&s, open)
+			return m, tea.Batch(cmd, logCmd(
+				"-- %s is open in the background: a dialog was up when it connected — enter on it in [1] shows it", msg.name))
 		}
-		cmds = append(cmds, focusCmd(panelObjects))
-		return m, tea.Batch(cmds...)
+		// The session on screen stays open: it moves to the background.
+		if m.driver != nil {
+			m.park()
+		}
+		cmd := open(&m)
+		return m, cmd
 
 	case databasesLoadedMsg:
 		// A reply for a connection that is no longer live is stale.
-		if msg.conn != m.active {
+		if msg.conn != m.active || m.driver == nil {
 			return m, nil
 		}
 		p := m.panels[panelObjects]
@@ -913,7 +950,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.categoryFailed(msg.database, catTables, msg.err)
 			m.refreshTree()
-			if m.restoreSess != nil {
+			if m.restoring() {
 				sess := *m.restoreSess
 				m.restoreSess = nil
 				return m, logCmd("-- restore session: list tables of %s FAILED: %v", displayDatabase(sess.Database), msg.err)
@@ -922,7 +959,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyRelations(msg.database, msg.relations)
 		m.refreshTree()
-		if m.restoreSess != nil && msg.database == m.database {
+		if m.restoring() && msg.database == m.database {
 			sess := *m.restoreSess
 			if sess.Table == "" {
 				m.restoreSess = nil
@@ -990,7 +1027,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// The previous page stays on screen; the grid and the log
 			// both name the failure.
 			m.grid.data.err = msg.err.Error()
-			if m.restoreSess != nil && m.restoreSess.Table == msg.table {
+			if m.restoring() && m.restoreSess.Table == msg.table {
 				sess := *m.restoreSess
 				m.restoreSess = nil
 				return m, logCmd("-- restore session: select from %s FAILED: %v", sess.Table, msg.err)
@@ -999,7 +1036,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.grid.data.cols = msg.result.Columns
 		m.grid.data.rows = msg.result.Rows
-		if m.restoreSess != nil && m.restoreSess.Table == msg.table {
+		if m.restoring() && m.restoreSess.Table == msg.table {
 			sess := *m.restoreSess
 			m.restoreSess = nil
 			m.grid.data.row, m.grid.data.col = sess.Row, sess.Col
@@ -1184,16 +1221,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case backupLineMsg:
-		if msg.id != m.exports.backup.id || !m.exports.backup.running {
+		if msg.id != m.backup.id || !m.backup.running {
 			return m, nil
 		}
 		return m, tea.Batch(
-			logCmd("-- %s: %s", m.exports.backup.action, msg.line),
-			waitBackupCmd(m.exports.backup.ch),
+			logCmd("-- %s: %s", m.backup.action, msg.line),
+			waitBackupCmd(m.backup.ch),
 		)
 
 	case backupDoneMsg:
-		if msg.id != m.exports.backup.id {
+		if msg.id != m.backup.id {
 			return m, nil
 		}
 		// Bind the command first: finishBackup clears the in-flight state
@@ -1573,6 +1610,21 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	}
 	switch id {
 	case actConnect:
+		c, ok := m.selectedConnection()
+		if !ok {
+			return m, nil
+		}
+		// A profile that is already open is switched to, never dialled
+		// again; the one on screen has nothing to switch, so enter only
+		// takes the keyboard back into it.
+		if m.active == c.Name {
+			m.focusSession()
+			return m, nil
+		}
+		if m.connected(c.Name) {
+			cmd := m.switchTo(c.Name)
+			return m, cmd
+		}
 		return m.dialSelected(false)
 
 	case actDisconnect:
@@ -1580,10 +1632,23 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		if c.Name != m.active {
-			return m, logCmd("-- disconnect: %s is not the active connection", c.Name)
+		name := c.Name
+		if !m.connected(name) {
+			return m, logCmd("-- disconnect: %s is not connected", name)
 		}
-		cmd := m.guardTx("Disconnect", "Disconnect "+m.taggedConnName(m.active), (*Model).disconnectActive)
+		closeIt := func(mm *Model) tea.Cmd { return mm.disconnect(name) }
+		// Closing a session rolls back its transaction and drops its
+		// staged changes, so it asks first when there is either.
+		if losses := m.sessionLosses(name); losses != "" {
+			m.modal = &confirmModal{
+				title:     "Disconnect",
+				body:      fmt.Sprintf("Disconnect %s and %s?", m.taggedConnName(name), losses),
+				danger:    true,
+				onConfirm: closeIt,
+			}
+			return m, nil
+		}
+		cmd := closeIt(&m)
 		return m, cmd
 
 	case actTestConnection:
@@ -1626,18 +1691,13 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 			m.modal = &confirmModal{
 				title: "Remove connection",
 				body: fmt.Sprintf(
-					"Remove %q from config.toml and delete its keyring entry?", name) + m.txDropNote(name),
+					"Remove %q from config.toml and delete its keyring entry?", name) + m.lossNote(name),
 				danger: true,
 				onConfirm: func(m *Model) tea.Cmd {
 					if !m.cfg.Remove(name) {
 						return nil
 					}
-					var closeCmd tea.Cmd
-					if m.active == name {
-						closeCmd = tea.Batch(m.dropTx("connection removed"), closeSessionCmd(m.driver, m.tunnel))
-						m.driver, m.tunnel, m.active = nil, nil, ""
-						m.resetBrowse()
-					}
+					closeCmd := m.endSession(name, "connection removed")
 					delete(m.connState, name)
 					m.refreshConnections("")
 					return tea.Batch(
@@ -1750,7 +1810,7 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 		return m, cmd
 
 	case actHistory:
-		m.modal = newHistoryModal(history.ForConnection(m.query.history, m.active), m.query.snippets, m.sqlDialect(), m.keys)
+		m.modal = newHistoryModal(history.ForConnection(m.recall.history, m.active), m.recall.snippets, m.sqlDialect(), m.keys)
 
 	case actSaveSnippet:
 		cmd := m.promptSaveSnippet(m.script())
@@ -1794,71 +1854,87 @@ func (m Model) runAction(id actionID) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// disconnectActive closes the active connection. Its driver's Close rolls
-// back an open editor transaction first.
-func (m *Model) disconnectActive() tea.Cmd {
-	driver, tunnel := m.driver, m.tunnel
-	name := m.active
-	txCmd := m.dropTx("disconnect")
-	m.driver, m.tunnel, m.active = nil, nil, ""
+// adoptConnection makes a freshly dialled connection the session in the
+// on-screen slot and starts browsing it.
+func (m *Model) adoptConnection(msg connectedMsg, restoring bool) tea.Cmd {
+	m.driver = msg.driver
+	m.tunnel = msg.tunnel
+	m.active = msg.name
+	m.setConnStatus(msg.name, statusOK, "")
 	m.resetBrowse()
-	m.setConnStatus(name, statusIdle, "")
-	if m.isEphemeral(name) {
-		// An ephemeral connection has nothing to go back to being:
-		// disconnecting it drops the row and leaves the panel showing
-		// the saved profiles alone.
-		m.dropEphemeral()
+	dbs := namespaceList(msg.driver.Engine(), m.scopeDatabases(msg.name, msg.databases))
+	m.rebuildTree(dbs)
+	cmds := []tea.Cmd{logCmd("-- connect %s (%s)", msg.name, msg.dsn)}
+	if restoring {
+		if display, ok := findDatabaseDisplayName(dbs, m.restoreSess.Database); ok {
+			cmds = append(cmds, m.openDatabase(display), focusCmd(panelObjects))
+			return tea.Batch(cmds...)
+		}
+		sess := *m.restoreSess
+		m.restoreSess = nil
+		cmds = append(cmds, logCmd("-- restore session: database %q not found", displayDatabase(sess.Database)))
 	}
-	return tea.Batch(txCmd, closeSessionCmd(driver, tunnel), logCmd("-- disconnect %s", name))
+	// Single-namespace engines (SQLite, DuckDB) have nothing to pick:
+	// the tree skips the database level entirely, so its Tables
+	// category is opened straight away.
+	if len(dbs) == 1 {
+		cmds = append(cmds, m.openDatabase(dbs[0]))
+	}
+	cmds = append(cmds, focusCmd(panelObjects))
+	return tea.Batch(cmds...)
 }
 
 // dialSelected connects to (or, when test is set, only probes) the profile
 // under the cursor. Every dial runs in a tea.Cmd; when the profile asks for
 // its password on connect a prompt modal is opened first and the dial is
-// deferred until the prompt is submitted.
+// deferred until the prompt is submitted. Neither closes anything: a
+// connect opens a session next to the ones already open.
 func (m Model) dialSelected(test bool) (Model, tea.Cmd) {
 	c, ok := m.selectedConnection()
 	if !ok {
 		return m, nil
 	}
 	req := m.dialRequestFor(c, test)
-	dial := func(mm *Model) tea.Cmd {
-		if c.NeedsPassword() && c.AskPassword {
-			mm.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
-				next := req
-				next.password, next.hasPassword = pw, true
-				return redialCmd(next)
-			})
-			return nil
-		}
-		if !test {
-			mm.setConnStatus(c.Name, statusPending, "")
-		}
-		return redialCmd(req)
+	if c.NeedsPassword() && c.AskPassword {
+		m.modal = newPasswordPrompt(c, func(pw string) tea.Cmd {
+			next := req
+			next.password, next.hasPassword = pw, true
+			return redialCmd(next)
+		})
+		return m, nil
 	}
-	// A test dials a connection of its own; a connect replaces the
-	// session, and with it the open transaction.
-	if test {
-		cmd := dial(&m)
-		return m, cmd
+	if !test {
+		m.setConnStatus(c.Name, statusPending, "")
 	}
-	cmd := m.guardTx("Connect", "Connect to "+m.taggedConnName(c.Name), dial)
-	return m, cmd
-}
-
-// txDropNote is the line a confirmation that closes the connection adds
-// when that would roll back the open transaction.
-func (m Model) txDropNote(name string) string {
-	if tx := m.query.tx; tx != nil && tx.conn == name {
-		return fmt.Sprintf("\n\nThe open transaction on it (%s) is rolled back.", countStatements(tx.stmts))
-	}
-	return ""
+	return m, redialCmd(req)
 }
 
 // quitLosses is the quit confirmation's question — what quitting would
 // throw away — or "" when it throws away nothing: staged changes are not
-// saved on exit, and an open transaction is rolled back.
+// saved on exit, and an open transaction is rolled back. With several
+// connections open it lists every one that loses something by name.
 func (m Model) quitLosses() string {
+	sessions := m.openSessions()
+	var lines []string
+	for _, s := range sessions {
+		var what []string
+		if tx := s.query.tx; tx != nil {
+			what = append(what, fmt.Sprintf("open transaction rolled back (%s)", countStatements(tx.stmts)))
+		}
+		if n := s.grid.changes.Len(); n > 0 {
+			what = append(what, countChanges(n)+" discarded")
+		}
+		if len(what) > 0 {
+			lines = append(lines, "  "+m.taggedConnName(s.active)+": "+strings.Join(what, ", "))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(sessions) > 1 {
+		return "Quit? This closes every open connection:\n\n" +
+			strings.Join(lines, "\n") + "\n\nNone of it is saved on exit."
+	}
 	n := m.grid.changes.Len()
 	tx := m.query.tx
 	switch {
@@ -1868,13 +1944,11 @@ func (m Model) quitLosses() string {
 	case tx != nil:
 		return fmt.Sprintf("Quit and roll back the open transaction on %s (%s)? It is not committed on exit.",
 			m.taggedConnName(tx.conn), countStatements(tx.stmts))
-	case n > 0:
-		return fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n))
 	}
-	return ""
+	return fmt.Sprintf("Quit and discard %s? They are not saved on exit.", countChanges(n))
 }
 
-// quit saves session/screen state and tears down the connection. Called
+// quit saves session/screen state and tears down every open connection. Called
 // synchronously (not as a tea.Cmd) because tea.Quit can stop the program
 // before a batched command ever runs, which would leave the SSH connection
 // and its forwarded sockets to the OS.
@@ -1883,36 +1957,26 @@ func (m *Model) quit() {
 		m.saveSession()
 	}
 	_ = (&config.State{ScreenMode: screenModeNames[m.screen], LogCollapsed: m.logCollapsed}).Save()
-	m.closeSession()
+	m.closeSessions()
 }
 
-// closeSession tears down the active driver and its tunnel synchronously.
-// Used on quit, where a tea.Cmd is not guaranteed to run.
-func (m *Model) closeSession() {
-	// The open transaction is rolled back explicitly, and first: Close
-	// would do it too, but a handle whose BEGIN raced the quit is only
-	// reachable from here.
-	if tx := m.query.tx; tx != nil && tx.handle != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = tx.handle.Rollback(ctx)
-		cancel()
+// closeSessions tears down every open connection — the one on screen and
+// the ones in the background — synchronously. Used on quit, where a
+// tea.Cmd is not guaranteed to run.
+func (m *Model) closeSessions() {
+	m.connSession.shutdown()
+	for _, s := range m.parked {
+		s.shutdown()
 	}
-	m.query.tx = nil
-	if m.driver != nil {
-		m.driver.Close()
-		m.driver = nil
-	}
-	if m.tunnel != nil {
-		m.tunnel.Close()
-		m.tunnel = nil
-	}
-	m.active = ""
+	m.parked = nil
 }
 
-// saveSession writes the current connection, database, table, tab and grid
-// cursor as the session to restore on the next startup. Nothing is written
-// when there is no live connection — a quit from the bare connections panel
-// must not clobber a real session with an empty one. Best-effort: a write
+// saveSession writes the connection on screen, its database, table, tab and
+// grid cursor as the session to restore on the next startup. Connections
+// open in the background are not saved: the file holds exactly one.
+// Nothing is written when the screen shows no live connection — a quit
+// from the bare connections panel must not clobber a real session with
+// an empty one. Best-effort: a write
 // failure has nowhere to report to on the way out, so it is dropped.
 func (m Model) saveSession() {
 	// An ephemeral connection is never restored: it is not in the config,

@@ -82,7 +82,7 @@ func TestSQLiteDumpProducesAValidDatabase(t *testing.T) {
 	m = openBackup(t, m, 'd')
 	m = fillBackupForm(t, m, map[string]string{"path": out})
 
-	if m.exports.backup.running {
+	if m.backup.running {
 		t.Error("the dump is still marked as running after it finished")
 	}
 	if !logContains(m, "dump of") || !logContains(m, "wrote "+out) {
@@ -337,7 +337,7 @@ func TestFailingToolReportsStderrAndRemovesThePartialDump(t *testing.T) {
 	m = openBackup(t, m, 'd')
 	m = fillBackupForm(t, m, map[string]string{"path": out})
 
-	if m.exports.backup.running {
+	if m.backup.running {
 		t.Error("the failed dump is still marked as running")
 	}
 	if !logContains(m, "could not connect to server") {
@@ -450,8 +450,7 @@ func TestBackupTargetPerEngine(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := Model{database: tc.browsed}
-			database, schema := m.backupTarget(tc.conn)
+			database, schema := backupTarget(tc.conn, tc.browsed)
 			if database != tc.database || schema != tc.schema {
 				t.Fatalf("target = (%q, %q), want (%q, %q)",
 					database, schema, tc.database, tc.schema)
@@ -620,14 +619,14 @@ func TestCancelKillsTheRunningToolAndRemovesTheDump(t *testing.T) {
 
 	next, cmd := m.Update(special(tea.KeyEnter, 0))
 	m = next.(Model)
-	if !m.exports.backup.running {
+	if !m.backup.running {
 		t.Fatal("submitting the form did not start the job")
 	}
 	if !m.keys.CancelBackup.Enabled() {
 		t.Fatal("the cancel key is not offered while a job runs")
 	}
 
-	cancel := m.exports.backup.cancel
+	cancel := m.backup.cancel
 	go func() {
 		waitForFile(started, 10*time.Second)
 		cancel()
@@ -646,7 +645,7 @@ func TestCancelKillsTheRunningToolAndRemovesTheDump(t *testing.T) {
 		queue = append(queue, drain(c)...)
 	}
 
-	if m.exports.backup.running {
+	if m.backup.running {
 		t.Fatal("the job is still marked as running after the cancel")
 	}
 	if m.keys.CancelBackup.Enabled() {

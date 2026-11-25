@@ -79,8 +79,9 @@ type keyMap struct {
 	TestConnection      key.Binding
 	SchemaDiff          key.Binding
 	Connect             key.Binding
-	// Disconnect closes the active connection from panel [1]. It only acts
-	// on the currently connected row — see actDisconnect.
+	// Disconnect closes the selected profile's connection from panel [1],
+	// whether it is the one on screen or one open in the background — see
+	// actDisconnect.
 	Disconnect key.Binding
 	Refresh    key.Binding
 	Actions    key.Binding
@@ -435,9 +436,9 @@ func newKeyMap() keyMap {
 		DuplicateConnection: key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "duplicate connection")),
 		TestConnection:      key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "test connection")),
 		SchemaDiff:          key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "schema diff vs…")),
-		Connect:             key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect")),
+		Connect:             key.NewBinding(key.WithKeys("enter", "space"), key.WithHelp("enter", "connect / switch to")),
 		// `x` is free in this panel — `d` already means remove connection.
-		Disconnect: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "disconnect")),
+		Disconnect: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "disconnect selected")),
 		Refresh:    key.NewBinding(key.WithKeys("R", "r"), key.WithHelp("R", "reload from server")),
 		Actions:    key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "actions")),
 		Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "fuzzy filter")),

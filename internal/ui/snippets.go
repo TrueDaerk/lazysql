@@ -66,7 +66,7 @@ func (m *Model) promptSaveSnippet(sql string) tea.Cmd {
 		if name == "" {
 			return logCmd("-- save snippet skipped: no name given")
 		}
-		if _, exists := snippets.Find(mm.query.snippets, name); exists {
+		if _, exists := snippets.Find(mm.recall.snippets, name); exists {
 			mm.modal = &confirmModal{
 				title: "Overwrite snippet",
 				body:  fmt.Sprintf("A snippet named %q already exists. Replace its statement?", name),
@@ -86,13 +86,13 @@ func (m *Model) promptSaveSnippet(sql string) tea.Cmd {
 // and the date says how long it has been in use.
 func (m *Model) storeSnippet(name, sql, engine string) tea.Cmd {
 	s := snippets.Snippet{Name: name, SQL: sql, Engine: engine, CreatedAt: time.Now()}
-	replaced := m.query.putSnippet(s)
+	replaced := m.recall.putSnippet(s)
 	verb := "save"
 	if replaced {
 		verb = "overwrite"
 	}
 	return tea.Batch(
-		saveSnippetsCmd(m.query.snippets),
+		saveSnippetsCmd(m.recall.snippets),
 		logCmd("-- %s snippet %s: %s", verb, name, truncate(flatten(sql), 60)),
 	)
 }
@@ -100,11 +100,11 @@ func (m *Model) storeSnippet(name, sql, engine string) tea.Cmd {
 // deleteSnippet removes one snippet from the model and the file. The
 // confirmation is the pane's; by here the user has answered it.
 func (m *Model) deleteSnippet(name string) tea.Cmd {
-	if !m.query.removeSnippet(name) {
+	if !m.recall.removeSnippet(name) {
 		return nil
 	}
 	return tea.Batch(
-		saveSnippetsCmd(m.query.snippets),
+		saveSnippetsCmd(m.recall.snippets),
 		logCmd("-- delete snippet %s", name),
 	)
 }

@@ -368,6 +368,11 @@ func (m *Model) activityTick(msg activityTickMsg) tea.Cmd {
 	if v == nil || !v.auto || msg.gen != v.gen || m.driver == nil {
 		return nil
 	}
+	// A report nobody is looking at does not keep polling its server:
+	// the beat is dropped, and switching back arms a new one.
+	if m.background {
+		return nil
+	}
 	// A read that is still out is not chased with another one: the beat
 	// only re-arms the timer.
 	if v.loading {

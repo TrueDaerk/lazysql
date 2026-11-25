@@ -8,13 +8,11 @@ import (
 	"lazysql/internal/snippets"
 )
 
-// These tests exercise the query sub-model on its own: no root Model, no
-// driver, no rendered frame. Before the query state was extracted from
-// Model (issue #229) the history and snippet bookkeeping could only be
-// reached by running a statement through a full shell.
+// These tests exercise the shared recall lists on their own: no root
+// Model, no driver, no rendered frame.
 
 func TestQueryPushHistoryDedupesNewestAndCaps(t *testing.T) {
-	q := newQueryModel()
+	var q recallStore
 	e := history.Entry{SQL: "SELECT 1", Connection: "c", Engine: "sqlite", At: time.Now()}
 	if !q.pushHistory(e) {
 		t.Fatal("first push was reported as a duplicate")
@@ -45,7 +43,7 @@ func TestQueryPushHistoryDedupesNewestAndCaps(t *testing.T) {
 }
 
 func TestQueryDropHistoryMatchesByValue(t *testing.T) {
-	q := newQueryModel()
+	var q recallStore
 	at := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
 	a := history.Entry{SQL: "SELECT a", Connection: "c", At: at}
 	b := history.Entry{SQL: "SELECT b", Connection: "c", At: at.Add(time.Second)}
@@ -65,7 +63,7 @@ func TestQueryDropHistoryMatchesByValue(t *testing.T) {
 }
 
 func TestQuerySnippetsKeepCreationTimeOnOverwrite(t *testing.T) {
-	q := newQueryModel()
+	var q recallStore
 	created := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if q.putSnippet(snippets.Snippet{Name: "top", SQL: "SELECT 1", CreatedAt: created}) {
 		t.Fatal("the first save was reported as an overwrite")

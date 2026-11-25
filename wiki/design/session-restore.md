@@ -108,3 +108,24 @@ never got around to connecting. There is no debounce and no autosave on
 navigation: the issue explicitly allows either, and a clean-shutdown-only
 write is the simpler of the two with no risk of a mid-browse disk write
 racing a resize.
+
+## With several connections open (issue #248)
+
+The file format and the restore are unchanged: `session.json` holds one
+connection and startup restores exactly one. What changed is which one is
+written. `saveSession` saves the session **on screen** at quit; the
+connections open [in the background](multiple-open-connections.md) are
+not saved, and are simply not open after a restart. Restoring more than
+one was left out on purpose — a startup that redials every profile the
+user had touched, some of them behind a password prompt or a VPN, is not
+what "pick up where I left off" means.
+
+Two details follow from sessions existing at all:
+
+- A quit from the bare screen — the session on screen was disconnected
+  while others stayed open in the background — writes nothing, like a
+  quit with no connection always did, so the last real session survives.
+- The stages of the restore chain check `restoring()`: the reply being
+  reduced belongs to the session whose connection is the restore's
+  target. A second profile dialled while the restore is still navigating
+  therefore cannot consume `restoreSess` with its own listing.

@@ -142,12 +142,20 @@ contract would become "all or nothing until the editor rolls back".
 
 ### Leaving with a transaction open
 
-Quit, disconnect (`x`), connecting to a profile (including a
-password-prompted one), and removing the active profile all confirm
-first through `guardTx`/`quitLosses`/`txDropNote`, naming the statement
-count. The rollback runs on confirm. A connection replaced some other
-way (an ephemeral file opened) logs the rollback when the new session
-lands.
+Quit, disconnect (`x`) and removing a connected profile all confirm
+first through `sessionLosses`/`quitLosses`/`lossNote`, naming the
+statement count. The rollback runs on confirm. A session closed some
+other way (its ephemeral file replaced by another, its connection lost in
+the background) logs the rollback.
+
+Connecting to another profile used to be on that list, because it
+replaced the session. Since issue #248 it opens a session of its own
+instead: the transaction belongs to its
+[session](multiple-open-connections.md), stays open while another
+connection is on screen, and can be committed or rolled back after
+switching back. The badge in the options bar is the on-screen session's;
+panel `[1]` marks a background session `busy` while a BEGIN, COMMIT or
+ROLLBACK of it is in flight.
 
 ## Consequences
 

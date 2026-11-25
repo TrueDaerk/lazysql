@@ -33,7 +33,7 @@ func queryable(t *testing.T) Model {
 	}
 	// Start from an empty history so the assertions below count only
 	// what the test itself ran.
-	m.query.history = nil
+	m.recall.history = nil
 	m.commandLog = nil
 	return m
 }
@@ -481,8 +481,8 @@ func TestMultipleStatementsRunInOrderAndAllAreLogged(t *testing.T) {
 	if m.grid.data.notice != "" {
 		t.Fatalf("notice = %q, want the SELECT result to win", m.grid.data.notice)
 	}
-	if len(m.query.history) != 3 {
-		t.Fatalf("history has %d entries, want one per statement: %v", len(m.query.history), m.query.history)
+	if len(m.recall.history) != 3 {
+		t.Fatalf("history has %d entries, want one per statement: %v", len(m.recall.history), m.recall.history)
 	}
 }
 
@@ -645,10 +645,10 @@ func TestQueryResultHasNoTableActions(t *testing.T) {
 
 func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	m := runQuery(t, queryable(t), "SELECT id FROM q")
-	if len(m.query.history) != 1 {
-		t.Fatalf("history = %#v, want the statement", m.query.history)
+	if len(m.recall.history) != 1 {
+		t.Fatalf("history = %#v, want the statement", m.recall.history)
 	}
-	e := m.query.history[0]
+	e := m.recall.history[0]
 	if e.SQL != "SELECT id FROM q" {
 		t.Fatalf("stored %q, want the statement without its terminator", e.SQL)
 	}
@@ -660,8 +660,8 @@ func TestQueryStatementsLandInTheHistory(t *testing.T) {
 	}
 	// Re-running the newest entry does not duplicate it.
 	m = runQuery(t, m, "SELECT id FROM q")
-	if len(m.query.history) != 1 {
-		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.query.history)
+	if len(m.recall.history) != 1 {
+		t.Fatalf("history = %#v, want the replay folded into the newest entry", m.recall.history)
 	}
 }
 
@@ -726,8 +726,8 @@ func TestPlaceholdersPromptAndBind(t *testing.T) {
 	if m.grid.data.query != "SELECT * FROM q WHERE id = ? AND name = :n" {
 		t.Fatalf("data.query = %q, want the original statement", m.grid.data.query)
 	}
-	if len(m.query.history) == 0 || m.query.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
-		t.Fatalf("history = %#v, want the original statement recorded", m.query.history)
+	if len(m.recall.history) == 0 || m.recall.history[0].SQL != "SELECT * FROM q WHERE id = ? AND name = :n" {
+		t.Fatalf("history = %#v, want the original statement recorded", m.recall.history)
 	}
 }
 

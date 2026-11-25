@@ -48,7 +48,7 @@ func (c *conn) Connect(ctx context.Context, dsn string) error {
 	if c.db != nil {
 		return errors.New("db: already connected")
 	}
-	sqlDB, release, err := c.dialect.openDB(dsn, c.dial)
+	sqlDB, release, err := c.dialect.openDB(dsn, c.dial, c.logger)
 	if err != nil {
 		return fmt.Errorf("db: open %s: %w", c.dialect.DisplayName(), err)
 	}

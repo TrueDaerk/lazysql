@@ -331,7 +331,7 @@ func TestListProcessesUnsupportedOnFileEngines(t *testing.T) {
 func TestKillProcessRefusedOnAReadOnlySession(t *testing.T) {
 	for _, e := range []Engine{EngineMySQL, EnginePostgres} {
 		d, _ := DialectFor(e)
-		sqlDB, release, err := d.openDB(unreachableDSN(e), nil)
+		sqlDB, release, err := d.openDB(unreachableDSN(e), nil, nil)
 		if err != nil {
 			t.Fatalf("%s openDB: %v", e, err)
 		}

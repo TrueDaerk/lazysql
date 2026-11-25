@@ -70,6 +70,55 @@ func logCmd(format string, a ...any) tea.Cmd {
 	return func() tea.Msg { return commandLogMsg{line: line} }
 }
 
+// driverLogMsg carries one line a dependency logged on its own (see
+// db.CaptureProcessLogs) into the command log.
+type driverLogMsg struct {
+	db.DriverMessage
+}
+
+// ForwardDriverMessages hands every captured driver line to send — the
+// running program's Send — and never returns.
+func ForwardDriverMessages(send func(tea.Msg)) {
+	for {
+		send(driverLogMsg{db.NextDriverMessage()})
+	}
+}
+
+// driverRepeatWindow is how far back an identical driver line is looked
+// for to be counted instead of appended again.
+const driverRepeatWindow = 16
+
+// addDriverLine appends a captured driver line to the command log,
+// attributed to its connection when that is still open; a repeat of a
+// recent identical line bumps that line's count and moves it to the end.
+func (m *Model) addDriverLine(msg db.DriverMessage) {
+	conn := ""
+	if msg.Owner != nil {
+		for _, s := range m.openSessions() {
+			if s.driver.Logger() == msg.Owner {
+				conn = s.active
+				break
+			}
+		}
+	}
+	text := "-- " + msg.Source + " driver: " + msg.Text
+	for i := len(m.commandLog) - 1; i >= 0 && i >= len(m.commandLog)-driverRepeatWindow; i-- {
+		l := m.commandLog[i]
+		if l.driver && l.conn == conn && l.text == text {
+			l.repeat++
+			l.at = msg.At
+			m.commandLog = append(append(m.commandLog[:i:i], m.commandLog[i+1:]...), l)
+			return
+		}
+	}
+	m.commandLog = append(m.commandLog, logLine{
+		text: text, at: msg.At, err: true, conn: conn, driver: true, repeat: 1,
+	})
+	if n := len(m.commandLog); n > db.LogCapacity {
+		m.commandLog = m.commandLog[n-db.LogCapacity:]
+	}
+}
+
 // logLine is one line the command log panel renders: either a UI note
 // (skip reasons, connect status, export progress — logCmd's own text) or
 // an executed statement pulled from the Driver's Logger. at orders the
@@ -80,12 +129,20 @@ type logLine struct {
 	at   time.Time
 	err  bool
 	conn string
+	// driver marks a line a database driver or library logged on its own;
+	// repeat counts how often it was seen in a row.
+	driver bool
+	repeat int
 }
 
 // render expands tabs: truncate measures a tab as one cell, the terminal
 // draws up to eight, and the overshoot wraps inside the log's box.
 func (l logLine) render() string {
-	return l.at.Format("15:04:05") + "  " + strings.ReplaceAll(l.text, "\t", "    ")
+	out := l.at.Format("15:04:05") + "  " + strings.ReplaceAll(l.text, "\t", "    ")
+	if l.repeat > 1 {
+		out += fmt.Sprintf(" (×%d)", l.repeat)
+	}
+	return out
 }
 
 // commandLogEntries merges the UI's own notes with the Logger of every
@@ -679,6 +736,10 @@ func (m Model) reduce(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if n := len(m.commandLog); n > db.LogCapacity {
 			m.commandLog = m.commandLog[n-db.LogCapacity:]
 		}
+		return m, nil
+
+	case driverLogMsg:
+		m.addDriverLine(msg.DriverMessage)
 		return m, nil
 
 	case historyEntryMsg:

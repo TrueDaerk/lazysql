@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"lazysql/internal/db"
 	"lazysql/internal/ui"
 	"lazysql/internal/version"
 )
@@ -54,7 +55,14 @@ func main() {
 			os.Exit(1)
 		}
 	}
-	if _, err := tea.NewProgram(m).Run(); err != nil {
+	// While the TUI owns the terminal, dependency log output is routed
+	// into the command log instead of being printed over the screen.
+	restoreLogs := db.CaptureProcessLogs()
+	p := tea.NewProgram(m)
+	go ui.ForwardDriverMessages(p.Send)
+	_, err = p.Run()
+	restoreLogs()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "lazysql:", err)
 		os.Exit(1)
 	}

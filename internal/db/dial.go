@@ -46,33 +46,38 @@ func errNoTunnel(d Dialect) error {
 	return fmt.Errorf("db: %s is a local file engine and cannot use an SSH tunnel", d.DisplayName())
 }
 
-func (d mysqlDialect) openDB(dsn string, dial DialFunc) (*sql.DB, func(), error) {
-	if dial == nil {
-		return openStandard(d.driverName(), dsn)
-	}
+func (d mysqlDialect) openDB(dsn string, dial DialFunc, owner *Logger) (*sql.DB, func(), error) {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("db: parse mysql dsn: %w", err)
 	}
-	if cfg.Net == "unix" {
-		return nil, nil, fmt.Errorf("db: a unix socket host cannot be reached through an SSH tunnel")
+	// the driver's own error lines go to the command log, not stderr
+	cfg.Logger = mysqlLogger{owner: owner}
+	var release func()
+	if dial != nil {
+		if cfg.Net == "unix" {
+			return nil, nil, fmt.Errorf("db: a unix socket host cannot be reached through an SSH tunnel")
+		}
+		name := tunnelName()
+		// The registered dialer is handed only the address; the network is
+		// always TCP, since that is the only thing the DSN can name here.
+		mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
+			return dial(ctx, "tcp", addr)
+		})
+		cfg.Net = name
+		release = func() { mysql.DeregisterDialContext(name) }
 	}
-	name := tunnelName()
-	// The registered dialer is handed only the address; the network is
-	// always TCP, since that is the only thing the DSN can name here.
-	mysql.RegisterDialContext(name, func(ctx context.Context, addr string) (net.Conn, error) {
-		return dial(ctx, "tcp", addr)
-	})
-	cfg.Net = name
-	db, err := sql.Open(d.driverName(), cfg.FormatDSN())
+	connector, err := mysql.NewConnector(cfg)
 	if err != nil {
-		mysql.DeregisterDialContext(name)
+		if release != nil {
+			release()
+		}
 		return nil, nil, err
 	}
-	return db, func() { mysql.DeregisterDialContext(name) }, nil
+	return sql.OpenDB(connector), release, nil
 }
 
-func (d postgresDialect) openDB(dsn string, dial DialFunc) (*sql.DB, func(), error) {
+func (d postgresDialect) openDB(dsn string, dial DialFunc, _ *Logger) (*sql.DB, func(), error) {
 	if dial == nil {
 		return openStandard(d.driverName(), dsn)
 	}
@@ -99,14 +104,14 @@ func (d postgresDialect) openDB(dsn string, dial DialFunc) (*sql.DB, func(), err
 	return db, func() { stdlib.UnregisterConnConfig(name) }, nil
 }
 
-func (d sqliteDialect) openDB(dsn string, dial DialFunc) (*sql.DB, func(), error) {
+func (d sqliteDialect) openDB(dsn string, dial DialFunc, _ *Logger) (*sql.DB, func(), error) {
 	if dial != nil {
 		return nil, nil, errNoTunnel(d)
 	}
 	return openStandard(d.driverName(), dsn)
 }
 
-func (d duckdbDialect) openDB(dsn string, dial DialFunc) (*sql.DB, func(), error) {
+func (d duckdbDialect) openDB(dsn string, dial DialFunc, _ *Logger) (*sql.DB, func(), error) {
 	if dial != nil {
 		return nil, nil, errNoTunnel(d)
 	}

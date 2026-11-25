@@ -2,13 +2,16 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"lazysql/internal/config"
+	"lazysql/internal/db"
 )
 
 // `@` opens the expanded, scrollable command log; `esc` returns to the
@@ -184,5 +187,44 @@ func TestCommandLogCollapsedRoundTripsThroughState(t *testing.T) {
 	back := config.LoadStateFrom(path)
 	if !back.LogCollapsed {
 		t.Fatal("LogCollapsed = false after round trip, want true")
+	}
+}
+
+// A line a driver logged on its own lands in the command log as a driver
+// line of its connection, and a repeat is counted rather than appended.
+func TestDriverMessageLandsInCommandLog(t *testing.T) {
+	m := browsing(t)
+	owner := m.driver.Logger()
+	dm := db.DriverMessage{At: time.Now(), Source: "mysql", Text: "closing bad idle connection: EOF", Owner: owner}
+	m = send(t, m, driverLogMsg{dm}, driverLogMsg{dm}, driverLogMsg{db.DriverMessage{At: time.Now(), Source: "log", Text: "orphan"}})
+
+	var driverLines []logLine
+	for _, l := range m.commandLog {
+		if l.driver {
+			driverLines = append(driverLines, l)
+		}
+	}
+	if len(driverLines) != 2 {
+		t.Fatalf("driver lines = %+v, want the repeat folded into one", driverLines)
+	}
+	if l := driverLines[0]; l.conn != m.active || l.repeat != 2 || l.text != "-- mysql driver: closing bad idle connection: EOF" {
+		t.Fatalf("attributed line = %+v", l)
+	}
+	if !strings.HasSuffix(driverLines[0].render(), "(×2)") {
+		t.Fatalf("render = %q, want the repeat count", driverLines[0].render())
+	}
+	if l := driverLines[1]; l.conn != "" || l.text != "-- log driver: orphan" {
+		t.Fatalf("unattributed line = %+v", l)
+	}
+}
+
+// A storm of distinct driver lines keeps the log bounded.
+func TestDriverMessagesKeepTheLogBounded(t *testing.T) {
+	m := browsing(t)
+	for i := 0; i < db.LogCapacity+50; i++ {
+		m.addDriverLine(db.DriverMessage{At: time.Now(), Source: "mysql", Text: fmt.Sprintf("line %d", i)})
+	}
+	if len(m.commandLog) > db.LogCapacity {
+		t.Fatalf("command log grew to %d lines", len(m.commandLog))
 	}
 }

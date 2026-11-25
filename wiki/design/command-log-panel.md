@@ -2,7 +2,7 @@
 type: Design Decision
 title: Command log panel sourced from a single Driver.Logger choke point
 description: Why every executed SQL statement is captured once in internal/db instead of hand-formatted at each UI call site, how the slim panel and the `@` expanded view merge that Logger with the UI's own status notes into one chronological feed, why lazysql's own catalog introspection is tagged at the source and hidden by default (ctrl+l reveals it), and why the expanded view is a static snapshot like every other modal.
-tags: [tui, db, logging, command-log, keybindings, introspection]
+tags: [tui, db, logging, command-log, keybindings, introspection, driver-messages]
 generated:
   by: claude-code/opus-5.5
   at: 2026-09-25T00:00:00Z
@@ -101,6 +101,26 @@ tabs. `truncate` measures a tab as one cell, the terminal draws up to
 eight, and the overshoot wrapped inside the strip's box and pushed the
 frame one line past the screen — previously masked because introspection
 had pushed the tab-indented statements out of view.
+
+## Driver lines
+
+A third kind of line comes from dependencies that would otherwise print
+over the screen on their own — the MySQL driver's error logger and the
+standard `log` package (see
+[reference/dependency-terminal-output](../reference/dependency-terminal-output.md)).
+They arrive as `driverLogMsg` and are stored in `commandLog` as a
+`logLine` with `driver` set, spelled `-- <source> driver: <text>` (e.g.
+`-- mysql driver: connection.go:801 closing bad idle connection: EOF`)
+and rendered red. The message carries the connection's `*db.Logger`; the
+reducer maps it to the open session that owns it for the `[name]`
+prefix, and leaves the line unattributed when the session is gone or the
+source is process-wide.
+
+A reconnect storm repeats the same few lines. An identical driver line
+(same text and connection) among the last 16 log lines is not appended
+again: its count goes up, it moves to the end, and it renders with a
+`(×N)` suffix. Distinct lines are capped by `LogCapacity` like any other
+note.
 
 ## Ring buffer, not unbounded
 

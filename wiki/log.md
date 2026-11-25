@@ -2198,3 +2198,14 @@ Chronological history of wiki changes, newest last.
   driver's Logger, connection prefixes) and
   [design/dump-and-restore](design/dump-and-restore.md) (the job belongs
   to a profile and borrows that profile's own session).
+
+## 2026-11-25 — Dependency log output goes to the command log (issue #249)
+
+- Added [reference/dependency-terminal-output](reference/dependency-terminal-output.md):
+  go-sql-driver/mysql's default logger printed dropped-connection errors
+  over the TUI; the per-connection `Config.Logger`, the process-wide
+  `log`/`mysql.SetLogger` capture around `Program.Run`, and the audit of
+  pgx, SQLite, DuckDB, x/crypto/ssh and `internal/sshtunnel`.
+- Updated [design/command-log-panel](design/command-log-panel.md): driver
+  lines as a third kind of log line, their connection attribution and
+  the repeat counter.

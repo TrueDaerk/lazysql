@@ -328,8 +328,10 @@ type Dialect interface {
 	// openDB opens the database/sql handle for a DSN. dial, when non-nil,
 	// replaces the driver's transport; engines that are not reached over
 	// the network reject one. The returned func undoes whatever per-handle
-	// registration the driver needed and must run on Close.
-	openDB(dsn string, dial DialFunc) (*sql.DB, func(), error)
+	// registration the driver needed and must run on Close. owner is the
+	// connection's Logger, which a driver that logs on its own tags its
+	// lines with.
+	openDB(dsn string, dial DialFunc, owner *Logger) (*sql.DB, func(), error)
 
 	// QuoteIdent quotes a single identifier (never a dotted path).
 	QuoteIdent(ident string) string

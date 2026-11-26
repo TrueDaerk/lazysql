@@ -170,3 +170,24 @@ func FormatTemporalValue(v any, kind TypeKind, null string) string {
 		return FormatValue(x, null)
 	}
 }
+
+// IsNumericType reports whether a declared column type holds numbers:
+// integers, floats and fixed-point decimals. Matching ignores case,
+// precision, array markers and MySQL's `unsigned`/`zerofill` suffixes.
+func IsNumericType(dataType string) bool {
+	name := normalizeTypeName(dataType)
+	if name == "double precision" {
+		return true
+	}
+	base, _, _ := strings.Cut(name, " ")
+	switch base {
+	case "int", "integer", "tinyint", "smallint", "mediumint", "bigint",
+		"int2", "int4", "int8", "int16", "int32", "int64", "int128",
+		"hugeint", "uhugeint", "utinyint", "usmallint", "uinteger", "ubigint",
+		"serial", "smallserial", "bigserial", "serial2", "serial4", "serial8",
+		"decimal", "numeric", "dec", "fixed", "number",
+		"float", "float4", "float8", "double", "real", "money":
+		return true
+	}
+	return false
+}

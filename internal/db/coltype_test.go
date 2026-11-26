@@ -180,3 +180,16 @@ func TestParseDateTimeInLocation(t *testing.T) {
 		t.Errorf("wall clock not kept in loc: %v", got)
 	}
 }
+
+func TestIsNumericType(t *testing.T) {
+	for _, s := range []string{"int", "BIGINT", "int unsigned", "decimal(10,2)", "numeric", "double precision", "float8", "int[]"} {
+		if !IsNumericType(s) {
+			t.Errorf("IsNumericType(%q) = false", s)
+		}
+	}
+	for _, s := range []string{"varchar(10)", "text", "timestamp", "boolean", "uuid", ""} {
+		if IsNumericType(s) {
+			t.Errorf("IsNumericType(%q) = true", s)
+		}
+	}
+}

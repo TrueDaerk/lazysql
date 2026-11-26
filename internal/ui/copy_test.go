@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -572,5 +573,83 @@ func TestSelectionKeysAreDocumented(t *testing.T) {
 	}
 	if !bar["ctrl+c"] {
 		t.Error("the options bar does not offer ctrl+c during selection mode")
+	}
+}
+
+func TestFormatValueList(t *testing.T) {
+	ts := time.Date(2026, 8, 2, 10, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		dataType string
+		values   []any
+		want     string
+	}{
+		{"integers", "int", []any{int64(1), int32(2), uint8(3)}, "1, 2, 3"},
+		{"floats", "double", []any{1.5, float32(2.25)}, "1.5, 2.25"},
+		{"decimal as string", "decimal(10,2)", []any{"12.50", "3"}, "12.50, 3"},
+		{"numeric as bytes", "numeric", []any{[]byte("1.5"), []byte("-2")}, "1.5, -2"},
+		{"unsigned int as string", "int unsigned", []any{"7"}, "7"},
+		{"numeric column with text", "numeric", []any{"NaN"}, `"NaN"`},
+		{"numeric string in text column", "varchar(10)", []any{"12"}, `"12"`},
+		{"booleans", "boolean", []any{true, false}, "true, false"},
+		{"null kept", "text", []any{"a", nil, "b"}, `"a", NULL, "b"`},
+		{"null in numeric", "int", []any{int64(1), nil}, "1, NULL"},
+		{"plain strings", "text", []any{"abc", "def"}, `"abc", "def"`},
+		{"quotes", "text", []any{"it's", `say "hi"`}, `"it's", "say \"hi\""`},
+		{"backslash", "text", []any{`a\b`}, `"a\\b"`},
+		{"control characters", "text", []any{"a\nb\r\tc"}, `"a\nb\r\tc"`},
+		{"datetime", "datetime", []any{ts}, `"2026-08-02T10:30:00Z"`},
+		{"duplicates and order", "int", []any{int64(3), int64(1), int64(3)}, "3, 1, 3"},
+		{"single value", "int", []any{int64(9)}, "9"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatValueList(tc.values, tc.dataType)
+			if got != tc.want {
+				t.Errorf("got %s, want %s", got, tc.want)
+			}
+			if strings.Contains(got, "\n") {
+				t.Errorf("output spans lines: %q", got)
+			}
+		})
+	}
+}
+
+// Multi-row selection and the no-selection single row both reach the
+// clipboard as one line without a trailing newline.
+func TestCopyColumnList(t *testing.T) {
+	got := fakeClipboard(t)
+	// Cursor on "status": row 0 'new', row 1 NULL, row 2 quoted.
+	m := send(t, copyBrowsing(t), press('l'), press('l'),
+		ctrlKey('v'), press('j'), press('j'), ctrlKey('c'), press('l'))
+	if want := `"new", NULL, "a,b \"c\""`; *got != want {
+		t.Errorf("selection list = %q, want %q", *got, want)
+	}
+	if !logContains(m, "orders.status of 3 rows as list") {
+		t.Fatalf("command log = %v", m.commandLog)
+	}
+
+	// Without a selection: the cursor row only, on the id column.
+	send(t, copyBrowsing(t), press('y'), press('l'))
+	if want := "1"; *got != want {
+		t.Errorf("single-row list = %q, want %q", *got, want)
+	}
+
+	// The sibling entry is untouched.
+	send(t, copyBrowsing(t), press('l'), press('l'),
+		ctrlKey('v'), press('j'), press('j'), ctrlKey('c'), press('c'))
+	if want := "new\n\na,b \"c\"\n"; *got != want {
+		t.Errorf("column values = %q, want %q", *got, want)
+	}
+}
+
+func TestCopyMenuOffersColumnList(t *testing.T) {
+	m := send(t, copyBrowsing(t), press('y'))
+	if !hasLabel(menuLabels(t, m), "l column values as list") {
+		t.Errorf("no selection: %v", menuLabels(t, m))
+	}
+	m = send(t, copyBrowsing(t), ctrlKey('v'), press('j'), ctrlKey('c'))
+	if !hasLabel(menuLabels(t, m), "l column values as list") {
+		t.Errorf("selection: %v", menuLabels(t, m))
 	}
 }

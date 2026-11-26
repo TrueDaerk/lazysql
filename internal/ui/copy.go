@@ -3,6 +3,9 @@ package ui
 import (
 	"context"
 	"fmt"
+	"math"
+	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +91,7 @@ func (m *Model) copyMenu() tea.Cmd {
 		// every selected row, one per line — a list of ids to paste into
 		// the next query.
 		add("c", "column values of selection — "+m.cursorColumnLabel(), actCopySelectionColumn)
+		add("l", "column values as list — "+m.cursorColumnLabel(), actCopySelectionColumnList)
 	}
 	// Lowercase is the row scope, uppercase the table scope. `j` and `k`
 	// are not available here: the menu itself moves with them.
@@ -100,6 +104,7 @@ func (m *Model) copyMenu() tea.Cmd {
 		if m.grid.data.browsing() {
 			add("i", "row — INSERT statement", actCopyRowInsert)
 		}
+		add("l", "column values as list — "+m.cursorColumnLabel(), actCopySelectionColumnList)
 	}
 	// The table scopes re-read the relation through the server; a query
 	// result has no relation behind it, only the rows already on screen,
@@ -232,6 +237,75 @@ func copyColumnValues(subject, name string, values []any) tea.Cmd {
 		label += fmt.Sprintf(" (%d NULL → empty)", nulls)
 	}
 	return copyTextCmd(label, fmt.Sprintf("%s-%s-selection.txt", subject, name), b.String())
+}
+
+// copyColumnList copies one column's value in every given row as a
+// single-line, comma-separated list. dataType is the column's declared
+// type, which decides whether a string or byte value is a number.
+func copyColumnList(subject, name, dataType string, values []any) tea.Cmd {
+	text := formatValueList(values, dataType)
+	label := fmt.Sprintf("%s.%s of %d rows as list", subject, name, len(values))
+	return copyTextCmd(label, fmt.Sprintf("%s-%s-list.txt", subject, name), text)
+}
+
+// formatValueList joins the values with ", ": numbers, booleans and NULL
+// bare, everything else double-quoted.
+func formatValueList(values []any, dataType string) string {
+	numeric := db.IsNumericType(dataType)
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = formatListValue(v, numeric)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// formatListValue renders one value for a list: bare when the Go value
+// (or, for strings and bytes, the numeric column type) says number,
+// boolean or NULL, otherwise double-quoted with escapes.
+func formatListValue(v any, numericColumn bool) string {
+	switch x := v.(type) {
+	case nil:
+		return "NULL"
+	case bool:
+		return strconv.FormatBool(x)
+	case string:
+		if numericColumn && looksNumeric(x) {
+			return x
+		}
+	case []byte:
+		if numericColumn && looksNumeric(string(x)) {
+			return string(x)
+		}
+	case time.Time:
+	default:
+		switch reflect.ValueOf(v).Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+			return db.FormatValue(v, "")
+		case reflect.Float32, reflect.Float64:
+			if f := reflect.ValueOf(v).Float(); !math.IsNaN(f) && !math.IsInf(f, 0) {
+				return db.FormatValue(v, "")
+			}
+		}
+	}
+	return quoteListString(db.FormatValue(v, ""))
+}
+
+// looksNumeric reports whether s is a plain decimal or exponent number,
+// so a numeric column holding text such as NaN is still quoted.
+func looksNumeric(s string) bool {
+	if s == "" || strings.Trim(s, "0123456789+-.eE") != "" {
+		return false
+	}
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
+}
+
+// quoteListString wraps s in double quotes, escaping backslash, quote and
+// the control characters that would break the single line.
+func quoteListString(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`)
+	return `"` + r.Replace(s) + `"`
 }
 
 // cutColumns narrows every row to the given column indices, which is what
@@ -370,6 +444,30 @@ func (m Model) copySelectionColumn() tea.Cmd {
 		values = append(values, r[0])
 	}
 	return copyColumnValues(m.dataSubject(), m.grid.data.cols[col].Name, values)
+}
+
+// copySelectionColumnList copies the cursor column's value in every
+// selected row — or in the cursor row with no selection — as a list.
+func (m Model) copySelectionColumnList() tea.Cmd {
+	col := m.grid.data.col
+	if col < 0 || col >= len(m.grid.data.cols) {
+		return logCmd("-- copy column list skipped: no column under the cursor")
+	}
+	rows := m.selectionValues()
+	if len(m.grid.data.selectedRows()) == 0 && m.copyableRow() {
+		if values, ok := m.rowValues(m.grid.data.row); ok {
+			rows = [][]any{values}
+		}
+	}
+	if len(rows) == 0 {
+		return logCmd("-- copy column list skipped: no row under the cursor")
+	}
+	values := make([]any, 0, len(rows))
+	for _, r := range cutColumns(rows, []int{col}) {
+		values = append(values, r[0])
+	}
+	c := m.grid.data.cols[col]
+	return copyColumnList(m.dataSubject(), c.Name, c.DataType, values)
 }
 
 // dataSubject names what the Data tab is showing, for log lines, copy
@@ -574,6 +672,8 @@ func (m Model) copyActions(id actionID) (Model, tea.Cmd, bool) {
 		return m, m.copySelectionRows(export.FormatSQL), true
 	case actCopySelectionColumn:
 		return m, m.copySelectionColumn(), true
+	case actCopySelectionColumnList:
+		return m, m.copySelectionColumnList(), true
 
 	// The file export shares this dispatcher: it is the same feature
 	// seen from the other end, and `E` is offered next to `y`.

@@ -16,6 +16,7 @@ and what is selected.
 | `r` | row — CSV line |
 | `o` | row — JSON object |
 | `i` | row — `INSERT` statement |
+| `l` | the cursor column's value in the cursor row, as a one-line list |
 | `C` | table — CSV |
 | `O` | table — JSON array |
 | `I` | table — `INSERT` statements |
@@ -31,9 +32,15 @@ their keys:
 | `o` | *N* selected rows — JSON array |
 | `i` | *N* selected rows — `INSERT` statements |
 | `c` | the cursor column's value in every selected row, one per line |
+| `l` | the cursor column's value in every selected row, as a one-line list |
 
-That last one is the scope only a selection has — a list of ids to paste into
-the next query.
+`c` is the scope only a selection has — a list of ids to paste into the next
+query. `l` puts the same values on one line, joined by `, `, ready for an
+`IN (…)` list or an array literal. Numbers, booleans and `NULL` are written
+bare; everything else is wrapped in double quotes, with `\`, `"`, newline,
+carriage return and tab escaped (`"say \"hi\""`). Duplicates are kept and
+the row order is preserved. The list works the same on a query result and on
+the server activity report.
 
 With a [column block](editing-data.md#narrowing-to-a-block-of-columns) up, the
 entries say so (`3 selected rows × 2 columns`) and carry only those columns:

@@ -2209,3 +2209,9 @@ Chronological history of wiki changes, newest last.
 - Updated [design/command-log-panel](design/command-log-panel.md): driver
   lines as a third kind of log line, their connection attribution and
   the repeat counter.
+
+## 2026-11-26 — Copy column values as a list (issue #250)
+
+- Updated [design/copy-and-export](design/copy-and-export.md): the `l` copy
+  entry, its per-value formatting and quoting rules, and why numeric
+  columns use their own `db.IsNumericType` check.

@@ -190,6 +190,25 @@ nothing. That is the
 [design/keybindings-single-source](keybindings-single-source.md) rule
 applied to a conditional action.
 
+### The column list: one line, typed by the Go value
+
+`l` (`actCopySelectionColumnList`) copies the cursor column of the selected
+rows — or of the cursor row with no selection — as one line joined by
+`, `, for pasting into an `IN (…)` or an array literal. Formatting is decided
+per value by the Go value the driver returned, not by the displayed text:
+integers, finite floats and bools are bare, NULL is a bare `NULL` (kept, not
+skipped), everything else is the text `db.FormatValue` gives, in double
+quotes. Inside quotes `\` → `\\`, `"` → `\"`, newline/CR/tab → `\n`/`\r`/`\t`;
+a single quote stays as is. This is deliberately not `db.QuoteLiteral`: the
+format is dialect-independent.
+
+Drivers hand `DECIMAL`/`NUMERIC` over as strings or bytes, so for those the
+column's declared type (`db.IsNumericType`) also counts — but only when the
+text parses as a plain number, so `NaN` in a numeric column is still quoted.
+`IsNumericType` is separate from `ClassifyType` because `TypeKind.Temporal()`
+treats every non-zero kind as a date/time. Duplicates are kept, rows stay in
+order, and there is no trailing newline. The existing `c` entry is unchanged.
+
 ### Menu keys avoid `j` and `k`
 
 The copy menu is a `menuModal`, which moves its own cursor with `j`/`k`.

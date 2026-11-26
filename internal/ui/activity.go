@@ -1108,10 +1108,12 @@ func (m *Model) activityCopyMenu() tea.Cmd {
 		add("r", scope+" — CSV", actCopySelectionCSV)
 		add("o", scope+" — JSON array", actCopySelectionJSON)
 		add("c", "column values of selection — "+v.grid.header(v.grid.col), actCopySelectionColumn)
+		add("l", "column values as list — "+v.grid.header(v.grid.col), actCopySelectionColumnList)
 	} else {
 		add("c", "cell — raw value", actCopyCell)
 		add("r", "row — CSV line", actCopyRowCSV)
 		add("o", "row — JSON object", actCopyRowJSON)
+		add("l", "column values as list — "+v.grid.header(v.grid.col), actCopySelectionColumnList)
 	}
 	add("C", "session list — CSV", actCopyPageCSV)
 	add("O", "session list — JSON array", actCopyPageJSON)
@@ -1179,6 +1181,24 @@ func (m Model) activityCopy(id actionID) (tea.Cmd, bool) {
 			values = append(values, r[0])
 		}
 		return copyColumnValues(activitySubject, cols[v.grid.col].Name, values), true
+
+	case actCopySelectionColumnList:
+		rows, _, ok := m.activitySelectionValues()
+		if !ok {
+			p, sok := v.selected()
+			if !sok {
+				return logCmd("-- copy column list skipped: no session under the cursor"), true
+			}
+			rows = [][]any{activityValues(p)}
+		}
+		if v.grid.col < 0 || v.grid.col >= len(cols) {
+			return logCmd("-- copy column list skipped: no column under the cursor"), true
+		}
+		values := make([]any, 0, len(rows))
+		for _, r := range cutColumns(rows, []int{v.grid.col}) {
+			values = append(values, r[0])
+		}
+		return copyColumnList(activitySubject, cols[v.grid.col].Name, cols[v.grid.col].DataType, values), true
 
 	case actCopyPageCSV, actCopyPageJSON:
 		if len(v.rows) == 0 {

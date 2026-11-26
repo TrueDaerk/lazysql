@@ -1008,6 +1008,7 @@ const (
 	actCopySelectionJSON
 	actCopySelectionInsert
 	actCopySelectionColumn
+	actCopySelectionColumnList
 	actExportTable
 	actExportDDL
 	actCancelExport
